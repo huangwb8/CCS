@@ -15,6 +15,9 @@ ccs(
   seed = 489,
   min.nc = 2,
   max.nc = 10,
+  dimension = c(2, 2),
+  perplexity = 30,
+  theta = 0.3,
   model.dir = "./ccs/project_01",
   verbose = T,
   numCores = 4
@@ -30,6 +33,18 @@ ccs(
 \item{geneid}{type of gene id in \code{X}. One of \code{'symbol'}, \code{'entrez'} and \code{'ensembl'}.}
 
 \item{params}{parameters like X function}
+
+\item{seed}{Seeds for \code{\link[Rtsne]{Rtsne}} function.}
+
+\item{min.nc}{min No. of cluster}
+
+\item{max.nc}{max No. of cluster}
+
+\item{dimension}{the hyperparameters for 2 level t-SNE.}
+
+\item{perplexity}{numeric; Perplexity parameter (should not be bigger than 3 * perplexity < nrow(X) - 1, see details for interpretation)}
+
+\item{theta}{numeric; Speed/accuracy trade-off (increase for less accuracy), set to 0.0 for exact TSNE (default: 0.5)}
 
 \item{model.dir}{a character. the path of model series.}
 

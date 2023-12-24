@@ -1,5 +1,7 @@
 
 #' @description An adjusted version of NbClust::NbClust
+#' @param min.nc min No. of cluster
+#' @param max.nc max No. of cluster
 #' @seealso \link{https://sites.google.com/site/malikacharrad/research/nbclust-package}
 #' @author Weibin Huang<\email{hwb2012@@qq.com}>
 NbClust2 <- function(

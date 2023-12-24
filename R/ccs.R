@@ -1,64 +1,44 @@
 
+#' @import ggplot2
+#' @author Weibin Huang<\email{654751191@@qq.com}>
+setOldClass(c("gg","ggplot"))
 
-#' @description OneModel-OneData CSS process
-#' @param data1 a list containing an expression matrix and its subtype vector
-#' @param path_model1 the path of a (GSClassifier) model
-#' @importFrom GSClassifier parCallEnsemble
-#' @return a data frame with sample IDS and the softmax probability.
-#' @author Weibin Huang<\email{hwb2012@@qq.com}>
-oneCCSProbability <- function(data1, path_model1){
-
-  # Test
-  if(F){
-    data1 = data[[1]][[1]]
-    path_model1 = "./ccs/test01/cohort.1.1/modelFit.rds"
-  }
-
-  # Call probability score
-  modelFit <- readRDS(path_model1)
-  res <- parCallEnsemble(
-    X = data1$expr,
-    ens = modelFit$Model,
-    geneAnnotation = geneAnnotation,
-    geneSet = geneSet,
-    geneid = geneid,
-    scaller = NULL,
-    subtype = NULL,
-    numCores = numCores
-  )
-
-  # Output
-  res <- as.data.frame(
-    cbind(
-      SampleIDs = as.character(res[,'SampleIDs']),
-      t(apply(res[-c(1,2,3)], 1, softmax))
-    )
-  )
-
-  # return(res[,-match(c("BestCall","BestCall_Max"), colnames(res))])
-  return(res)
-
-}
-
-
-#' @description convert an expression data for t-SNE
-#' @param res2 The output of \code{\link{oneCCSProbability}}
-#' @inheritParams GSClassifier::parCallEnsemble
-#' @importFrom digest digest
-#' @return a list with raw/cleaned data or md5 sum.
-#' @author Weibin Huang<\email{hwb2012@@qq.com}>
-data_for_tSNE <- function(res2,verbose){
-
-  res2_md5 <- apply(res2, 1, function(x)digest(x, algo="md5"))
-  s <- !duplicated(res2_md5)
-  if(verbose){
-    LuckyVerbose('No. of Duplicati sample = ',sum(!s),'. Remove them!')
-  }
-  return(list(
-    raw = list(md5=res2_md5, data=res2),
-    cleaned = list(md5=res2_md5[s], data=res2[s,])
-  ))
-}
+#' @name CCS-class
+#' @title CCS-class
+#' @docType class
+#' @description CCS class
+#' @slot Repeat The data for repeatability
+#' @slot Data Data about CCS probability and CCS subtypes
+#' @slot Plot a ggplot plot for CCS subtype visualization
+#' @import ggplot2
+#' @author Weibin Huang<\email{654751191@@qq.com}>
+#' @exportClass CCS
+#' @keywords classes
+setClass("CCS",
+         slots = c(
+           Repeat="list",
+           Data="list",
+           Plot="gg"
+         ),
+         prototype = list(
+           Repeat = list(
+             data = list(),
+             geneSet = list(),
+             geneAnnotation = data.frame(),
+             geneid = character(),
+             params = list(),
+             seed = numeric(),
+             min.nc = numeric(),
+             max.nc= numeric(),
+             model.dir = character()
+           ),
+           Data=list(
+             Probability = list(),
+             CCS = integer()
+           ),
+           Plot = ggplot()
+         )
+)
 
 
 #' @title Cohort Congress System
@@ -66,8 +46,12 @@ data_for_tSNE <- function(res2,verbose){
 #' @param data a list with components (expression matrix + subtype vector)
 #' @param model.dir a character. the path of model series.
 #' @param params parameters like X function
+#' @param dimension the hyperparameters for 2 level t-SNE.
+#'
 #' @inheritParams GSClassifier::parCallEnsemble
-#' @importFrom luckyBase LuckyVerbose
+#' @inheritParams drCCSProbability
+#' @inheritParams NbClust2
+#' @importFrom luckyBase LuckyVerbose is.one.true Fastextra
 #' @importFrom Rtsne Rtsne
 #' @import ggplot2
 #' @import GSClassifier
@@ -108,6 +92,9 @@ ccs <- function(
     seed = 489,
     min.nc = 2,
     max.nc= 10,
+    dimension = c(2,2),
+    perplexity = 30,
+    theta = 0.3,
     model.dir = './ccs/project_01',
     verbose = T,
     numCores = 4
@@ -154,12 +141,13 @@ ccs <- function(
     geneSet <- PADi$geneSet
     geneAnnotation <- PADi$geneAnnotation
     geneid <- "ensembl"
-    model.dir = './ccs/test01'
+    model.dir = './test/ccs/project_01'
     numCores = 6
     seed = 489
     verbose = T
     min.nc = 2
     max.nc= 10
+    dimension = c(2,2)
 
     # Model parameters
     params <- list(
@@ -198,6 +186,13 @@ ccs <- function(
 
   }
 
+  # Data name check
+  data_allName <- c(names(data), as.character(unlist(lapply(data, names))))
+  check <- is.one.true(grepl('[|]', data_allName))
+  if(check){
+    stop("Character '|' is used in your data names, which is not allowed. Stop ccs! Σ(°△ °|||)︴")
+  }
+
   # Grobal seeds
   set.seed(seed); seeds <- sample(1:10000, 20, replace = T)
   dir.create(model.dir, showWarnings = F, recursive = T)
@@ -209,17 +204,19 @@ ccs <- function(
   # Model
   for(i in 1:length(data)){ # i=1
 
-    data.i <- data[[i]]
+    data.i <- data[[i]]; cancer_type.i <- names(data)[i]
 
     for(j in 1:length(data.i)){ # j=1
 
-      data.i.j <- data.i[[j]]
+      data.i.j <- data.i[[j]];
 
-      project <- names(data.i)[j]
+      cohort.j <- names(data.i)[j]
 
-      LuckyVerbose('New project: ', project)
+      project <- paste0(cancer_type.i, ' - ' ,cohort.j)
 
-      path_child <- paste0(model.dir,'/', project)
+      if(verbose) LuckyVerbose('New project: ', project)
+
+      path_child <- paste0(model.dir,'/',cancer_type.i, '/' ,cohort.j)
       dir.create(path_child, showWarnings = F, recursive = T)
 
       # fit
@@ -244,7 +241,7 @@ ccs <- function(
         )
         saveRDS(modelFit, path_fit)
       } else {
-        LuckyVerbose(project, ': modelFit exists. Ignored!')
+        if(verbose) LuckyVerbose(project, ': modelFit exists. Ignored!')
         modelFit <- readRDS(path_fit)
       }
 
@@ -254,48 +251,69 @@ ccs <- function(
 
   # Cohort-based probability
   path_models <- list.files(path = model.dir, pattern = 'modelFit.rds$', full.names = T, recursive = T)
-  res <- data.frame()
-  for(i in 1:length(path_models)){ # i=1
-    path_model1 <- path_models[i]
-    name_model1 <- rev(Fastextra(path_model1, '[/]'))[2]
-    # a <- lapply(data_test, function(x) lapply(x, function(y) css_one(y, path_model1)))
-    a <- lapply(data, function(x) lapply(x, function(y) oneCCSProbability(y, path_model1)))
-    a2 <- do.call("rbind", do.call("rbind", a))
-    colnames(a2)[2:ncol(a2)] <- paste(name_model1, colnames(a2)[2:ncol(a2)], sep = '_')
-    if(i==1){
-      res <- a2
-    } else {
-      res <- cbind(res, a2[,-1])
+  path_resCBP <- paste0(model.dir, '/Cohort-based probability.rds')
+  if(!file.exists(path_resCBP)){
+    res <- data.frame()
+    for(i in 1:length(path_models)){ # i=1
+      path_model1 <- path_models[i]
+      name_model1 <- rev(Fastextra(path_model1, '[/]'))
+      cohort_model1 <- name_model1[2]; cancertype_model1 <- name_model1[3]
+      a <- lapply(data, function(x) lapply(x, function(y) oneCCSProbability(y, path_model1)))
+      a2 <- do.call("rbind", do.call("rbind", a))
+      # a2 <- res[c(1:5)]; colnames(a2)[2:5] <- 1:4
+      colnames(a2)[2:ncol(a2)] <- paste(cancertype_model1, cohort_model1,  colnames(a2)[2:ncol(a2)], sep = '|')
+      if(i==1){
+        res <- a2
+      } else {
+        res <- cbind(res, a2[,-1])
+      }
+
     }
-
+    saveRDS(res, path_resCBP)
+  } else {
+    if(verbose) LuckyVerbose('The result of Cohort-based probability exists. Use it!')
+    res <- readRDS(path_resCBP)
   }
-  saveRDS(res, paste0(model.dir, '/Cohort-based probability.rds'))
-  # res <- readRDS(paste0(model.dir, '/Cohort-based probability.rds'))
   res2 <- res[,-1]; res2 <- matrix(as.numeric(as.matrix(res2)), nrow = nrow(res2), byrow = F, dimnames = list(rownames(res2), colnames(res2)))
+  d1 <- data_for_tSNE(res2, verbose);
 
 
-  # Dimensionality reduction
-  d1 <- data_for_tSNE(res2, verbose)
-  set.seed(seeds[4])
-  tsne_result <- Rtsne(
-    # scale(d1$cleaned$data, center = T, scale = T),
-    d1$cleaned$data,
-    dims = 2, perplexity = 30, theta = 0,
+  # Dimensionality reduction - Level 1
+  d2 <- d1$cleaned$data
+  reference <- Fastextra(colnames(d2), '[|]', 1)
+  d3 <- drCCSProbability(
+    d2,
+    reference = reference,
+    dims = dimension[1],
+    perplexity = perplexity,
+    theta = theta,
+    seed = seeds[4],
     verbose = verbose
   )
-  tsne_data <- as.data.frame(tsne_result$Y)
-  colnames(tsne_data) <- c("Dimension 1", "Dimension 2")
-  p <- ggplot(tsne_data, aes(x = `Dimension 1`, y = `Dimension 2`)) +
+
+  # Dimensionality reduction - Level 2
+  d4 <- drCCSProbability(
+    d3,
+    reference = NULL,
+    dims = dimension[2],
+    perplexity = perplexity,
+    theta = theta,
+    seed = seeds[5],
+    verbose = verbose
+  )
+
+  # Plot
+  p <- ggplot(d4, aes(x = `all|D1`, y = `all|D2`)) +
     geom_point() +
     ggtitle("t-SNE Visualization")
   # win.graph(); print(p)
 
 
   # CCS subtypes
-  if(nrow(tsne_data) > 500){
+  if(nrow(d4) > 500){
     set.seed(178);
     numComplete <- NbClust2(
-      data = tsne_data[sample(1:nrow(tsne_data), 500),],
+      data = d4[sample(1:nrow(d4), 500),],
       distance = "euclidean",
       min.nc = min.nc,
       max.nc= max.nc,
@@ -303,12 +321,12 @@ ccs <- function(
       index = "all",
       verbose = verbose
     )
-    dis <- dist(tsne_data, method = "euclidean")
+    dis <- dist(d4, method = "euclidean")
     hc <- hclust(dis, method =  "ward.D2")
     y2 <- cutree(hc, length(unique(numComplete$Best.partition)))
   } else {
     numComplete <- NbClust2(
-      data = tsne_data,
+      data = d4,
       distance = "euclidean",
       min.nc = min.nc,
       max.nc= max.nc,
@@ -323,10 +341,35 @@ ccs <- function(
   for(i in 1:length(index)){
     y3 <- c(y3, y2[index[i]])
   }
-
+  names(y3) <- as.character(res$SampleIDs)
 
   # Output
-  l <- list(
+  # l <- list(
+  #   Repeat = list(
+  #     data = data,
+  #     geneSet = geneSet,
+  #     geneAnnotation = geneAnnotation,
+  #     geneid = geneid,
+  #     params = params,
+  #     seed = seed,
+  #     min.nc = min.nc,
+  #     max.nc= max.nc,
+  #     model.dir = model.dir
+  #   ),
+  #   Data = list(
+  #     Probability = list(
+  #       raw = res,
+  #       d2 = d3,
+  #       d3 = d4
+  #     ),
+  #     CCS = y3
+  #   ),
+  #   Plot = p
+  # )
+
+  # Make a new Animal object
+  l <- new(
+    'CCS',
     Repeat = list(
       data = data,
       geneSet = geneSet,
@@ -339,10 +382,15 @@ ccs <- function(
       model.dir = model.dir
     ),
     Data = list(
-      Probability = res,
+      Probability = list(
+        raw = res,
+        d2 = d3,
+        d3 = d4
+      ),
       CCS = y3
     ),
     Plot = p
   )
+  if(verbose) LuckyVerbose('All done!')
   return(l)
 }
