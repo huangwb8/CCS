@@ -13,13 +13,14 @@ ccs(
     10, colsample_bytree = 1, min_child_weight = 1, subsample = 0.7, n = 100, sampSize =
     0.7, ptail = 0.2),
   seed = 489,
+  random.cluster = TRUE,
   min.nc = 2,
   max.nc = 10,
   dimension = c(2, 2),
   perplexity = 30,
   theta = 0.3,
   model.dir = "./ccs/project_01",
-  verbose = T,
+  verbose = TRUE,
   numCores = 4
 )
 }
@@ -35,6 +36,8 @@ ccs(
 \item{params}{parameters like X function}
 
 \item{seed}{Seeds for \code{\link[Rtsne]{Rtsne}} function.}
+
+\item{random.cluster}{Whether to use random samples to decide the best subtype number. Default is \code{TRUE}, which is faster but more vague comparing with \code{FALSE} when \code{data} contains lots of samples (>10000, for example).}
 
 \item{min.nc}{min No. of cluster}
 

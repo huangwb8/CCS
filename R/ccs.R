@@ -22,7 +22,6 @@ setClass("CCS",
          ),
          prototype = list(
            Repeat = list(
-             data = list(),
              geneSet = list(),
              geneAnnotation = data.frame(),
              geneid = character(),
@@ -34,8 +33,7 @@ setClass("CCS",
            ),
            Data = list(
              Probability = list(),
-             CCS = integer(),
-             scaller = list()
+             CCS = integer()
            ),
            Plot = ggplot()
          )
@@ -48,7 +46,7 @@ setClass("CCS",
 #' @param model.dir a character. the path of model series.
 #' @param params parameters like X function
 #' @param dimension the hyperparameters for 2 level t-SNE.
-#'
+#' @param random.cluster Whether to use random samples to decide the best subtype number. Default is \code{TRUE}, which is faster but more vague comparing with \code{FALSE} when \code{data} contains lots of samples (>10000, for example).
 #' @inheritParams GSClassifier::parCallEnsemble
 #' @inheritParams drCCSProbability
 #' @inheritParams NbClust2
@@ -92,13 +90,14 @@ ccs <- function(
       ptail = 0.2
     ),
     seed = 489,
+    random.cluster = TRUE,
     min.nc = 2,
     max.nc= 10,
     dimension = c(2,2),
     perplexity = 30,
     theta = 0.3,
     model.dir = './ccs/project_01',
-    verbose = T,
+    verbose = TRUE,
     numCores = 4
 ){
 
@@ -147,6 +146,7 @@ ccs <- function(
     numCores = 6
     seed = 489
     verbose = T
+    random.cluster = T
     min.nc = 2
     max.nc= 10
     dimension = c(2,2)
@@ -204,6 +204,7 @@ ccs <- function(
   # Parameters
   params_xg <- params[-match(c('n','sampSize','ptail'), names(params))]
   params_xg2 <- params_xg[-match(c('nfold','nrounds'), names(params_xg))]
+  path_ccs <- paste0(model.dir, "/resCCS.rds")
 
   # Model
   for(i in 1:length(data)){ # i=1
@@ -246,7 +247,6 @@ ccs <- function(
         saveRDS(modelFit, path_fit)
       } else {
         if(verbose) LuckyVerbose(project, ': modelFit exists. Ignored!')
-        modelFit <- readRDS(path_fit)
       }
 
     }
@@ -254,36 +254,39 @@ ccs <- function(
   }
 
   # Cohort-based probability
-  path_models <- list.files(path = model.dir, pattern = 'modelFit.rds$', full.names = T, recursive = T)
-  path_resCBP <- paste0(model.dir, '/Cohort-based probability.rds')
-  if(!file.exists(path_resCBP)){
-    res <- data.frame()
-    for(i in 1:length(path_models)){ # i=1
-      path_model1 <- path_models[i]
-      name_model1 <- rev(Fastextra(path_model1, '[/]'))
-      cohort_model1 <- name_model1[2]; cancertype_model1 <- name_model1[3]
-      a <- lapply(data, function(x) lapply(x, function(y) oneCCSProbability(y, path_model1)))
-      a2 <- do.call("rbind", do.call("rbind", a))
-      # a2 <- res[c(1:5)]; colnames(a2)[2:5] <- 1:4
-      colnames(a2)[2:ncol(a2)] <- paste(cancertype_model1, cohort_model1,  colnames(a2)[2:ncol(a2)], sep = '|')
-      if(i==1){
-        res <- a2
-      } else {
-        res <- cbind(res, a2[,-1])
+  if(T){
+    path_models <- list.files(path = model.dir, pattern = 'modelFit.rds$', full.names = T, recursive = T)
+    path_resCBP <- paste0(model.dir, '/Cohort-based probability.rds')
+    if(!file.exists(path_resCBP)){
+      res <- data.frame()
+      for(i in 1:length(path_models)){ # i=1
+        path_model1 <- path_models[i]
+        name_model1 <- rev(Fastextra(path_model1, '[/]'))
+        cohort_model1 <- name_model1[2]; cancertype_model1 <- name_model1[3]
+        a <- lapply(data, function(x) lapply(x, function(y) oneCCSProbability(y, path_model1)))
+        a2 <- do.call("rbind", do.call("rbind", a))
+        # a2 <- res[c(1:5)]; colnames(a2)[2:5] <- 1:4
+        colnames(a2)[2:ncol(a2)] <- paste(cancertype_model1, cohort_model1,  colnames(a2)[2:ncol(a2)], sep = '|')
+        if(i==1){
+          res <- a2
+        } else {
+          res <- cbind(res, a2[,-1])
+        }
+
       }
-
+      saveRDS(res, path_resCBP)
+    } else {
+      if(verbose) LuckyVerbose('The result of Cohort-based probability exists. Use it!')
+      res <- readRDS(path_resCBP)
     }
-    saveRDS(res, path_resCBP)
-  } else {
-    if(verbose) LuckyVerbose('The result of Cohort-based probability exists. Use it!')
-    res <- readRDS(path_resCBP)
+    res2 <- res[,-1]; res2 <- matrix(as.numeric(as.matrix(res2)), nrow = nrow(res2), byrow = F, dimnames = list(rownames(res2), colnames(res2)))
   }
-  res2 <- res[,-1]; res2 <- matrix(as.numeric(as.matrix(res2)), nrow = nrow(res2), byrow = F, dimnames = list(rownames(res2), colnames(res2)))
-  d1 <- data_for_tSNE(res2, verbose);
-
 
   # Dimensionality reduction
+  if(verbose) LuckyVerbose('Dimensionality reduction via t-SNE...')
   if(T){
+    d1 <- data_for_tSNE(res2, verbose);
+
     # Dimensionality reduction - Level 1
     d2 <- d1$cleaned$data
     reference <- Fastextra(colnames(d2), '[|]', 1)
@@ -309,13 +312,13 @@ ccs <- function(
     )
   }
 
-
   # CCS subtypes
+  if(verbose) LuckyVerbose('Figure out CCS subtypes...')
   if(T){
-    if(nrow(d4) > 500){
+    if(nrow(d4) > 1000 & random.cluster){
       set.seed(seeds[6]);
       numComplete <- NbClust2(
-        data = d4[sample(1:nrow(d4), 500),],
+        data = d4[sample(1:nrow(d4), 1000),],
         distance = "euclidean",
         min.nc = min.nc,
         max.nc= max.nc,
@@ -347,7 +350,6 @@ ccs <- function(
     names(y3) <- as.character(res$SampleIDs)
   }
 
-
   # Plot
   if(verbose) LuckyVerbose('Dimensionality reduction visulization via ggplot2...')
   if(T){
@@ -369,43 +371,44 @@ ccs <- function(
         strip.text = element_text(size = size/15*12,colour = "black",face = "bold")); # win.graph(10,10); print(p)
   }
 
-
   # Subtype Caller
   if(verbose) LuckyVerbose('Build subtype caller ...')
-  path_scaller <- paste0(model.dir, '/scaller.rds')
-  if(!file.exists(path_scaller)){
+  if(T){
+    path_scaller <- paste0(model.dir, '/scaller.rds')
+    if(!file.exists(path_scaller)){
 
-    nSubtype <- length(unique(y2))
-    dtrain <- xgb.DMatrix(d2, label = y2-1)
+      nSubtype <- length(unique(y2))
+      dtrain <- xgb.DMatrix(d2, label = y2-1)
 
-    # xgboost cv for best interation exploration
-    set.seed(seeds[7])
-    cvRes <- xgb.cv(
-      params = params_xg2,
-      data = dtrain,
-      nrounds=params_xg$nrounds,
-      nfold=params_xg$nfold,
-      num_class = nSubtype,
-      early_stopping_rounds=10,
-      objective = "multi:softmax",
-      verbose = 0
-    )
-    best_iteration <- cvRes$best_iteration
+      # xgboost cv for best interation exploration
+      set.seed(seeds[7])
+      cvRes <- xgb.cv(
+        params = params_xg2,
+        data = dtrain,
+        nrounds=params_xg$nrounds,
+        nfold=params_xg$nfold,
+        num_class = nSubtype,
+        early_stopping_rounds=10,
+        objective = "multi:softmax",
+        verbose = 0
+      )
+      best_iteration <- cvRes$best_iteration
 
-    # xgboost via best interation
-    set.seed(seeds[7])
-    scaller <- xgboost(
-      params = params_xg2,
-      data = dtrain,
-      nrounds = best_iteration,
-      num_class = nSubtype,
-      objective = "multi:softmax",
-      verbose = 0
-    )
-    saveRDS(scaller, path_scaller)
-  } else {
-    if(verbose) LuckyVerbose('The subtype caller exists. Use it!')
-    scaller <- readRDS(path_scaller)
+      # xgboost via best interation
+      set.seed(seeds[7])
+      scaller <- xgboost(
+        params = params_xg2,
+        data = dtrain,
+        nrounds = best_iteration,
+        num_class = nSubtype,
+        objective = "multi:softmax",
+        verbose = 0
+      )
+      saveRDS(scaller, path_scaller)
+    } else {
+      if(verbose) LuckyVerbose('The subtype caller exists. Use it!')
+      scaller <- readRDS(path_scaller)
+    }
   }
 
   # Output
@@ -436,7 +439,6 @@ ccs <- function(
   l <- new(
     'CCS',
     Repeat = list(
-      data = data,
       geneSet = geneSet,
       geneAnnotation = geneAnnotation,
       geneid = geneid,
@@ -448,15 +450,15 @@ ccs <- function(
     ),
     Data = list(
       Probability = list(
-        raw = res,
+        d1 = d1,
         d2 = d3,
         d3 = d4
       ),
-      CCS = y3,
-      scaller = scaller
+      CCS = y3
     ),
     Plot = p
   )
+  saveRDS(l, path_ccs)
   if(verbose) LuckyVerbose('All done!')
   return(l)
 }
@@ -501,7 +503,7 @@ predict.CCS <- function(
   geneAnnotation = object@Repeat$geneAnnotation
   geneSet = object@Repeat$geneSet
   geneid = object@Repeat$geneid
-  scaller = object@Data$scaller
+  scaller = readRDS(paste0(model.dir,'/scaller.rds'))
 
   # Expression matrix
   X <- GSClassifier:::rightX(X)
@@ -517,7 +519,7 @@ predict.CCS <- function(
     modelFit <- readRDS(path_models.i)
     name_model1 <- rev(Fastextra(path_models.i, '[/]'))
     cohort_model1 <- name_model1[2]; cancertype_model1 <- name_model1[3]
-    LuckyVerbose('Load model of ', cancertype_model1, ' - ', cohort_model1 ," cohort : ")
+    if(verbose) LuckyVerbose('Load model of ', cancertype_model1, ' - ', cohort_model1 ," cohort : ")
 
     # Call CCS probability
     if(nSample > 100){
@@ -529,7 +531,7 @@ predict.CCS <- function(
         geneid = geneid,
         scaller = NULL,
         subtype = NULL,
-        verbose = F,
+        verbose = verbose,
         numCores = numCores
       )
     } else {
@@ -541,7 +543,7 @@ predict.CCS <- function(
         geneid = geneid,
         scaller = NULL,
         subtype = NULL,
-        verbose = F
+        verbose = verbose
       )
     }
 
@@ -567,6 +569,7 @@ predict.CCS <- function(
       Prediction = X_CCS_Pred
     )
   )
+  if(verbose) LuckyVerbose('All done!')
   return(l)
 }
 
