@@ -412,30 +412,6 @@ ccs <- function(
   }
 
   # Output
-  # l <- list(
-  #   Repeat = list(
-  #     data = data,
-  #     geneSet = geneSet,
-  #     geneAnnotation = geneAnnotation,
-  #     geneid = geneid,
-  #     params = params,
-  #     seed = seed,
-  #     min.nc = min.nc,
-  #     max.nc= max.nc,
-  #     model.dir = model.dir
-  #   ),
-  #   Data = list(
-  #     Probability = list(
-  #       raw = res,
-  #       d2 = d3,
-  #       d3 = d4
-  #     ),
-  #     CCS = y3
-  #   ),
-  #   Plot = p
-  # )
-
-  # Make a new Animal object
   l <- new(
     'CCS',
     Repeat = list(
