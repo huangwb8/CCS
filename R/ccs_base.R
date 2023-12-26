@@ -4,11 +4,18 @@
 #' @importFrom GSClassifier parCallEnsemble
 #' @return a data frame with sample IDS and the softmax probability.
 #' @author Weibin Huang<\email{hwb2012@@qq.com}>
-oneCCSProbability <- function(data1, path_model1){
+oneCCSProbability <- function(
+    data1,
+    path_model1,
+    geneAnnotation,
+    geneSet,
+    geneid,
+    numCores
+){
 
   # Test
   if(F){
-    data1 = data[[1]][[1]]
+    data1 = data[[2]][[3]]
     path_model1 = "./ccs/test01/cohort.1.1/modelFit.rds"
   }
 

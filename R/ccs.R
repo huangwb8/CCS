@@ -221,7 +221,7 @@ ccs <- function(
 
       if(verbose) LuckyVerbose('New project: ', project)
 
-      path_child <- paste0(model.dir,'/',cancer_type.i, '/' ,cohort.j)
+      path_child <- paste0(model.dir,'/model/',cancer_type.i, '/' ,cohort.j)
       dir.create(path_child, showWarnings = F, recursive = T)
 
       # fit
@@ -260,13 +260,24 @@ ccs <- function(
     if(!file.exists(path_resCBP)){
       res <- data.frame()
       for(i in 1:length(path_models)){ # i=1
+
         path_model1 <- path_models[i]
         name_model1 <- rev(Fastextra(path_model1, '[/]'))
         cohort_model1 <- name_model1[2]; cancertype_model1 <- name_model1[3]
-        a <- lapply(data, function(x) lapply(x, function(y) oneCCSProbability(y, path_model1)))
-        a2 <- do.call("rbind", do.call("rbind", a))
-        # a2 <- res[c(1:5)]; colnames(a2)[2:5] <- 1:4
-        colnames(a2)[2:ncol(a2)] <- paste(cancertype_model1, cohort_model1,  colnames(a2)[2:ncol(a2)], sep = '|')
+        path_child <- paste0(model.dir,'/probability/',cancertype_model1, '/' , cohort_model1)
+        dir.create(path_child, recursive = T, showWarnings = F)
+        path_prob <- paste0(path_child,'/ccsProb.rds')
+
+        if(!file.exists(path_prob)){
+          a <- lapply(data, function(x) lapply(x, function(y) oneCCSProbability(y, path_model1, geneAnnotation, geneSet, geneid, numCores)))
+          a2 <- do.call("rbind", do.call("rbind", a))
+          colnames(a2)[2:ncol(a2)] <- paste(cancertype_model1, cohort_model1,  colnames(a2)[2:ncol(a2)], sep = '|')
+          saveRDS(a2, path_prob)
+        } else {
+          if(verbose) LuckyVerbose(cancer_type.i, '-' ,cohort.j, ': The result of ccsProb exists. Use it!')
+          a2 <- readRDS(path_prob)
+        }
+
         if(i==1){
           res <- a2
         } else {
