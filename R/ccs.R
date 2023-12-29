@@ -1,6 +1,6 @@
 
 #' @import ggplot2
-#' @author Weibin Huang<\email{654751191@@qq.com}>
+#' @author Weibin Huang<\email{hwb2012@@qq.com}>
 setOldClass(c("gg","ggplot"))
 
 #' @name CCS-class
@@ -11,7 +11,7 @@ setOldClass(c("gg","ggplot"))
 #' @slot Data Data about CCS probability and CCS subtypes
 #' @slot Plot a ggplot plot for CCS subtype visualization
 #' @import ggplot2
-#' @author Weibin Huang<\email{654751191@@qq.com}>
+#' @author Weibin Huang<\email{hwb2012@@qq.com}>
 #' @exportClass CCS
 #' @keywords classes
 setClass("CCS",
@@ -260,24 +260,28 @@ ccs <- function(
     if(!file.exists(path_resCBP)){
       res <- data.frame()
       for(i in 1:length(path_models)){ # i=1
-
         path_model1 <- path_models[i]
         name_model1 <- rev(Fastextra(path_model1, '[/]'))
         cohort_model1 <- name_model1[2]; cancertype_model1 <- name_model1[3]
         path_child <- paste0(model.dir,'/probability/',cancertype_model1, '/' , cohort_model1)
         dir.create(path_child, recursive = T, showWarnings = F)
         path_prob <- paste0(path_child,'/ccsProb.rds')
-
         if(!file.exists(path_prob)){
           a <- lapply(data, function(x) lapply(x, function(y) oneCCSProbability(y, path_model1, geneAnnotation, geneSet, geneid, numCores)))
-          a2 <- do.call("rbind", do.call("rbind", a))
+          a2 <- NULL
+          for(z in 1:length(a)){ # i=1
+            a2 <- rbind(a2, do.call("rbind", a[[z]]))
+          }
+          a2 <- a2[!duplicated(a2$SampleIDs),] # Remove duplicated data
           colnames(a2)[2:ncol(a2)] <- paste(cancertype_model1, cohort_model1,  colnames(a2)[2:ncol(a2)], sep = '|')
+          rownames(a2) <- as.character(a2$SampleIDs)
           saveRDS(a2, path_prob)
         } else {
           if(verbose) LuckyVerbose(cancer_type.i, '-' ,cohort.j, ': The result of ccsProb exists. Use it!')
           a2 <- readRDS(path_prob)
         }
 
+        # merge
         if(i==1){
           res <- a2
         } else {
@@ -290,26 +294,26 @@ ccs <- function(
       if(verbose) LuckyVerbose('The result of Cohort-based probability exists. Use it!')
       res <- readRDS(path_resCBP)
     }
-    res2 <- res[,-1]; res2 <- matrix(as.numeric(as.matrix(res2)), nrow = nrow(res2), byrow = F, dimnames = list(rownames(res2), colnames(res2)))
+    res2 <- res[,-1]; res2 <- matrix(as.numeric(as.matrix(res2)), nrow = nrow(res2), byrow = F, dimnames = list(as.character(res$SampleIDs), colnames(res2)))
   }
 
   # Dimensionality reduction
   if(verbose) LuckyVerbose('Dimensionality reduction via t-SNE...')
   if(T){
-    d1 <- data_for_tSNE(res2, verbose);
+    # d1 <- data_for_tSNE(res2, rm.dup.col = F, verbose = verbose);
 
     # Dimensionality reduction - Level 1
-    d2 <- d1$cleaned$data
-    reference <- Fastextra(colnames(d2), '[|]', 1)
+    # d2 <- d1$cleaned$data
+    reference <- Fastextra(colnames(res2), '[|]', 1)
     d3 <- drCCSProbability(
-      d2,
+      res2,
       reference = reference,
       dims = dimension[1],
       perplexity = perplexity,
       theta = theta,
       seed = seeds[4],
       verbose = verbose
-    )
+    ) # ; mymusic()
 
     # Dimensionality reduction - Level 2
     d4 <- drCCSProbability(
@@ -353,18 +357,12 @@ ccs <- function(
       )
       y2 <- numComplete$Best.partition
     }
-    index <- match(d1$raw$md5, d1$cleaned$md5)
-    y3 <- NULL
-    for(i in 1:length(index)){
-      y3 <- c(y3, y2[index[i]])
-    }
-    names(y3) <- as.character(res$SampleIDs)
   }
 
   # Plot
   if(verbose) LuckyVerbose('Dimensionality reduction visulization via ggplot2...')
   if(T){
-    dat_plot <- cbind(d4, CCS = paste('CCS',y2,sep = ''))
+    dat_plot <- cbind(as.data.frame(d4), CCS = paste('CCS',y2,sep = ''))
     size = 15 # plot size
     p <- ggplot(dat_plot, aes(x = `all|D1`, y = `all|D2`, color = CCS)) +
       geom_point() +
@@ -389,7 +387,7 @@ ccs <- function(
     if(!file.exists(path_scaller)){
 
       nSubtype <- length(unique(y2))
-      dtrain <- xgb.DMatrix(d2, label = y2-1)
+      dtrain <- xgb.DMatrix(res2, label = y2-1)
 
       # xgboost cv for best interation exploration
       set.seed(seeds[7])
@@ -437,11 +435,11 @@ ccs <- function(
     ),
     Data = list(
       Probability = list(
-        d1 = d1,
+        d1 = res2,
         d2 = d3,
         d3 = d4
       ),
-      CCS = y3
+      CCS = y2
     ),
     Plot = p
   )

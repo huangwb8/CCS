@@ -18,6 +18,6 @@ CCS class
 }}
 
 \author{
-Weibin Huang<\email{654751191@qq.com}>
+Weibin Huang<\email{hwb2012@qq.com}>
 }
 \keyword{classes}
