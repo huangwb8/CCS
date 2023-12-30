@@ -27,8 +27,7 @@ setClass("CCS",
              geneid = character(),
              params = list(),
              seed = numeric(),
-             min.nc = numeric(),
-             max.nc= numeric(),
+             params.NbClust = list(),
              model.dir = character()
            ),
            Data = list(
@@ -44,12 +43,18 @@ setClass("CCS",
 #' @description Cohort Congress System
 #' @param data a list with components (expression matrix + subtype vector)
 #' @param model.dir a character. the path of model series.
-#' @param params parameters like X function
+#' @param params parameters of \code{\link[xgboost]{xgb.cv}}, \code{\link[xgboost]{xgboost}}, and \code{\link[GSClassifier]{fitEnsembleModel}}.
 #' @param dimension the hyperparameters for 2 level t-SNE.
 #' @param random.cluster Whether to use random samples to decide the best subtype number. Default is \code{TRUE}, which is faster but more vague comparing with \code{FALSE} when \code{data} contains lots of samples (>10000, for example).
+#' @param params.NbClust Parameters of \code{CCS:::NbClust2}. Possible options are:
+#' \itemize{
+#'   \item \code{distance} the distance measure to be used to compute the dissimilarity matrix. This must be one of: "euclidean", "maximum", "manhattan", "canberra", "binary", "minkowski" or "NULL". By default, distance="euclidean". If the distance is "NULL", the dissimilarity matrix (diss) should be given by the user. If distance is not "NULL", the dissimilarity matrix should be "NULL".
+#'   \item \code{method} the cluster analysis method to be used. This should be one of: "ward.D", "ward.D2", "single", "complete", "average", "mcquitty", "median", "centroid", "kmeans".
+#'   \item \code{index} the index to be calculated. This should be one of : "kl", "ch", "hartigan", "ccc", "scott", "marriot", "trcovw", "tracew", "friedman", "rubin", "cindex", "db", "silhouette", "duda", "pseudot2", "beale", "ratkowsky", "ball", "ptbiserial", "gap", "frey", "mcclain", "gamma", "gplus", "tau", "dunn", "hubert", "sdindex", "dindex", "sdbw", "all" (all indices except GAP, Gamma, Gplus and Tau), "alllong" (all indices with Gap, Gamma, Gplus and Tau included). Cory's recommendation: one of "ch", "duda", "cindex", "gamma", "beale", "gap", and "all".
+#'  \item \code{min.nc} minimal number of clusters, between 1 and (number of objects - 1)
+#' }
 #' @inheritParams GSClassifier::parCallEnsemble
 #' @inheritParams drCCSProbability
-#' @inheritParams NbClust2
 #' @importFrom luckyBase LuckyVerbose is.one.true Fastextra
 #' @importFrom Rtsne Rtsne
 #' @import ggplot2
@@ -57,6 +62,10 @@ setClass("CCS",
 #' @import xgboost
 #' @return a CCS object
 #' @author Weibin Huang<\email{hwb2012@@qq.com}>
+#' @seealso \code{\link[xgboost]{xgb.cv}}; \code{\link[xgboost]{xgboost}}; \code{\link[NbClust]{NbClust}};
+#' @references
+#' \href{https://cran.r-project.org/web/packages/NbClust/index.html}{1. NbCluster package} \cr
+#' \href{http://www.sthda.com/english/wiki/wiki.php?id_contents=7940}{2. A tutorial - DBSCAN: density-based clustering for discovering clusters in large datasets with noise}
 #' @examples
 #' ## This is a simulative process and available only with CORRECT VARIABLES
 #' @export
@@ -90,12 +99,17 @@ ccs <- function(
       ptail = 0.2
     ),
     seed = 489,
-    random.cluster = TRUE,
-    min.nc = 2,
-    max.nc= 10,
     dimension = c(2,2),
     perplexity = 30,
     theta = 0.3,
+    random.cluster = TRUE,
+    params.NbClust = list(
+      distance = "euclidean",
+      min.nc = 2,
+      max.nc= 10,
+      method = "ward.D2",
+      index = "all"
+    ),
     model.dir = './ccs/project_01',
     verbose = TRUE,
     numCores = 4
@@ -207,6 +221,7 @@ ccs <- function(
   path_ccs <- paste0(model.dir, "/resCCS.rds")
 
   # Model
+  if(verbose) LuckyVerbose('Build GSClassifier models...')
   for(i in 1:length(data)){ # i=1
 
     data.i <- data[[i]]; cancer_type.i <- names(data)[i]
@@ -254,6 +269,7 @@ ccs <- function(
   }
 
   # Cohort-based probability
+  if(verbose) LuckyVerbose('Calculate cohort-based probability...')
   if(T){
     path_models <- list.files(path = model.dir, pattern = 'modelFit.rds$', full.names = T, recursive = T)
     path_resCBP <- paste0(model.dir, '/Cohort-based probability.rds')
@@ -300,59 +316,68 @@ ccs <- function(
   # Dimensionality reduction
   if(verbose) LuckyVerbose('Dimensionality reduction via t-SNE...')
   if(T){
-    # d1 <- data_for_tSNE(res2, rm.dup.col = F, verbose = verbose);
+    path_dr <- paste0(model.dir, '/drMatrix.rds')
+    if(!file.exists(path_dr)){
+      # Dimensionality reduction - Level 1
+      d2 <- drCCSProbability(
+        res2,
+        reference = Fastextra(colnames(res2), '[|]', 1),
+        dims = dimension[1],
+        perplexity = perplexity,
+        theta = theta,
+        seed = seeds[4],
+        numCores = numCores,
+        verbose = verbose
+      ) # ; mymusic()
 
-    # Dimensionality reduction - Level 1
-    # d2 <- d1$cleaned$data
-    reference <- Fastextra(colnames(res2), '[|]', 1)
-    d3 <- drCCSProbability(
-      res2,
-      reference = reference,
-      dims = dimension[1],
-      perplexity = perplexity,
-      theta = theta,
-      seed = seeds[4],
-      verbose = verbose
-    ) # ; mymusic()
-
-    # Dimensionality reduction - Level 2
-    d4 <- drCCSProbability(
-      d3,
-      reference = NULL,
-      dims = dimension[2],
-      perplexity = perplexity,
-      theta = theta,
-      seed = seeds[5],
-      verbose = verbose
-    )
+      # Dimensionality reduction - Level 2
+      d3 <- drCCSProbability(
+        d2,
+        reference = NULL,
+        dims = dimension[2],
+        perplexity = perplexity,
+        theta = theta,
+        seed = seeds[5],
+        numCores = numCores,
+        verbose = verbose
+      )
+      saveRDS(list(d2=d2,d3=d3), path_dr)
+    } else {
+      if(verbose) LuckyVerbose('The result of dimensionality reduction exists. Use it!')
+      dat_dr <- readRDS(path_dr)
+      d2 <- dat_dr[['d2']]
+      d3 <- dat_dr[['d3']]
+    }
   }
 
   # CCS subtypes
-  if(verbose) LuckyVerbose('Figure out CCS subtypes...')
+  if(verbose) LuckyVerbose('Call CCS subtypes...')
   if(T){
-    if(nrow(d4) > 1000 & random.cluster){
-      set.seed(seeds[6]);
+    if(nrow(d3) > 1000 & random.cluster){
+      set.seed(seeds[6])
+      dat_cluster <- scale(d3[sample(1:nrow(d3), 1000),], center = T, scale = T)
       numComplete <- NbClust2(
-        data = d4[sample(1:nrow(d4), 1000),],
-        distance = "euclidean",
-        min.nc = min.nc,
-        max.nc= max.nc,
-        method = "ward.D2",
-        index = "all",
+        data = dat_cluster,
+        distance = params.NbClust[['distance']],
+        min.nc = params.NbClust[['min.nc']],
+        max.nc = params.NbClust[['max.nc']],
+        method = params.NbClust[['method']],
+        index = params.NbClust[['index']],
         verbose = verbose
       )
-      dis <- dist(d4, method = "euclidean")
-      hc <- hclust(dis, method =  "ward.D2")
+      dis <- dist(d3, method = params.NbClust[['distance']])
+      hc <- hclust(dis, method =  params.NbClust[['method']])
       y2 <- cutree(hc, length(unique(numComplete$Best.partition)))
     } else {
+      dat_cluster <- scale(d3, center = T, scale = T)
       set.seed(seeds[6]);
       numComplete <- NbClust2(
-        data = d4,
-        distance = "euclidean",
-        min.nc = min.nc,
-        max.nc= max.nc,
-        method = "ward.D2",
-        index = "all",
+        data = dat_cluster,
+        distance = params.NbClust[['distance']],
+        min.nc = params.NbClust[['min.nc']],
+        max.nc = params.NbClust[['max.nc']],
+        method = params.NbClust[['method']],
+        index = params.NbClust[['index']],
         verbose = verbose
       )
       y2 <- numComplete$Best.partition
@@ -362,7 +387,7 @@ ccs <- function(
   # Plot
   if(verbose) LuckyVerbose('Dimensionality reduction visulization via ggplot2...')
   if(T){
-    dat_plot <- cbind(as.data.frame(d4), CCS = paste('CCS',y2,sep = ''))
+    dat_plot <- cbind(as.data.frame(d3), CCS = paste('CCS',y2,sep = ''))
     size = 15 # plot size
     p <- ggplot(dat_plot, aes(x = `all|D1`, y = `all|D2`, color = CCS)) +
       geom_point() +
@@ -389,10 +414,14 @@ ccs <- function(
       nSubtype <- length(unique(y2))
       dtrain <- xgb.DMatrix(res2, label = y2-1)
 
+      # Parameters
+      params_xg3 <- params_xg2
+      params_xg3[['nthread']] <- numCores
+
       # xgboost cv for best interation exploration
       set.seed(seeds[7])
       cvRes <- xgb.cv(
-        params = params_xg2,
+        params = params_xg3,
         data = dtrain,
         nrounds=params_xg$nrounds,
         nfold=params_xg$nfold,
@@ -406,7 +435,7 @@ ccs <- function(
       # xgboost via best interation
       set.seed(seeds[7])
       scaller <- xgboost(
-        params = params_xg2,
+        params = params_xg3,
         data = dtrain,
         nrounds = best_iteration,
         num_class = nSubtype,
@@ -429,22 +458,21 @@ ccs <- function(
       geneid = geneid,
       params = params,
       seed = seed,
-      min.nc = min.nc,
-      max.nc= max.nc,
+      params.NbClust = params.NbClust,
       model.dir = model.dir
     ),
     Data = list(
       Probability = list(
         d1 = res2,
-        d2 = d3,
-        d3 = d4
+        d2 = d2,
+        d3 = d3
       ),
       CCS = y2
     ),
     Plot = p
   )
   saveRDS(l, path_ccs)
-  if(verbose) LuckyVerbose('All done!')
+  if(verbose) LuckyVerbose('CCS: All done!')
   return(l)
 }
 
