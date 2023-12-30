@@ -1,41 +1,37 @@
 
-#' @import ggplot2
-#' @author Weibin Huang<\email{hwb2012@@qq.com}>
-setOldClass(c("gg","ggplot"))
-
 #' @name CCS-class
 #' @title CCS-class
 #' @docType class
 #' @description CCS class
 #' @slot Repeat The data for repeatability
+#' @slot Model a ggplot plot for CCS subtype visualization
 #' @slot Data Data about CCS probability and CCS subtypes
-#' @slot Plot a ggplot plot for CCS subtype visualization
-#' @import ggplot2
 #' @author Weibin Huang<\email{hwb2012@@qq.com}>
 #' @exportClass CCS
 #' @keywords classes
-setClass("CCS",
-         slots = c(
-           Repeat="list",
-           Data="list",
-           Plot="gg"
-         ),
-         prototype = list(
-           Repeat = list(
-             geneSet = list(),
-             geneAnnotation = data.frame(),
-             geneid = character(),
-             params = list(),
-             seed = numeric(),
-             params.NbClust = list(),
-             model.dir = character()
-           ),
-           Data = list(
-             Probability = list(),
-             CCS = integer()
-           ),
-           Plot = ggplot()
-         )
+setClass(
+  "CCS",
+  slots = c(
+    Repeat="list",
+    Model="list",
+    Data="list"
+  ),
+  prototype = list(
+    Repeat = list(
+      geneSet = list(),
+      geneAnnotation = data.frame(),
+      geneid = character(),
+      params = list(),
+      seed = numeric(),
+      params.NbClust = list(),
+      model.dir = character()
+    ),
+    Model = list(),
+    Data = list(
+      Probability = list(),
+      CCS = integer()
+    )
+  )
 )
 
 
@@ -57,7 +53,6 @@ setClass("CCS",
 #' @inheritParams drCCSProbability
 #' @importFrom luckyBase LuckyVerbose is.one.true Fastextra
 #' @importFrom Rtsne Rtsne
-#' @import ggplot2
 #' @import GSClassifier
 #' @import xgboost
 #' @return a CCS object
@@ -384,27 +379,6 @@ ccs <- function(
     }
   }
 
-  # Plot
-  if(verbose) LuckyVerbose('Dimensionality reduction visulization via ggplot2...')
-  if(T){
-    dat_plot <- cbind(as.data.frame(d3), CCS = paste('CCS',y2,sep = ''))
-    size = 15 # plot size
-    p <- ggplot(dat_plot, aes(x = `all|D1`, y = `all|D2`, color = CCS)) +
-      geom_point() +
-      labs(title = "t-SNE Visualization") +
-      theme_bw() +
-      theme(
-        axis.text = element_text(size = size/15*12,colour = "black",face = "bold"),
-        plot.title = element_text(size = size,colour = "black",face = "bold", hjust = 0.5),
-        axis.title.x = element_text(size = size,colour = "black",face = "bold"),
-        axis.title.y = element_text(size = size,colour = "black",face = "bold"),
-        legend.text = element_text(size = size/15*12,colour = "black",face = "bold"),
-        legend.title = element_text(size = size/15*12,colour = "black",face = "bold"),
-        legend.position='right',
-        strip.background = element_rect(fill="white"),
-        strip.text = element_text(size = size/15*12,colour = "black",face = "bold")); # win.graph(10,10); print(p)
-  }
-
   # Subtype Caller
   if(verbose) LuckyVerbose('Build subtype caller ...')
   if(T){
@@ -461,6 +435,7 @@ ccs <- function(
       params.NbClust = params.NbClust,
       model.dir = model.dir
     ),
+    Model = list('light mode'),
     Data = list(
       Probability = list(
         d1 = res2,
@@ -468,8 +443,7 @@ ccs <- function(
         d3 = d3
       ),
       CCS = y2
-    ),
-    Plot = p
+    )
   )
   saveRDS(l, path_ccs)
   if(verbose) LuckyVerbose('CCS: All done!')
@@ -486,7 +460,7 @@ ccs <- function(
 #' @import GSClassifier
 #' @import xgboost
 #' @importFrom luckyBase Fastextra
-#' @return A list object with CCS subtype prediction.
+#' @return predict: A list object with CCS subtype prediction.
 #' @seealso \code{\link{ccs}}.
 #' @author Weibin Huang<\email{hwb2012@@qq.com}>
 #' @examples
@@ -517,61 +491,113 @@ predict.CCS <- function(
   geneSet = object@Repeat$geneSet
   geneid = object@Repeat$geneid
   scaller = readRDS(paste0(model.dir,'/scaller.rds'))
+  models = object@Model
 
   # Expression matrix
   X <- GSClassifier:::rightX(X)
   nSample <- ncol(X)
 
   # Call CCS probability
-  path_models <- list.files(path = model.dir, pattern = 'modelFit.rds$', recursive = T, full.names = T)
   X_CCSprobability <- NULL
-  for(i in 1:length(path_models)){ # i=1
+  if(identical(list('light mode'), models)){
+    if(verbose) LuckyVerbose('Light mode CCS. Use external model...')
+    path_models <- list.files(path = model.dir, pattern = 'modelFit.rds$', recursive = T, full.names = T)
+    for(i in 1:length(path_models)){ # i=1
 
-    # A GSClassifier model
-    path_models.i <- path_models[i]
-    modelFit <- readRDS(path_models.i)
-    name_model1 <- rev(Fastextra(path_models.i, '[/]'))
-    cohort_model1 <- name_model1[2]; cancertype_model1 <- name_model1[3]
-    if(verbose) LuckyVerbose('Load model of ', cancertype_model1, ' - ', cohort_model1 ," cohort : ")
+      # A GSClassifier model
+      path_models.i <- path_models[i]
+      modelFit <- readRDS(path_models.i)
+      name_model1 <- rev(Fastextra(path_models.i, '[/]'))
+      cohort_model1 <- name_model1[2]; cancertype_model1 <- name_model1[3]
+      if(verbose) LuckyVerbose('Load model of ', cancertype_model1, ' - ', cohort_model1 ," cohort : ")
 
-    # Call CCS probability
-    if(nSample > 100){
-      X_CCSprobability.i <- parCallEnsemble(
-        X = X,
-        ens = modelFit$Model,
-        geneAnnotation = geneAnnotation,
-        geneSet = geneSet,
-        geneid = geneid,
-        scaller = NULL,
-        subtype = NULL,
-        verbose = verbose,
-        numCores = numCores
-      )
-    } else {
-      X_CCSprobability.i <- callEnsemble(
-        X = X,
-        ens = modelFit$Model,
-        geneAnnotation = geneAnnotation,
-        geneSet = geneSet,
-        geneid = geneid,
-        scaller = NULL,
-        subtype = NULL,
-        verbose = verbose
-      )
+      # Call CCS probability
+      if(nSample > 100){
+        X_CCSprobability.i <- parCallEnsemble(
+          X = X,
+          ens = modelFit$Model,
+          geneAnnotation = geneAnnotation,
+          geneSet = geneSet,
+          geneid = geneid,
+          scaller = NULL,
+          subtype = NULL,
+          verbose = verbose,
+          numCores = numCores
+        )
+      } else {
+        X_CCSprobability.i <- callEnsemble(
+          X = X,
+          ens = modelFit$Model,
+          geneAnnotation = geneAnnotation,
+          geneSet = geneSet,
+          geneid = geneid,
+          scaller = NULL,
+          subtype = NULL,
+          verbose = verbose
+        )
+      }
+
+      colnames(X_CCSprobability.i)[3:ncol(X_CCSprobability.i)] <- paste(cancertype_model1, cohort_model1,  colnames(X_CCSprobability.i)[3:ncol(X_CCSprobability.i)], sep = '|')
+      res.i <- t(apply(X_CCSprobability.i[-c(1,2,3)], 1, softmax))
+
+      # Merge results
+      if(i == 1){
+        X_CCSprobability <- res.i
+      } else {
+        X_CCSprobability <- cbind(X_CCSprobability, res.i)
+      }
     }
+  } else {
+    if(verbose) LuckyVerbose('Complete mode CCS. Use internal model...')
+    for(i in 1:length(models)){ # i=1
+      cancertype_model1 <- names(models)[i]
+      model.i <- models[[i]]
+      for(j in 1:length(model.i)){
+        cohort_model1 <- names(model.i)[[j]]
+        modelFit <- model.i[[j]]
 
-    colnames(X_CCSprobability.i)[3:ncol(X_CCSprobability.i)] <- paste(cancertype_model1, cohort_model1,  colnames(X_CCSprobability.i)[3:ncol(X_CCSprobability.i)], sep = '|')
-    res.i <- t(apply(X_CCSprobability.i[-c(1,2,3)], 1, softmax))
+        # Call CCS probability
+        if(nSample > 100){
+          X_CCSprobability.i <- parCallEnsemble(
+            X = X,
+            ens = modelFit$Model,
+            geneAnnotation = geneAnnotation,
+            geneSet = geneSet,
+            geneid = geneid,
+            scaller = NULL,
+            subtype = NULL,
+            verbose = verbose,
+            numCores = numCores
+          )
+        } else {
+          X_CCSprobability.i <- callEnsemble(
+            X = X,
+            ens = modelFit$Model,
+            geneAnnotation = geneAnnotation,
+            geneSet = geneSet,
+            geneid = geneid,
+            scaller = NULL,
+            subtype = NULL,
+            verbose = verbose
+          )
+        }
 
-    # Merge results
-    if(i == 1){
-      X_CCSprobability <- res.i
-    } else {
-      X_CCSprobability <- cbind(X_CCSprobability, res.i)
+        colnames(X_CCSprobability.i)[3:ncol(X_CCSprobability.i)] <- paste(cancertype_model1, cohort_model1,  colnames(X_CCSprobability.i)[3:ncol(X_CCSprobability.i)], sep = '|')
+        res.i <- t(apply(X_CCSprobability.i[-c(1,2,3)], 1, softmax))
+
+        # Merge results
+        if(i == 1 & j == 1){
+          X_CCSprobability <- res.i
+        } else {
+          X_CCSprobability <- cbind(X_CCSprobability, res.i)
+        }
+      }
     }
   }
+
   X_CCS_Pred <- predict(scaller, X_CCSprobability) + 1
   names(X_CCS_Pred) <- colnames(X)
+
 
   # Output
   l <- list(
@@ -586,6 +612,93 @@ predict.CCS <- function(
   return(l)
 }
 
+
+#' @title CCS-method
+#' @name CCS-method
+#' @description \code{plot} method for \code{CCS} class
+#' @param object a CCS object
+#' @param size the size of ggplot
+#' @import ggplot2
+#' @return plot: A ggplot2 object
+#' @seealso \code{\link{ccs}}.
+#' @author Weibin Huang<\email{hwb2012@@qq.com}>
+#' @examples
+#' ccs_plot <- plot(resCCS)
+#' @export
+plot.CCS <- function(object, size = 15){
+
+  # Data
+  d3 <- object@Data[["Probability"]][["d3"]]
+  y2 <- object@Data[["CCS"]]
+
+  # Plot
+  if(T){
+    dat_plot <- cbind(as.data.frame(d3), CCS = paste('CCS',y2,sep = ''))
+    p <- ggplot(dat_plot, aes(x = `all|D1`, y = `all|D2`, color = CCS)) +
+      geom_point() +
+      labs(title = "t-SNE Visualization") +
+      theme_bw() +
+      theme(
+        axis.text = element_text(size = size/15*12,colour = "black",face = "bold"),
+        plot.title = element_text(size = size,colour = "black",face = "bold", hjust = 0.5),
+        axis.title.x = element_text(size = size,colour = "black",face = "bold"),
+        axis.title.y = element_text(size = size,colour = "black",face = "bold"),
+        legend.text = element_text(size = size/15*12,colour = "black",face = "bold"),
+        legend.title = element_text(size = size/15*12,colour = "black",face = "bold"),
+        legend.position='right',
+        strip.background = element_rect(fill="white"),
+        strip.text = element_text(size = size/15*12,colour = "black",face = "bold")); # win.graph(10,10); print(p)
+  }
+
+  # Output
+  return(p)
+}
+
+
+
+setGeneric("completeModel", function(object, ...) {
+  standardGeneric("completeModel")
+})
+
+#' @rdname CCS-method
+#' @name CCS-method
+#' @description \code{completeModel} method for \code{CCS} class
+#' @inheritParams ccs
+#' @importFrom luckyBase Fastextra
+#' @return completeModel: a complete CCS class.
+#' @exportMethod completeModel
+setMethod(
+  "completeModel",
+  signature(object='CCS'),
+  function(object,
+           model.dir = NULL){
+
+    # Test
+    if(F){
+      model.dir = 'E:/iProjects/RCheck/GSClassifier/test01/ccs/v20231225'
+      object = readRDS(paste0(model.dir, '/resCCS.rds'))
+    }
+
+    # Model parameters
+    if(is.null(model.dir)){
+      model.dir = object@Repeat$model.dir
+    }
+
+    # Load model
+    path_models <- list.files(path = model.dir, pattern = 'modelFit.rds$', recursive = T, full.names = T)
+    object@Model <- list()
+    for(i in 1:length(path_models)){ # i=1
+      path_model1 <- path_models[i]
+      name_model1 <- rev(Fastextra(path_model1, '[/]'))
+      cohort_model1 <- name_model1[2]; cancertype_model1 <- name_model1[3]
+      object@Model[[cancertype_model1]][[cohort_model1]] <- readRDS(path_model1)
+    }
+
+    # Output
+    return(object)
+
+  }
+)
 
 
 

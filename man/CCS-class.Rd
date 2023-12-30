@@ -12,9 +12,9 @@ CCS class
 \describe{
 \item{\code{Repeat}}{The data for repeatability}
 
-\item{\code{Data}}{Data about CCS probability and CCS subtypes}
+\item{\code{Model}}{a ggplot plot for CCS subtype visualization}
 
-\item{\code{Plot}}{a ggplot plot for CCS subtype visualization}
+\item{\code{Data}}{Data about CCS probability and CCS subtypes}
 }}
 
 \author{

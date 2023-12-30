@@ -3,9 +3,14 @@
 \name{CCS-method}
 \alias{CCS-method}
 \alias{predict.CCS}
+\alias{plot.CCS}
 \title{CCS-method}
 \usage{
 \method{predict}{CCS}(object, X, model.dir = NULL, verbose = T, numCores = 4)
+
+\method{plot}{CCS}(object, size = 15)
+
+\S4method{completeModel}{CCS}(object, model.dir = NULL)
 }
 \arguments{
 \item{object}{a CCS object}
@@ -17,17 +22,30 @@
 \item{verbose}{whether report messages}
 
 \item{numCores}{No. of CPU core}
+
+\item{size}{the size of ggplot}
 }
 \value{
-A list object with CCS subtype prediction.
+predict: A list object with CCS subtype prediction.
+
+plot: A ggplot2 object
+
+completeModel: a complete CCS class.
 }
 \description{
 \code{predict} method for \code{CCS} class
+
+\code{plot} method for \code{CCS} class
+
+\code{completeModel} method for \code{CCS} class
 }
 \examples{
 ccs_pred <- predict(resCCS, model.dir = "./ccs/project_01")
+ccs_plot <- plot(resCCS)
 }
 \seealso{
+\code{\link{ccs}}.
+
 \code{\link{ccs}}.
 }
 \author{
