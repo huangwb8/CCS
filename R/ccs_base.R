@@ -110,88 +110,6 @@ repairCCS <- function(expr, restSNE){
 
 
 #' @description Dimensionality reduction for CCS probability matrix
-#' @param d2 Data frame. Cleaned CCS probability data after \code{data_for_tSNE}.
-#' @param reference Character. Cancer type or other references.
-#' @param seed Seeds for \code{\link[Rtsne]{Rtsne}} function.
-#' @inheritParams Rtsne::Rtsne
-#' @inheritParams GSClassifier::parCallEnsemble
-#' @importFrom dplyr full_join
-#' @importFrom Rtsne Rtsne
-#' @importFrom luckyBase LuckyVerbose
-#' @return data frame. Series of PC1, PC2 and etc after dimensionality reduction
-#' @author Weibin Huang<\email{hwb2012@@qq.com}>
-drCCSProbability <- function(
-    d2,
-    reference,
-    dims = 2,
-    perplexity = 30,
-    theta = 0.3,
-    seed = 46,
-    numCores = 6,
-    verbose = F
-){
-
-  # Test
-  if(F){
-    library(digest); library(GSClassifier); library(Rtsne)
-    model.dir <- "./test/ccs/project_01"
-    path_resCBP <- paste0(model.dir, '/Cohort-based probability.rds')
-    res <- readRDS(path_resCBP)
-    res2 <- res[,-1]; res2 <- matrix(as.numeric(as.matrix(res2)), nrow = nrow(res2), byrow = F, dimnames = list(rownames(res2), colnames(res2)))
-    d1 <- data_for_tSNE(res2, verbose = T)
-    d2 <- d1$cleaned$data
-    reference <- Fastextra(colnames(res2), '[|]', 1)
-    dims = 2
-    perplexity = 30
-    theta = 0.3
-    verbose = T
-    seed = 46
-  }
-
-  # Data
-  if(is.null(reference)){
-    reference <- rep('all', ncol(d2))
-  }
-  reference_unique <- unique(reference)
-  nCancerType <- length(reference_unique)
-  set.seed(seed); seeds_dr <- sample(1:10000, nCancerType, replace = F)
-
-  # Dimensionality reduction
-  d2_tsne_data <- data.frame()
-  for(i in 1:nCancerType){ # i=1
-    subtype.i <- reference_unique[i]
-    d2_i <- d2[, reference %in% subtype.i]
-    if(verbose) LuckyVerbose("drCCSProbability: ",subtype.i)
-    d2_tSNE <- data_for_tSNE(d2_i, rm.dup.col = F, verbose = verbose)
-    d2_tSNE_cleanedData <- d2_tSNE[['cleaned']][['data']]
-    set.seed(seeds_dr[i])
-    d2_i_tsne <- Rtsne(
-      d2_tSNE_cleanedData,
-      dims = dims, perplexity = perplexity, theta = theta,
-      verbose = verbose,
-      num_threads = numCores
-    )
-    d2_i_tsne_data <- as.data.frame(d2_i_tsne$Y)
-    rownames(d2_i_tsne_data) <- names(d2_tSNE[['cleaned']][['md5']])
-    d2_i_tsne_data <- repairCCS(expr = d2_i_tsne_data, restSNE = d2_tSNE)
-    colnames(d2_i_tsne_data) <- paste(subtype.i, paste('D',1:dims,sep=''), sep='|')
-    d2_i_tsne_data <- cbind(SampleIDs = rownames(d2_i_tsne_data), d2_i_tsne_data)
-
-    if(i == 1){
-      d2_tsne_data <- d2_i_tsne_data
-    } else {
-      d2_tsne_data <- full_join(d2_tsne_data, d2_i_tsne_data, by = "SampleIDs")
-    }
-  }
-
-  # Output
-  rownames(d2_tsne_data) <- as.character(d2_tsne_data$SampleIDs)
-  if(verbose) LuckyVerbose("drCCSProbability: Done!")
-  return(as.matrix(d2_tsne_data[,-1]))
-}
-
-
-#' @description Dimensionality reduction for CCS probability matrix
 #' @param SampleIDs Sample IDs like "GSM2411085". One or more IDs are approved.
 #' @inheritParams ccs
 #' @return Character. The cancer type of sample IDs.
@@ -210,6 +128,151 @@ cancerType <- function(data,SampleIDs=c("GSM2411085","GSM2411084")){
   return(get_cancer_type(SampleIDs, cancer_type))
 }
 
+
+#' @description Calinski-Harabasz index from fpc::cluster.stats
+CHindex <- function (d = NULL, clustering, alt.clustering = NULL, noisecluster = TRUE, nndist = TRUE, nnk = 2, standardisation = "max", maxk = 10, cvstan = sqrt(length(clustering)))
+{
+  lweight <- function(x, md) (x < md) * (-x/md + 1)
+  if (!is.null(d))
+    d <- as.dist(d)
+  cn <- max(clustering)
+  clusteringf <- as.factor(clustering)
+  clusteringl <- levels(clusteringf)
+  cnn <- length(clusteringl)
+  if (cn != cnn) {
+    warning("clustering renumbered because maximum != number of clusters")
+    for (i in 1:cnn) clustering[clusteringf == clusteringl[i]] <- i
+    cn <- cnn
+  }
+  n <- length(clustering)
+  noisen <- 0
+  cwn <- cn
+  if (noisecluster) {
+    noisen <- sum(clustering == cn)
+    cwn <- cn - 1
+  }
+  parsimony <- cn/maxk
+  diameter <- average.distance <- median.distance <- separation <- average.toother <- cluster.size <- within.dist <- between.dist <- numeric(0)
+  for (i in 1:cn) cluster.size[i] <- sum(clustering == i)
+  if (is.numeric(standardisation))
+    stan <- standardisation
+  else stan <- switch(standardisation, max = max(d), ave = mean(d),
+                      q90 = quantile(d, 0.9), 1)
+  pk1 <- cluster.size/n
+  pk10 <- pk1[pk1 > 0]
+  h1 <- -sum(pk10 * log(pk10))
+  if (!(standardisation == "none")) {
+    pkmax <- rep(1, cn)/cn
+    h1 <- -h1/sum(pkmax * log(pkmax))
+  }
+  corrected.rand <- vi <- NULL
+  if (!is.null(alt.clustering)) {
+    choose2 <- function(v) {
+      out <- numeric(0)
+      for (i in 1:length(v)) out[i] <- ifelse(v[i] >= 2,
+                                              choose(v[i], 2), 0)
+      out
+    }
+    cn2 <- max(alt.clustering)
+    clusteringf <- as.factor(alt.clustering)
+    clusteringl <- levels(clusteringf)
+    cnn2 <- length(clusteringl)
+    if (cn2 != cnn2) {
+      warning("alt.clustering renumbered because maximum != number of clusters")
+      for (i in 1:cnn2) alt.clustering[clusteringf == clusteringl[i]] <- i
+      cn2 <- cnn2
+    }
+    nij <- table(clustering, alt.clustering)
+    dsum <- sum(choose2(nij))
+    cs2 <- numeric(0)
+    for (i in 1:cn2) cs2[i] <- sum(alt.clustering == i)
+    sum1 <- sum(choose2(cluster.size))
+    sum2 <- sum(choose2(cs2))
+    pk2 <- cs2/n
+    pk12 <- nij/n
+    corrected.rand <- (dsum - sum1 * sum2/choose2(n))/((sum1 +
+                                                          sum2)/2 - sum1 * sum2/choose2(n))
+    pk20 <- pk2[pk2 > 0]
+    h2 <- -sum(pk20 * log(pk20))
+    icc <- 0
+    for (i in 1:cn) for (j in 1:cn2) if (pk12[i, j] > 0)
+      icc <- icc + pk12[i, j] * log(pk12[i, j]/(pk1[i] *
+                                                  pk2[j]))
+    vi <- h1 + h2 - 2 * icc
+  }
+
+  dmat <- as.matrix(d)
+  within.cluster.ss <- 0
+  overall.ss <- nonnoise.ss <- sum(d^2)/n
+  if (noisecluster)
+    nonnoise.ss <- sum(as.dist(dmat[clustering <= cwn,
+                                    clustering <= cwn])^2)/sum(clustering <= cwn)
+  ave.between.matrix <- separation.matrix <- matrix(0,
+                                                    ncol = cn, nrow = cn)
+  nnd <- numeric(0)
+  cvnndc <- rep(NA, cn)
+  mnnd <- cvnnd <- NULL
+  di <- list()
+  for (i in 1:cn) {
+    cluster.size[i] <- sum(clustering == i)
+    di <- as.dist(dmat[clustering == i, clustering ==
+                         i])
+    if (i <= cwn) {
+      within.cluster.ss <- within.cluster.ss + sum(di^2)/cluster.size[i]
+      within.dist <- c(within.dist, di)
+    }
+    if (length(di) > 0) {
+      diameter[i] <- max(di)
+      average.distance[i] <- mean(di)
+      median.distance[i] <- median(di)
+    }
+    else diameter[i] <- average.distance[i] <- median.distance[i] <- NA
+    bv <- numeric(0)
+    for (j in 1:cn) {
+      if (j != i) {
+        sij <- dmat[clustering == i, clustering ==
+                      j]
+        bv <- c(bv, sij)
+        if (i < j) {
+          separation.matrix[i, j] <- separation.matrix[j,
+                                                       i] <- min(sij)
+          ave.between.matrix[i, j] <- ave.between.matrix[j,
+                                                         i] <- mean(sij)
+          if (i <= cwn & j <= cwn)
+            between.dist <- c(between.dist, sij)
+        }
+      }
+    }
+    separation[i] <- min(bv)
+    average.toother[i] <- mean(bv)
+  }
+  if (nndist) {
+    kenough <- cluster.size > nnk
+    for (i in (1:cn)[kenough]) {
+      nndi <- apply(dmat[clustering == i, clustering ==
+                           i], 1, sort, partial = nnk + 1)[nnk + 1, ]
+      nnd <- c(nnd, nndi)
+      cvnndc[i] <- sd(nndi)/mean(nndi)
+    }
+    cvnnd <- weighted.mean(cvnndc, pk1, na.rm = TRUE)
+    mnnd <- mean(nnd, na.rm = TRUE)
+    if (!standardisation == "none") {
+      maxnnd <- max(apply(dmat, 1, sort, partial = nnk +
+                            1)[nnk + 1, ])
+      mnnd <- mnnd/maxnnd
+      cvnnd <- cvnnd/cvstan
+    }
+  }
+  average.between <- mean(between.dist)/stan
+  average.within <- weighted.mean(average.distance, cluster.size,
+                                  na.rm = TRUE)/stan
+  nwithin <- length(within.dist)
+  nbetween <- length(between.dist)
+  between.cluster.ss <- nonnoise.ss - within.cluster.ss
+  ch <- between.cluster.ss * (n - noisen - cwn)/(within.cluster.ss *
+                                                   (cwn - 1))
+  return(ch)
+}
 
 
 

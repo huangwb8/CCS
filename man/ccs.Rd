@@ -13,12 +13,6 @@ ccs(
     10, colsample_bytree = 1, min_child_weight = 1, subsample = 0.7, n = 100, sampSize =
     0.7, ptail = 0.2),
   seed = 489,
-  dimension = c(2, 2),
-  perplexity = 30,
-  theta = 0.3,
-  random.cluster = TRUE,
-  params.NbClust = list(distance = "euclidean", min.nc = 2, max.nc = 10, method =
-    "ward.D2", index = "all"),
   model.dir = "./ccs/project_01",
   verbose = TRUE,
   numCores = 4
@@ -33,24 +27,20 @@ ccs(
 
 \item{geneid}{type of gene id in \code{X}. One of \code{'symbol'}, \code{'entrez'} and \code{'ensembl'}.}
 
-\item{params}{parameters of \code{\link[xgboost]{xgb.cv}}, \code{\link[xgboost]{xgboost}}, and \code{\link[GSClassifier]{fitEnsembleModel}}.}
-
-\item{seed}{Seeds for \code{\link[Rtsne]{Rtsne}} function.}
-
-\item{dimension}{the hyperparameters for 2 level t-SNE.}
-
-\item{perplexity}{numeric; Perplexity parameter (should not be bigger than 3 * perplexity < nrow(X) - 1, see details for interpretation)}
-
-\item{theta}{numeric; Speed/accuracy trade-off (increase for less accuracy), set to 0.0 for exact TSNE (default: 0.5)}
-
-\item{random.cluster}{Whether to use random samples to decide the best subtype number. Default is \code{TRUE}, which is faster but more vague comparing with \code{FALSE} when \code{data} contains lots of samples (>10000, for example).}
-
-\item{params.NbClust}{Parameters of \code{CCS:::NbClust2}. Possible options are:
+\item{params}{parameters of \code{\link[xgboost]{xgb.cv}}, \code{\link[xgboost]{xgboost}}, and \code{\link[GSClassifier]{fitEnsembleModel}}. Some important options are:
 \itemize{
-  \item \code{distance} the distance measure to be used to compute the dissimilarity matrix. This must be one of: "euclidean", "maximum", "manhattan", "canberra", "binary", "minkowski" or "NULL". By default, distance="euclidean". If the distance is "NULL", the dissimilarity matrix (diss) should be given by the user. If distance is not "NULL", the dissimilarity matrix should be "NULL".
-  \item \code{method} the cluster analysis method to be used. This should be one of: "ward.D", "ward.D2", "single", "complete", "average", "mcquitty", "median", "centroid", "kmeans".
-  \item \code{index} the index to be calculated. This should be one of : "kl", "ch", "hartigan", "ccc", "scott", "marriot", "trcovw", "tracew", "friedman", "rubin", "cindex", "db", "silhouette", "duda", "pseudot2", "beale", "ratkowsky", "ball", "ptbiserial", "gap", "frey", "mcclain", "gamma", "gplus", "tau", "dunn", "hubert", "sdindex", "dindex", "sdbw", "all" (all indices except GAP, Gamma, Gplus and Tau), "alllong" (all indices with Gap, Gamma, Gplus and Tau included). Cory's recommendation: one of "ch", "duda", "cindex", "gamma", "beale", "gap", and "all".
- \item \code{min.nc} minimal number of clusters, between 1 and (number of objects - 1)
+  \item \code{nfold} No. of cross validation subcohorts.
+  \item \code{nrounds} Max number of boosting iterations. GSClassifier have optimized nrounds, so here I set a large value.
+  \item \code{nthread} No. of CPU cores used in \code{\link[xgboost]{xgboost}}.
+  \item \code{eta} Step size shrinkage used in update to prevent overfitting. Range = [0,1]
+  \item \code{gamma} The larger gamma is, the more conservative the algorithm will be. Range = [0,∞]
+  \item \code{max_depth} Maximum depth of a tree. Deeper trees can capture more complex patterns in the data, but may also lead to overfitting. Range = [0,∞]
+  \item \code{colsample_bytree} Percentage of columns used for each tree construction. Lowering this value can prevent overfitting by training on a subset of the features. Range = (0, 1]
+  \item \code{min_child_weight} The larger min_child_weight is, the more conservative the algorithm will be. Range = [0,∞]
+  \item \code{subsample} Preventing overfitting
+  \item \code{n} \code{\link[GSClassifier]{fitEnsembleModel}} parameter
+  \item \code{sampSize} \code{\link[GSClassifier]{fitEnsembleModel}} parameter. Range = (0,1]
+  \item \code{ptail} \code{\link[GSClassifier]{fitEnsembleModel}} parameter. Range = (0,0.5]
 }}
 
 \item{model.dir}{a character. the path of model series.}

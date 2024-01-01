@@ -7,6 +7,8 @@
 \S4method{completeModel}{CCS}(object, model.dir = NULL)
 }
 \arguments{
+\item{object}{a \code{\link{CCS-class}} object}
+
 \item{model.dir}{a character. the path of model series.}
 }
 \value{

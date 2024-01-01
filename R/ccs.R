@@ -39,18 +39,22 @@ setClass(
 #' @description Cohort Congress System
 #' @param data a list with components (expression matrix + subtype vector)
 #' @param model.dir a character. the path of model series.
-#' @param params parameters of \code{\link[xgboost]{xgb.cv}}, \code{\link[xgboost]{xgboost}}, and \code{\link[GSClassifier]{fitEnsembleModel}}.
-#' @param dimension the hyperparameters for 2 level t-SNE.
-#' @param random.cluster Whether to use random samples to decide the best subtype number. Default is \code{TRUE}, which is faster but more vague comparing with \code{FALSE} when \code{data} contains lots of samples (>10000, for example).
-#' @param params.NbClust Parameters of \code{CCS:::NbClust2}. Possible options are:
+#' @param params parameters of \code{\link[xgboost]{xgb.cv}}, \code{\link[xgboost]{xgboost}}, and \code{\link[GSClassifier]{fitEnsembleModel}}. Some important options are:
 #' \itemize{
-#'   \item \code{distance} the distance measure to be used to compute the dissimilarity matrix. This must be one of: "euclidean", "maximum", "manhattan", "canberra", "binary", "minkowski" or "NULL". By default, distance="euclidean". If the distance is "NULL", the dissimilarity matrix (diss) should be given by the user. If distance is not "NULL", the dissimilarity matrix should be "NULL".
-#'   \item \code{method} the cluster analysis method to be used. This should be one of: "ward.D", "ward.D2", "single", "complete", "average", "mcquitty", "median", "centroid", "kmeans".
-#'   \item \code{index} the index to be calculated. This should be one of : "kl", "ch", "hartigan", "ccc", "scott", "marriot", "trcovw", "tracew", "friedman", "rubin", "cindex", "db", "silhouette", "duda", "pseudot2", "beale", "ratkowsky", "ball", "ptbiserial", "gap", "frey", "mcclain", "gamma", "gplus", "tau", "dunn", "hubert", "sdindex", "dindex", "sdbw", "all" (all indices except GAP, Gamma, Gplus and Tau), "alllong" (all indices with Gap, Gamma, Gplus and Tau included). Cory's recommendation: one of "ch", "duda", "cindex", "gamma", "beale", "gap", and "all".
-#'  \item \code{min.nc} minimal number of clusters, between 1 and (number of objects - 1)
+#'   \item \code{nfold} No. of cross validation subcohorts.
+#'   \item \code{nrounds} Max number of boosting iterations. GSClassifier have optimized nrounds, so here I set a large value.
+#'   \item \code{nthread} No. of CPU cores used in \code{\link[xgboost]{xgboost}}.
+#'   \item \code{eta} Step size shrinkage used in update to prevent overfitting. Range = [0,1]
+#'   \item \code{gamma} The larger gamma is, the more conservative the algorithm will be. Range = [0,∞]
+#'   \item \code{max_depth} Maximum depth of a tree. Deeper trees can capture more complex patterns in the data, but may also lead to overfitting. Range = [0,∞]
+#'   \item \code{colsample_bytree} Percentage of columns used for each tree construction. Lowering this value can prevent overfitting by training on a subset of the features. Range = (0, 1]
+#'   \item \code{min_child_weight} The larger min_child_weight is, the more conservative the algorithm will be. Range = [0,∞]
+#'   \item \code{subsample} Preventing overfitting
+#'   \item \code{n} \code{\link[GSClassifier]{fitEnsembleModel}} parameter
+#'   \item \code{sampSize} \code{\link[GSClassifier]{fitEnsembleModel}} parameter. Range = (0,1]
+#'   \item \code{ptail} \code{\link[GSClassifier]{fitEnsembleModel}} parameter. Range = (0,0.5]
 #' }
 #' @inheritParams GSClassifier::parCallEnsemble
-#' @inheritParams drCCSProbability
 #' @importFrom luckyBase LuckyVerbose is.one.true Fastextra
 #' @importFrom Rtsne Rtsne
 #' @import GSClassifier
@@ -71,134 +75,24 @@ ccs <- function(
     geneAnnotation,
     geneid = "ensembl",
     params = list(
-      # No. of cross validation subcohorts
       nfold = 5,
-      # Max number of boosting iterations. GSClassifier have optimized nrounds, so here I set a large value.
       nrounds = 100,
-      # No. of CPU cores used
       nthread = 2,
-      # Step size shrinkage used in update to prevent overfitting.  [0,1]
       eta = 0.5,
-      # The larger gamma is, the more conservative the algorithm will be. [0,∞]
       gamma = 0,
-      # maximum depth of a tree. Deeper trees can capture more complex patterns in the data, but may also lead to overfitting. [0,∞]
       max_depth = 10,
-      # percentage of columns used for each tree construction. Lowering this value can prevent overfitting by training on a subset of the features. (0, 1]
       colsample_bytree = 1,
-      # The larger min_child_weight is, the more conservative the algorithm will be. [0,∞]
       min_child_weight = 1,
-      # for preventing overfitting
       subsample = 0.7,
-      # fitEnsembleModel
       n = 100,
       sampSize = 0.7,
       ptail = 0.2
     ),
     seed = 489,
-    dimension = c(2,2),
-    perplexity = 30,
-    theta = 0.3,
-    random.cluster = TRUE,
-    params.NbClust = list(
-      distance = "euclidean",
-      min.nc = 2,
-      max.nc= 10,
-      method = "ward.D2",
-      index = "all"
-    ),
     model.dir = './ccs/project_01',
     verbose = TRUE,
     numCores = 4
 ){
-
-  # Test
-  if(F){
-
-    library(luckyBase)
-    nPac <- c('GSClassifier', 'xgboost', 'pROC', 'digest', 'irr','Rtsne','ggplot2'); Plus.library(nPac)
-    testData <- readRDS(system.file("extdata", "testData.rds", package = "GSClassifier"))
-    expr <- testData$PanSTAD_expr_part
-    design <- testData$PanSTAD_phenotype_part
-
-    # Simulated data
-    cancer_ntype <- 4
-    cancer_nCohort <- 10
-    set.seed(123); cohort_nSample <- sample(100:500, cancer_nCohort*cancer_ntype, replace = T)
-    set.seed(123); cohort_seeds <- sample(1:10000, cancer_nCohort*cancer_ntype, replace = T)
-    data <- list()
-    for(i in 1:cancer_ntype){ # i=1
-      for(j in 1:cancer_nCohort){ # j=1
-        set.seed(cohort_seeds[i*j])
-        select_sample <- sample(1:ncol(expr), cohort_nSample[i*j],replace = F)
-        data[[paste('cancer',i, sep = '_')]][[paste('cohort',i,j, sep = '.')]][['expr']] <- expr[,select_sample]
-        y <- design[select_sample,]
-        data[[paste('cancer',i, sep = '_')]][[paste('cohort',i,j, sep = '.')]][['subtype']] <- ifelse(y$PAD_subtype == 'PAD-I',1,ifelse(y$PAD_subtype == 'PAD-II',2,ifelse(y$PAD_subtype == 'PAD-III',3,ifelse(y$PAD_subtype == 'PAD-IV',4,NA))))
-      }
-    }
-
-    data_test <- list(
-      cancer_1 = list(
-        cohort.1.1 = data[[1]][[1]],
-        cohort.1.2 = data[[1]][[2]]
-      ),
-      cancer_2 = list(
-        cohort.2.1 = data[[2]][[1]],
-        cohort.2.2 = data[[2]][[2]]
-      )
-    )
-
-    # Other parameters
-    PADi <- readRDS(system.file("extdata", paste0('PAD.train_20220916.rds'), package = "GSClassifier"))
-    geneSet <- PADi$geneSet
-    geneAnnotation <- PADi$geneAnnotation
-    geneid <- "ensembl"
-    model.dir = './test/ccs/project_01'
-    numCores = 6
-    seed = 489
-    verbose = T
-    random.cluster = T
-    min.nc = 2
-    max.nc= 10
-    dimension = c(2,2)
-    perplexity = 30
-    theta = 0.3
-
-    # Model parameters
-    params <- list(
-      ## No. of cross validation subcohorts
-      nfold = 5,
-
-      ## Max number of boosting iterations. GSClassifier have optimized nrounds, so here I set a large value.
-      nrounds = 100,
-
-      ## No. of CPU cores used
-      nthread = 2,
-
-      ## Step size shrinkage used in update to prevent overfitting.  [0,1]
-      eta = 0.5,
-
-      ## The larger gamma is, the more conservative the algorithm will be. [0,∞]
-      gamma = 0,
-
-      ## maximum depth of a tree. Deeper trees can capture more complex patterns in the data, but may also lead to overfitting. [0,∞]
-      max_depth = 10,
-
-      ## percentage of columns used for each tree construction. Lowering this value can prevent overfitting by training on a subset of the features. (0, 1]
-      colsample_bytree = 1,
-
-      ## The larger min_child_weight is, the more conservative the algorithm will be. [0,∞]
-      min_child_weight = 1,
-
-      ## for preventing overfitting
-      subsample = 0.7,
-
-      # fitEnsembleModel
-      n = 100,
-      sampSize = 0.7,
-      ptail = 0.2
-    )
-
-  }
 
   # Data name check
   data_allName <- c(names(data), as.character(unlist(lapply(data, names))))
@@ -309,121 +203,6 @@ ccs <- function(
     res2 <- res[,-1]; res2 <- matrix(as.numeric(as.matrix(res2)), nrow = nrow(res2), byrow = F, dimnames = list(as.character(res$SampleIDs), colnames(res2)))
   }
 
-  # Dimensionality reduction
-  if(verbose) LuckyVerbose('Dimensionality reduction via t-SNE...')
-  if(T){
-    path_dr <- paste0(model.dir, '/drMatrix.rds')
-    if(!file.exists(path_dr)){
-      # Dimensionality reduction - Level 1
-      d2 <- drCCSProbability(
-        res2,
-        reference = Fastextra(colnames(res2), '[|]', 1),
-        dims = dimension[1],
-        perplexity = perplexity,
-        theta = theta,
-        seed = seeds[4],
-        numCores = numCores,
-        verbose = verbose
-      ) # ; mymusic()
-
-      # Dimensionality reduction - Level 2
-      d3 <- drCCSProbability(
-        d2,
-        reference = NULL,
-        dims = dimension[2],
-        perplexity = perplexity,
-        theta = theta,
-        seed = seeds[5],
-        numCores = numCores,
-        verbose = verbose
-      )
-      saveRDS(list(d2=d2,d3=d3), path_dr)
-    } else {
-      if(verbose) LuckyVerbose('The result of dimensionality reduction exists. Use it!')
-      dat_dr <- readRDS(path_dr)
-      d2 <- dat_dr[['d2']]
-      d3 <- dat_dr[['d3']]
-    }
-  }
-
-  # CCS subtypes
-  if(verbose) LuckyVerbose('Call CCS subtypes...')
-  if(T){
-    if(nrow(d3) > 1000 & random.cluster){
-      set.seed(seeds[6])
-      dat_cluster <- scale(d3[sample(1:nrow(d3), 1000),], center = T, scale = T)
-      numComplete <- NbClust2(
-        data = dat_cluster,
-        distance = params.NbClust[['distance']],
-        min.nc = params.NbClust[['min.nc']],
-        max.nc = params.NbClust[['max.nc']],
-        method = params.NbClust[['method']],
-        index = params.NbClust[['index']],
-        verbose = verbose
-      )
-      dis <- dist(scale(d3, center = T, scale = T), method = params.NbClust[['distance']])
-      hc <- hclust(dis, method =  params.NbClust[['method']])
-      y2 <- cutree(hc, length(unique(numComplete$Best.partition)))
-    } else {
-      dat_cluster <- scale(d3, center = T, scale = T)
-      set.seed(seeds[6]);
-      numComplete <- NbClust2(
-        data = dat_cluster,
-        distance = params.NbClust[['distance']],
-        min.nc = params.NbClust[['min.nc']],
-        max.nc = params.NbClust[['max.nc']],
-        method = params.NbClust[['method']],
-        index = params.NbClust[['index']],
-        verbose = verbose
-      )
-      y2 <- numComplete$Best.partition
-    }
-  }
-
-  # Subtype Caller
-  if(verbose) LuckyVerbose('Build subtype caller ...')
-  if(T){
-    path_scaller <- paste0(model.dir, '/scaller.rds')
-    if(!file.exists(path_scaller)){
-
-      nSubtype <- length(unique(y2))
-      dtrain <- xgb.DMatrix(res2, label = y2-1)
-
-      # Parameters
-      params_xg3 <- params_xg2
-      params_xg3[['nthread']] <- numCores
-
-      # xgboost cv for best interation exploration
-      set.seed(seeds[7])
-      cvRes <- xgb.cv(
-        params = params_xg3,
-        data = dtrain,
-        nrounds=params_xg$nrounds,
-        nfold=params_xg$nfold,
-        num_class = nSubtype,
-        early_stopping_rounds=10,
-        objective = "multi:softmax",
-        verbose = 0
-      )
-      best_iteration <- cvRes$best_iteration
-
-      # xgboost via best interation
-      set.seed(seeds[7])
-      scaller <- xgboost(
-        params = params_xg3,
-        data = dtrain,
-        nrounds = best_iteration,
-        num_class = nSubtype,
-        objective = "multi:softmax",
-        verbose = 0
-      )
-      saveRDS(scaller, path_scaller)
-    } else {
-      if(verbose) LuckyVerbose('The subtype caller exists. Use it!')
-      scaller <- readRDS(path_scaller)
-    }
-  }
-
   # Output
   l <- new(
     'CCS',
@@ -433,18 +212,17 @@ ccs <- function(
       geneid = geneid,
       params = params,
       seed = seed,
-      params.NbClust = params.NbClust,
       model.dir = model.dir
     ),
-    Model = list('light mode'),
+    Model = list(NA),
     Data = list(
       Probability = list(
         d1 = res2,
-        d2 = d2,
-        d3 = d3
+        d2 = NA,
+        d3 = NA
       ),
-      CCS = y2,
-      CancerType = cancerType(data,names(y2))
+      CCS = NA,
+      CancerType = cancerType(data, rownames(res2))
     )
   )
   saveRDS(l, path_ccs)
@@ -456,7 +234,7 @@ ccs <- function(
 #' @rdname CCS-method.predict
 #' @title CCS method: predict
 #' @description \code{predict} method for \code{CCS} class
-#' @param object a CCS object
+#' @param object a \code{\link{CCS-class}} object
 #' @inheritParams ccs
 #' @inheritParams GSClassifier::parCallEnsemble
 #' @import GSClassifier
@@ -495,13 +273,18 @@ predict.CCS <- function(
   scaller = readRDS(paste0(model.dir,'/scaller.rds'))
   models = object@Model
 
+  # Check integrity
+  if(!file.exists(scaller)){
+    stop('Lack subtype caller. Stop!')
+  }
+
   # Expression matrix
   X <- GSClassifier:::rightX(X)
   nSample <- ncol(X)
 
   # Call CCS probability
   X_CCSprobability <- NULL
-  if(identical(list('light mode'), models)){
+  if(identical(models, list(NA))){
     if(verbose) LuckyVerbose('Light mode CCS. Use external model...')
     path_models <- list.files(path = model.dir, pattern = 'modelFit.rds$', recursive = T, full.names = T)
     for(i in 1:length(path_models)){ # i=1
@@ -618,12 +401,12 @@ predict.CCS <- function(
 #' @rdname CCS-method.plot
 #' @title CCS method: plot
 #' @description \code{plot} method for \code{CCS} class
-#' @param object a CCS object
+#' @param object a \code{\link{CCS-class}} object
 #' @param size the size of ggplot
 #' @param CCS Character. A vector of samples' CCS subtype.
 #' @param geom Some of \code{'cancer_type'} and \code{'CCS'}.
 #' @import ggplot2
-#' @importFrom luckyBase mycolor
+#' @import luckyBase
 #' @return plot: A ggplot2 object
 #' @seealso \code{\link{ccs}}.
 #' @author Weibin Huang<\email{hwb2012@@qq.com}>
@@ -633,7 +416,7 @@ predict.CCS <- function(
 plot.CCS <- function(
     object,
     CCS = NULL,
-    geom = c('cancer_type','CCS')[2],
+    geom = c('cancer_type','CCS'),
     size = 15){
 
   # Test
@@ -706,6 +489,7 @@ setGeneric("completeModel", function(object, ...) {
 #' @rdname CCS-method.completeModel
 #' @title CCS method: completeModel
 #' @description \code{completeModel} method for \code{CCS} class
+#' @param object  a \code{\link{CCS-class}} object
 #' @inheritParams ccs
 #' @importFrom luckyBase Fastextra
 #' @return completeModel: a complete CCS class.

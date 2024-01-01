@@ -4,10 +4,10 @@
 \alias{plot.CCS}
 \title{CCS method: plot}
 \usage{
-\method{plot}{CCS}(object, CCS = NULL, geom = c("cancer_type", "CCS")[2], size = 15)
+\method{plot}{CCS}(object, CCS = NULL, geom = c("cancer_type", "CCS"), size = 15)
 }
 \arguments{
-\item{object}{a CCS object}
+\item{object}{a \code{\link{CCS-class}} object}
 
 \item{CCS}{Character. A vector of samples' CCS subtype.}
 

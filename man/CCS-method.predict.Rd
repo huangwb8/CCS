@@ -7,7 +7,7 @@
 \method{predict}{CCS}(object, X, model.dir = NULL, verbose = T, numCores = 4)
 }
 \arguments{
-\item{object}{a CCS object}
+\item{object}{a \code{\link{CCS-class}} object}
 
 \item{X}{a numeric RNA expression vector or matrix with gene names}
 
