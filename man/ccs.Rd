@@ -70,7 +70,8 @@ Cohort Congress System
 }
 \references{
 \href{https://cran.r-project.org/web/packages/NbClust/index.html}{1. NbCluster package} \cr
-\href{http://www.sthda.com/english/wiki/wiki.php?id_contents=7940}{2. A tutorial - DBSCAN: density-based clustering for discovering clusters in large datasets with noise}
+\href{http://www.sthda.com/english/wiki/wiki.php?id_contents=7940}{2. A tutorial - DBSCAN: density-based clustering for discovering clusters in large datasets with noise} \cr
+\href{https://satijalab.org/seurat/articles/get_started_v5_new}{Getting Started with Seurat • Seurat}
 }
 \seealso{
 \code{\link[xgboost]{xgb.cv}}; \code{\link[xgboost]{xgboost}}; \code{\link[NbClust]{NbClust}};

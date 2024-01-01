@@ -60,7 +60,8 @@ setClass(
 #' @seealso \code{\link[xgboost]{xgb.cv}}; \code{\link[xgboost]{xgboost}}; \code{\link[NbClust]{NbClust}};
 #' @references
 #' \href{https://cran.r-project.org/web/packages/NbClust/index.html}{1. NbCluster package} \cr
-#' \href{http://www.sthda.com/english/wiki/wiki.php?id_contents=7940}{2. A tutorial - DBSCAN: density-based clustering for discovering clusters in large datasets with noise}
+#' \href{http://www.sthda.com/english/wiki/wiki.php?id_contents=7940}{2. A tutorial - DBSCAN: density-based clustering for discovering clusters in large datasets with noise} \cr
+#' \href{https://satijalab.org/seurat/articles/get_started_v5_new}{Getting Started with Seurat • Seurat}
 #' @examples
 #' ## This is a simulative process and available only with CORRECT VARIABLES
 #' @export
@@ -360,7 +361,7 @@ ccs <- function(
         index = params.NbClust[['index']],
         verbose = verbose
       )
-      dis <- dist(d3, method = params.NbClust[['distance']])
+      dis <- dist(scale(d3, center = T, scale = T), method = params.NbClust[['distance']])
       hc <- hclust(dis, method =  params.NbClust[['method']])
       y2 <- cutree(hc, length(unique(numComplete$Best.partition)))
     } else {
@@ -442,7 +443,8 @@ ccs <- function(
         d2 = d2,
         d3 = d3
       ),
-      CCS = y2
+      CCS = y2,
+      CancerType = cancerType(data,names(y2))
     )
   )
   saveRDS(l, path_ccs)
@@ -451,8 +453,8 @@ ccs <- function(
 }
 
 
-#' @title CCS-method
-#' @name CCS-method
+#' @rdname CCS-method.predict
+#' @title CCS method: predict
 #' @description \code{predict} method for \code{CCS} class
 #' @param object a CCS object
 #' @inheritParams ccs
@@ -613,30 +615,71 @@ predict.CCS <- function(
 }
 
 
-#' @title CCS-method
-#' @name CCS-method
+#' @rdname CCS-method.plot
+#' @title CCS method: plot
 #' @description \code{plot} method for \code{CCS} class
 #' @param object a CCS object
 #' @param size the size of ggplot
+#' @param CCS Character. A vector of samples' CCS subtype.
+#' @param geom Some of \code{'cancer_type'} and \code{'CCS'}.
 #' @import ggplot2
+#' @importFrom luckyBase mycolor
 #' @return plot: A ggplot2 object
 #' @seealso \code{\link{ccs}}.
 #' @author Weibin Huang<\email{hwb2012@@qq.com}>
 #' @examples
 #' ccs_plot <- plot(resCCS)
 #' @export
-plot.CCS <- function(object, size = 15){
+plot.CCS <- function(
+    object,
+    CCS = NULL,
+    geom = c('cancer_type','CCS')[2],
+    size = 15){
+
+  # Test
+  if(F){
+    library(luckyBase)
+    Plus.library(c('ggplot2'))
+    model.dir = 'E:/iProjects/RCheck/GSClassifier/test01/ccs/v20231225'
+    object = readRDS(paste0(model.dir, '/resCCS.rds'))
+    CCS = NULL
+    geom = c('cancer_type','CCS')
+    size = 15
+  }
 
   # Data
-  d3 <- object@Data[["Probability"]][["d3"]]
-  y2 <- object@Data[["CCS"]]
+  dat_plot <- as.data.frame(object@Data[["Probability"]][["d3"]])
+  if(is.null(CCS)){
+    y2 <- object@Data[["CCS"]]
+  } else {
+    y2 <- CCS
+  }
 
-  # Plot
+  # plot head
+  if('CCS' %in% geom){
+    dat_plot <- cbind(dat_plot, CCS = paste('CCS',y2,sep = ''))
+    gghead <-
+      ggplot(dat_plot, aes(x = `all|D1`, y = `all|D2`, group = CCS)) +
+      geom_point(aes(color=CCS), size = size/15*3, shape = 1, stroke = size/15*1.5) +
+      labs(title = "t-SNE Visualization", color = 'CCS')
+  }
+  if('cancer_type' %in% geom){
+    dat_plot <- cbind(dat_plot, cancer_type = object@Data[["CancerType"]])
+    unique_cancertype <- unique(dat_plot$cancer_type)
+    unique_csstype <- unique(dat_plot$CCS)
+    # http://www.sthda.com/english/wiki/ggplot2-point-shapes
+    default_shape <- c(1,2,4); default_shape <- c(default_shape, setdiff(1:25, default_shape))
+    gghead <-
+      ggplot(dat_plot, aes(x = `all|D1`, y = `all|D2`, group = CCS)) +
+      geom_point(aes(color=CCS, shape = cancer_type), size = size/15*3) +
+      scale_color_manual(values = mycolor[1:length(unique_csstype)], breaks = unique_csstype) +
+      scale_shape_manual(values = default_shape[1:length(unique_cancertype)], breaks = unique_cancertype) +
+      labs(title = "t-SNE Visualization", color = 'CCS', shape = 'Cancer')
+  }
+
+  # Plot complete
   if(T){
-    dat_plot <- cbind(as.data.frame(d3), CCS = paste('CCS',y2,sep = ''))
-    p <- ggplot(dat_plot, aes(x = `all|D1`, y = `all|D2`, color = CCS)) +
-      geom_point() +
-      labs(title = "t-SNE Visualization") +
+    p <- gghead +
       theme_bw() +
       theme(
         axis.text = element_text(size = size/15*12,colour = "black",face = "bold"),
@@ -660,8 +703,8 @@ setGeneric("completeModel", function(object, ...) {
   standardGeneric("completeModel")
 })
 
-#' @rdname CCS-method
-#' @name CCS-method
+#' @rdname CCS-method.completeModel
+#' @title CCS method: completeModel
 #' @description \code{completeModel} method for \code{CCS} class
 #' @inheritParams ccs
 #' @importFrom luckyBase Fastextra

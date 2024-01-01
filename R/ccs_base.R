@@ -191,6 +191,25 @@ drCCSProbability <- function(
 }
 
 
+#' @description Dimensionality reduction for CCS probability matrix
+#' @param SampleIDs Sample IDs like "GSM2411085". One or more IDs are approved.
+#' @inheritParams ccs
+#' @return Character. The cancer type of sample IDs.
+#' @author Weibin Huang<\email{hwb2012@@qq.com}>
+cancerType <- function(data,SampleIDs=c("GSM2411085","GSM2411084")){
+  cancer_type <- lapply(data, function(x) as.character(unlist(lapply(x, function(y) colnames(y$expr)))))
+  get_cancer_type <- function(SampleIDs,cancer_type){
+    sapply(SampleIDs, function(x){
+      for(i in 1:length(cancer_type)){
+        if(x %in% cancer_type[[i]]){
+          return(names(cancer_type)[i])
+        }
+      }
+    })
+  }
+  return(get_cancer_type(SampleIDs, cancer_type))
+}
+
 
 
 
