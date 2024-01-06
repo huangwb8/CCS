@@ -7,15 +7,22 @@
 \S4method{optimizeCluster}{CCS}(
   object,
   method = "dbscan",
-  params = expand.grid(eps = c(0.02, 0.05, 0.1, seq(0.2, 1, 0.1)), minPts = c(5, 10, 15,
-    20, 25, 30)),
-  ...
+  params = expand.grid(eps = c(seq(0.02, 0.1, 0.01), seq(0.2, 1, 0.1)), minPts = c(5, 6,
+    7, 8, 9, 10, 15, 20)),
+  cover = FALSE,
+  verbose = TRUE
 )
 }
 \arguments{
 \item{object}{a \code{\link{CCS-class}} object}
 
-\item{...}{Other parameters for}
+\item{method}{Clustering methods. One of "\code{dbscan}", "\code{ward.D}", "\code{ward.D2}", "\code{single}", "\code{complete}", "\code{average}" (= UPGMA), "\code{mcquitty}" (= WPGMA), "\code{median}" (= WPGMC) or "\code{centroid}" (= UPGMC).}
+
+\item{params}{a data frame containing parameters for \code{CCS::cluster}.}
+
+\item{cover}{Boolean. Whether to cocer the existed result of \code{optimizeCluster}. Default if \code{FALSE}.}
+
+\item{verbose}{whether report messages}
 }
 \description{
 \code{optimizeCluster} method for \code{CCS} class

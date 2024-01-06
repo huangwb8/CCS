@@ -4,7 +4,27 @@
 \alias{exploreCluster,CCS-method}
 \title{CCS method: exploreCluster}
 \usage{
-\S4method{exploreCluster}{CCS}(object, nCluster = 2:20, model.dir = NULL, size = 15)
+\S4method{exploreCluster}{CCS}(
+  object,
+  nTop = 10,
+  geom = c("cancer_type", "CCS"),
+  hide.legend = c("cancer_type", "CCS")[2],
+  model.dir = NULL,
+  size = 15
+)
+}
+\arguments{
+\item{object}{a \code{\link{CCS-class}} object}
+
+\item{nTop}{Integer. The count of top parameters you want to plot.}
+
+\item{geom}{Some of \code{'cancer_type'} and \code{'CCS'}.}
+
+\item{hide.legend}{Some of \code{'cancer_type'} and \code{'CCS'}. Which type of data should be hided in the plot legend.}
+
+\item{model.dir}{a character. the path of model series.}
+
+\item{size}{The plot size}
 }
 \description{
 \code{exploreCluster} method for \code{CCS} class

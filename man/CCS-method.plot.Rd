@@ -4,7 +4,13 @@
 \alias{plot.CCS}
 \title{CCS method: plot}
 \usage{
-\method{plot}{CCS}(object, CCS = NULL, geom = c("cancer_type", "CCS"), size = 15)
+\method{plot}{CCS}(
+  object,
+  CCS = NULL,
+  geom = c("cancer_type", "CCS"),
+  hide.legend = c("cancer_type", "CCS")[2],
+  size = 15
+)
 }
 \arguments{
 \item{object}{a \code{\link{CCS-class}} object}
@@ -13,7 +19,9 @@
 
 \item{geom}{Some of \code{'cancer_type'} and \code{'CCS'}.}
 
-\item{size}{the size of ggplot}
+\item{hide.legend}{Some of \code{'cancer_type'} and \code{'CCS'}. Which type of data should be hided in the plot legend.}
+
+\item{size}{The plot size}
 }
 \value{
 plot: A ggplot2 object

@@ -231,11 +231,11 @@ ccs <- function(
 }
 
 
+
 #' @rdname CCS-method.predict
 #' @title CCS method: predict
 #' @description \code{predict} method for \code{CCS} class
-#' @param object a \code{\link{CCS-class}} object
-#' @inheritParams ccs
+#' @inheritParams CCSPublicParams
 #' @inheritParams GSClassifier::parCallEnsemble
 #' @import GSClassifier
 #' @import xgboost
@@ -401,10 +401,8 @@ predict.CCS <- function(
 #' @rdname CCS-method.plot
 #' @title CCS method: plot
 #' @description \code{plot} method for \code{CCS} class
-#' @param object a \code{\link{CCS-class}} object
-#' @param size the size of ggplot
 #' @param CCS Character. A vector of samples' CCS subtype.
-#' @param geom Some of \code{'cancer_type'} and \code{'CCS'}.
+#' @inheritParams CCSPublicParams
 #' @import ggplot2
 #' @import luckyBase
 #' @return plot: A ggplot2 object
@@ -417,6 +415,7 @@ plot.CCS <- function(
     object,
     CCS = NULL,
     geom = c('cancer_type','CCS'),
+    hide.legend = c('cancer_type','CCS')[2],
     size = 15){
 
   # Test
@@ -427,6 +426,7 @@ plot.CCS <- function(
     object = readRDS(paste0(model.dir, '/resCCS.rds'))
     CCS = NULL
     geom = c('cancer_type','CCS')
+    hide.legend = c('cancer_type','CCS')
     size = 15
   }
 
@@ -439,25 +439,44 @@ plot.CCS <- function(
   }
 
   # plot head
+  dat_plot <- cbind(dat_plot, CCS = paste('CCS',y2,sep = ''))
+  unique_csstype <- unique(dat_plot$CCS)
+  n_ccstype <- length(unique_csstype)
+  if(n_ccstype > length(mycolor)){
+    default_color <- c(mycolor, setdiff(scales::hue_pal()(n_ccstype), mycolor))[1:n_ccstype]
+  } else {
+    default_color <- mycolor[1:n_ccstype]
+  }
   if('CCS' %in% geom){
-    dat_plot <- cbind(dat_plot, CCS = paste('CCS',y2,sep = ''))
     gghead <-
       ggplot(dat_plot, aes(x = `all|D1`, y = `all|D2`, group = CCS)) +
       geom_point(aes(color=CCS), size = size/15*3, shape = 1, stroke = size/15*1.5) +
-      labs(title = "t-SNE Visualization", color = 'CCS')
+      scale_color_manual(values = default_color, breaks = unique_csstype) +
+      labs(title = "", color = 'CCS')
   }
   if('cancer_type' %in% geom){
     dat_plot <- cbind(dat_plot, cancer_type = object@Data[["CancerType"]])
     unique_cancertype <- unique(dat_plot$cancer_type)
-    unique_csstype <- unique(dat_plot$CCS)
     # http://www.sthda.com/english/wiki/ggplot2-point-shapes
     default_shape <- c(1,2,4); default_shape <- c(default_shape, setdiff(1:25, default_shape))
     gghead <-
       ggplot(dat_plot, aes(x = `all|D1`, y = `all|D2`, group = CCS)) +
       geom_point(aes(color=CCS, shape = cancer_type), size = size/15*3) +
-      scale_color_manual(values = mycolor[1:length(unique_csstype)], breaks = unique_csstype) +
+      scale_color_manual(values = default_color, breaks = unique_csstype) +
       scale_shape_manual(values = default_shape[1:length(unique_cancertype)], breaks = unique_cancertype) +
-      labs(title = "t-SNE Visualization", color = 'CCS', shape = 'Cancer')
+      labs(title = "", color = "CCS", shape = 'Cancer')
+  }
+
+
+  # Legend
+  if('CCS' %in% hide.legend){
+    gghead <- gghead + guides(color = "none", shape = "legend")
+  }
+  if('cancer_type' %in% hide.legend){
+    gghead <- gghead + guides(color = "legend", shape = "none")
+  }
+  if(all(c('CCS','cancer_type') %in% hide.legend)){
+    gghead <- gghead + guides(color = "none", shape = "none")
   }
 
   # Plot complete
@@ -489,8 +508,7 @@ setGeneric("completeModel", function(object, ...) {
 #' @rdname CCS-method.completeModel
 #' @title CCS method: completeModel
 #' @description \code{completeModel} method for \code{CCS} class
-#' @param object  a \code{\link{CCS-class}} object
-#' @inheritParams ccs
+#' @inheritParams CCSPublicParams
 #' @importFrom luckyBase Fastextra
 #' @return completeModel: a complete CCS class.
 #' @exportMethod completeModel
