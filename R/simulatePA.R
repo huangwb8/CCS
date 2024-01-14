@@ -68,7 +68,7 @@ simulatePA <- function(nTissue = 15,
         dat <- sapply(seed5,function(x)simulateRA_one(nCluster,whichOne = whichOne,mean = mean,sd = sd, seed = x))
         rownames(dat) <- paste('type', 1:nrow(dat), sep = '')
         colnames(dat) <- dat_colname
-        list_dat[[paste0('Tissue',i,collapse = '')]][[paste0('t',i,'c',j)]][[paste0('Sample',k,collapse = '')]] <- list(RealType = whichOne, PA = dat)
+        list_dat[[paste0('Tissue',i,collapse = '')]][[paste0('t',i,'c',j)]][[paste0('Sample',k,collapse = '')]] <- list(expr = dat, subtype = whichOne)
       }
     }
   }

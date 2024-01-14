@@ -147,7 +147,7 @@ drCCSProbability_UMAP <- function(
     subtype.i <- reference_unique[i]
     d2_i <- d2[, reference %in% subtype.i]
     if(verbose) LuckyVerbose("drCCSProbability: ",subtype.i)
-    d2_dr <- data_for_tSNE(d2_i, rm.dup.col = F, verbose = verbose)
+    d2_dr <- data_for_dr(d2_i, rm.dup.col = F, verbose = verbose)
     d2_dr_cleanedData <- d2_dr[['cleaned']][['data']]
     # d2_i_dr <- umap(d2_dr_cleanedData, n_components = dims)
     d2_i_dr <- umap(
@@ -201,7 +201,7 @@ drCCSProbability_tSNE <- function(
     path_resCBP <- paste0(model.dir, '/Cohort-based probability.rds')
     res <- readRDS(path_resCBP)
     res2 <- res[,-1]; res2 <- matrix(as.numeric(as.matrix(res2)), nrow = nrow(res2), byrow = F, dimnames = list(rownames(res2), colnames(res2)))
-    d1 <- data_for_tSNE(res2, verbose = T)
+    d1 <- data_for_dr(res2, verbose = T)
     d2 <- d1$cleaned$data
     reference <- Fastextra(colnames(res2), '[|]', 1)
     dims = 2
@@ -226,7 +226,7 @@ drCCSProbability_tSNE <- function(
     subtype.i <- reference_unique[i]
     d2_i <- d2[, reference %in% subtype.i]
     if(verbose) LuckyVerbose("drCCSProbability: ",subtype.i)
-    d2_tSNE <- data_for_tSNE(d2_i, rm.dup.col = F, verbose = verbose)
+    d2_tSNE <- data_for_dr(d2_i, rm.dup.col = F, verbose = verbose)
     d2_tSNE_cleanedData <- d2_tSNE[['cleaned']][['data']]
     set.seed(seeds_dr[i])
     d2_i_tsne <- Rtsne(

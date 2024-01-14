@@ -59,6 +59,9 @@ an integer scalar or vector with the desired number of groups.')
 
     # Results
     object@Data$CCS <- d3_CCS
+    if('scaller' %in% names(object@Data)){
+      object@Data[['scaller']] <- NULL
+    }
     return(object)
   }
 )

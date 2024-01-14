@@ -270,11 +270,12 @@ predict.CCS <- function(
   geneAnnotation = object@Repeat$geneAnnotation
   geneSet = object@Repeat$geneSet
   geneid = object@Repeat$geneid
-  scaller = readRDS(paste0(model.dir,'/scaller.rds'))
+  scaller = object@Data$scaller
+  # scaller = readRDS(paste0(model.dir,'/scaller.rds'))
   models = object@Model
 
   # Check integrity
-  if(!file.exists(scaller)){
+  if(is.null(scaller)){
     stop('Lack subtype caller. Stop!')
   }
 
@@ -380,7 +381,9 @@ predict.CCS <- function(
     }
   }
 
-  X_CCS_Pred <- predict(scaller, X_CCSprobability) + 1
+  # Prediction
+  X_CCS_Pred <- predict(scaller, X_CCSprobability)
+  X_CCS_Pred <- CCS:::adjustXGBoostSubtype(object, X_CCS_Pred, verbose)
   names(X_CCS_Pred) <- colnames(X)
 
 
