@@ -8,8 +8,10 @@
   object,
   model.dir = NULL,
   Prop = 0.8,
+  best_iteration = NULL,
   seed = 456,
   cover = FALSE,
+  rm.zero = TRUE,
   numCores = 6,
   verbose = TRUE,
   ...
@@ -22,9 +24,13 @@
 
 \item{Prop}{the proportion of training cohort}
 
+\item{best_iteration}{if \code{best_iteration = NULL}(default), cross validation would be used to decide the best iteration round.}
+
 \item{seed}{random seed}
 
 \item{cover}{Whether to cover the existed result}
+
+\item{rm.zero}{Whether to remove zero value of CCS subtypes. In the strategy of \code{dbscan}, 0 means uncategorized, so you should set \code{rm.zero = TRUE}(default).}
 
 \item{numCores}{No. of CPU core}
 

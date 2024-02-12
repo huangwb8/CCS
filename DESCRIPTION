@@ -1,7 +1,7 @@
 Package: CCS
 Type: Package
 Title: Cohort Congress System
-Version: 0.2.3
+Version: 0.2.10
 Authors@R:
     person(given = "Weibin",
            family = "Huang",

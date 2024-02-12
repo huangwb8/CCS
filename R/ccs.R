@@ -239,7 +239,8 @@ ccs <- function(
 #' @inheritParams GSClassifier::parCallEnsemble
 #' @import GSClassifier
 #' @import xgboost
-#' @importFrom luckyBase Fastextra
+#' @import tidyr
+#' @importFrom luckyBase Fastextra convert
 #' @return predict: A list object with CCS subtype prediction.
 #' @seealso \code{\link{ccs}}.
 #' @author Weibin Huang<\email{hwb2012@@qq.com}>
@@ -273,6 +274,7 @@ predict.CCS <- function(
   scaller = object@Data$scaller
   # scaller = readRDS(paste0(model.dir,'/scaller.rds'))
   models = object@Model
+  cluster_translator = object@Data[['scaller.parameters']][['cluster_translator']]
 
   # Check integrity
   if(is.null(scaller)){
@@ -383,7 +385,8 @@ predict.CCS <- function(
 
   # Prediction
   X_CCS_Pred <- predict(scaller, X_CCSprobability)
-  X_CCS_Pred <- CCS:::adjustXGBoostSubtype(object, X_CCS_Pred, verbose)
+  # X_CCS_Pred <- CCS:::adjustXGBoostSubtype(object, X_CCS_Pred, verbose)
+  X_CCS_Pred <- convert(X_CCS_Pred, 'adjust', 'raw', cluster_translator) %>% as.integer()
   names(X_CCS_Pred) <- colnames(X)
 
 
@@ -419,7 +422,9 @@ plot.CCS <- function(
     CCS = NULL,
     geom = c('cancer_type','CCS'),
     hide.legend = c('cancer_type','CCS')[2],
-    size = 15){
+    rm.zero = TRUE,
+    size = 15,
+    verbose = TRUE){
 
   # Test
   if(F){
@@ -431,6 +436,8 @@ plot.CCS <- function(
     geom = c('cancer_type','CCS')
     hide.legend = c('cancer_type','CCS')
     size = 15
+    rm.zero = TRUE
+    verbose = TRUE
   }
 
   # Data
@@ -439,6 +446,16 @@ plot.CCS <- function(
     y2 <- object@Data[["CCS"]]
   } else {
     y2 <- CCS
+  }
+  cancer_type <- object@Data[["CancerType"]]
+
+  # Remove zero value
+  if(rm.zero){
+    target_sample <- !y2 %in% 0
+    dat_plot <- dat_plot[target_sample,]
+    y2 <- y2[target_sample]
+    cancer_type <- cancer_type[target_sample]
+    if(verbose) LuckyVerbose('plot.CCS: Remove ', sum(!target_sample), ' zero value in CCS subtypes...')
   }
 
   # plot head
@@ -458,7 +475,7 @@ plot.CCS <- function(
       labs(title = "", color = 'CCS')
   }
   if('cancer_type' %in% geom){
-    dat_plot <- cbind(dat_plot, cancer_type = object@Data[["CancerType"]])
+    dat_plot <- cbind(dat_plot, cancer_type = cancer_type)
     unique_cancertype <- unique(dat_plot$cancer_type)
     # http://www.sthda.com/english/wiki/ggplot2-point-shapes
     default_shape <- c(1,2,4); default_shape <- c(default_shape, setdiff(1:25, default_shape))
@@ -485,6 +502,7 @@ plot.CCS <- function(
   # Plot complete
   if(T){
     p <- gghead +
+      labs(x = 'Dimension 1', y = 'Dimension 2') +
       theme_bw() +
       theme(
         axis.text = element_text(size = size/15*12,colour = "black",face = "bold"),
@@ -499,6 +517,7 @@ plot.CCS <- function(
   }
 
   # Output
+  if(verbose) LuckyVerbose('plot.CCS: All done!')
   return(p)
 }
 

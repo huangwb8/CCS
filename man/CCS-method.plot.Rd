@@ -9,7 +9,9 @@
   CCS = NULL,
   geom = c("cancer_type", "CCS"),
   hide.legend = c("cancer_type", "CCS")[2],
-  size = 15
+  rm.zero = TRUE,
+  size = 15,
+  verbose = TRUE
 )
 }
 \arguments{
@@ -21,7 +23,11 @@
 
 \item{hide.legend}{Some of \code{'cancer_type'} and \code{'CCS'}. Which type of data should be hided in the plot legend.}
 
+\item{rm.zero}{Whether to remove zero value of CCS subtypes. In the strategy of \code{dbscan}, 0 means uncategorized, so you should set \code{rm.zero = TRUE}(default).}
+
 \item{size}{The plot size}
+
+\item{verbose}{whether report messages}
 }
 \value{
 plot: A ggplot2 object

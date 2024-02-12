@@ -242,3 +242,80 @@ setMethod(
     return(l)
   }
 )
+
+
+setGeneric("manualCluster", function(object, ...) {
+  standardGeneric("manualCluster")
+})
+
+#' @rdname CCS-method.manualCluster
+#' @title CCS method: manualCluster
+#' @description \code{manualCluster} method for \code{CCS} class
+#' @inheritParams CCSPublicParams
+#' @inheritParams luckyBase::classify
+#' @importFrom luckyBase classify
+#' @import tidyr
+#' @seealso \code{\link{ccs}}.
+#' @exportMethod manualCluster
+setMethod(
+  "manualCluster",
+  signature(object='CCS'),
+  function(object,
+           classifier){
+
+    # Test
+    if(F){
+      model.dir = 'E:/iProjects/RCheck/GSClassifier/test01/ccs/v20240106'
+      object = readRDS(paste0(model.dir, '/resCCS.rds'))
+      classifier = list(
+        "13" = c("13","15","20"),
+        "6" = c("48","36","38","3","28"),
+        "45" = c("45","23"),
+        "75" = c("75","73"),
+        "26" = c("26","25","58","65","27","24"),
+        "34" = c("34", "31"),
+        "40" = c("56", "43","40"),
+        "55" = c("55", "57"),
+        "16" = c("16", "66"),
+        "82" = c("80", "82"),
+        "44" = c("44", "37"),
+        "76" = c("76","77","42"),
+        "4" = c("4","10"),
+        "8" = c("8","17","18","9"),
+        "7" = c("7","1","60","5","61"),
+        "35" = c("35", "67", "47","41","83","64","22","14","11","12", "69")
+      )
+    }
+
+    # Renew CCS subtypes
+    ccs <- object@Data$CCS
+    ccs2 <- classify(
+      ccs,
+      classifier,
+      cover = FALSE,
+      useNA = FALSE
+    ) %>% as.integer()
+    names(ccs2) <- names(ccs)
+    object@Data$CCS <- ccs2;
+    object@Data$optimizeCluster <- NULL
+    object@Data$scaller <- NULL
+    object@Data$scaller.parameters <- NULL
+    object@Data$scaller.performance <- NULL
+
+    # Output data
+    return(object)
+  }
+)
+
+
+
+
+
+
+
+
+
+
+
+
+

@@ -5,6 +5,7 @@
 #' @param geom Some of \code{'cancer_type'} and \code{'CCS'}.
 #' @param hide.legend Some of \code{'cancer_type'} and \code{'CCS'}. Which type of data should be hided in the plot legend.
 #' @param method Clustering methods. One of "\code{dbscan}", "\code{ward.D}", "\code{ward.D2}", "\code{single}", "\code{complete}", "\code{average}" (= UPGMA), "\code{mcquitty}" (= WPGMA), "\code{median}" (= WPGMC) or "\code{centroid}" (= UPGMC).
+#' @param rm.zero Whether to remove zero value of CCS subtypes. In the strategy of \code{dbscan}, 0 means uncategorized, so you should set \code{rm.zero = TRUE}(default).
 #' @param cover Whether to cover the existed result
 #' @inheritParams ccs
 CCSPublicParams <- function(
@@ -13,6 +14,7 @@ CCSPublicParams <- function(
     model.dir,
     geom,
     hide.legend,
+    rm.zero = TRUE,
     method,
     verbose,
     numCores
@@ -272,19 +274,6 @@ listParams <- function(params.i){
 }
 
 
-#' @description Adjust XGBoost Subtype
-#' @param x a named numeric vector
-#' @inheritParams CCSPublicParams
-#' @importFrom luckyBase LuckyVerbose
-#' @return Character
-#' @author Weibin Huang<\email{hwb2012@@qq.com}>
-adjustXGBoostSubtype <- function(object, x, verbose){
-  if(!0 %in% object@Data$CCS)
-    if(verbose) LuckyVerbose('adjustXGBoostSubtype: Zero value in the XGBoost subtype. Repair the prediction...')
-    x <- x + 1
-  return(x)
-}
-
 
 #' @description Adjust XGBoost Subtype
 #' @param real Character. Real subtypes
@@ -293,7 +282,7 @@ adjustXGBoostSubtype <- function(object, x, verbose){
 #' @importFrom irr kappa2
 #' @return Character
 #' @author Weibin Huang<\email{hwb2012@@qq.com}>
-compareRealPred <- function(real,pred){
+compareRealPred <- function(real,pred,cluster_translator=NULL){
 
   # Multi-ROC
   res.multi_auc <- multiclass.roc(real, pred, quiet = TRUE, direction = "auto")
@@ -306,6 +295,9 @@ compareRealPred <- function(real,pred){
     binary_i <- as.numeric(real %in% subtype.i)
     res.binary.i <- roc(binary_i, pred, quiet = TRUE)
     res.binary[[as.character(subtype.i)]] <- as.numeric(res.binary.i$auc)
+  }
+  if(!is.null(cluster_translator)){
+    names(res.binary) <- convert(names(res.binary), 'adjust', 'raw', cluster_translator)
   }
   names(res.binary) <- paste('binary_auc_',names(res.binary), sep = '')
 
@@ -321,6 +313,90 @@ compareRealPred <- function(real,pred){
   # Output
   return(res.all)
 }
+
+
+#' @title Call ROC-AUC for Binary/multi-class response & multi-class predictor
+#' @description Call ROC-AUC for Binary/multi-class response & multi-class predictor
+#' @importFrom pROC multiclass.roc roc
+#' @importFrom luckyBase convert LuckyVerbose
+#' @importFrom dplyr arrange
+#' @import tidyr
+#' @return a result from \link[pROC]{multiclass.roc}.
+#' @author Weibin Huang<\email{hwb2012@@qq.com}>
+#' @export
+multiXClass_roc <- function(response, predictor, verbose = T){
+
+  # Test
+  if(F){
+    library(luckyBase)
+    library(pROC)
+    Plus.library(c('pROC', 'tidyr', 'dplyr'))
+    # set.seed(123); response <- sample(c(0,1), 1000, replace = T)
+    # set.seed(456); predictor <- sample(1:20, 1000, replace = T)
+    data("myeloma", package = 'survminer')
+    response <- myeloma$event
+    predictor <- classify(
+      myeloma$molecular_group,
+      list(
+        '1' = 'Cyclin D-1',
+        '2' = 'Cyclin D-2',
+        '3' = "Hyperdiploid",
+        '4' = "Low bone disease",
+        '5' = "MAF",
+        '6' = "MMSET",
+        '7' = "Proliferation",
+        '8' = c(NA)
+      ),
+      useNA = F,
+      cover = T
+    ) %>% as.integer()
+    verbose = T
+  }
+
+  # Data
+  predictor_unique <- unique(predictor)
+
+  # single ROC
+  dat_auc <- NULL
+  for(i in 1:length(predictor_unique)){ # i=1
+    predictor_unique.i <- predictor_unique[i]
+    predictor.i <- ifelse(predictor %in% predictor_unique.i, 1, 0)
+    res.i <- roc(response, predictor.i, quiet = T)
+    res.i.auc <- as.numeric(res.i$auc)
+    dat_auc <- rbind(
+      dat_auc,
+      data.frame(
+        class = predictor_unique.i,
+        auc = res.i.auc,
+        stringsAsFactors = F
+      )
+    )
+  }
+  dat_auc <- arrange(dat_auc, auc)
+  class_translator <- data.frame(
+    raw = dat_auc$class,
+    adjust = 1:length(predictor_unique)
+  )
+  if(verbose){
+    LuckyVerbose('multiXClass_roc: the relationship is as following:')
+    print(class_translator)
+  }
+  predictor_adjust <- convert(predictor, 'raw', 'adjust', class_translator) %>% as.integer()
+
+  # Data comparision
+  res.adjust <- multiclass.roc(response, predictor_adjust, quiet = T)
+  res.raw <- multiclass.roc(response, predictor, quiet = T)
+  if(verbose){
+    LuckyVerbose('multiXClass_roc: adjusted AUC=', round(res.adjust$auc, 5), '; raw AUC=', round(res.raw$auc, 5), '.')
+  }
+
+  # Output
+  return(res.adjust)
+
+}
+
+
+
 
 
 
