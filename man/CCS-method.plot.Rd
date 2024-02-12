@@ -33,7 +33,7 @@
 plot: A ggplot2 object
 }
 \description{
-\code{plot} method for \code{CCS} class
+\code{plot} method for \code{CCS} class. Plot dimension scatter plot for CCS results.
 }
 \examples{
 ccs_plot <- plot(resCCS)

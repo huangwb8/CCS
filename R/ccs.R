@@ -406,7 +406,7 @@ predict.CCS <- function(
 
 #' @rdname CCS-method.plot
 #' @title CCS method: plot
-#' @description \code{plot} method for \code{CCS} class
+#' @description \code{plot} method for \code{CCS} class. Plot dimension scatter plot for CCS results.
 #' @param CCS Character. A vector of samples' CCS subtype.
 #' @inheritParams CCSPublicParams
 #' @import ggplot2
@@ -429,11 +429,11 @@ plot.CCS <- function(
   # Test
   if(F){
     library(luckyBase)
-    Plus.library(c('ggplot2'))
+    Plus.library(c('ggplot2','tidyr','dplyr','circlize','ComplexHeatmap'))
     model.dir = 'E:/iProjects/RCheck/GSClassifier/test01/ccs/v20231225'
     object = readRDS(paste0(model.dir, '/resCCS.rds'))
     CCS = NULL
-    geom = c('cancer_type','CCS')
+    geom = c('cancer_type','CCS')[2]
     hide.legend = c('cancer_type','CCS')
     size = 15
     rm.zero = TRUE
@@ -470,7 +470,7 @@ plot.CCS <- function(
   if('CCS' %in% geom){
     gghead <-
       ggplot(dat_plot, aes(x = `all|D1`, y = `all|D2`, group = CCS)) +
-      geom_point(aes(color=CCS), size = size/15*3, shape = 1, stroke = size/15*1.5) +
+      geom_point(aes(color=CCS), size = size/15*3, shape = 16, stroke = size/15*1.5) + # shape = 1
       scale_color_manual(values = default_color, breaks = unique_csstype) +
       labs(title = "", color = 'CCS')
   }
@@ -501,7 +501,7 @@ plot.CCS <- function(
 
   # Plot complete
   if(T){
-    p <- gghead +
+    p1 <- gghead +
       labs(x = 'Dimension 1', y = 'Dimension 2') +
       theme_bw() +
       theme(
@@ -512,15 +512,115 @@ plot.CCS <- function(
         legend.text = element_text(size = size/15*12,colour = "black",face = "bold"),
         legend.title = element_text(size = size/15*12,colour = "black",face = "bold"),
         legend.position='right',
+        panel.grid = element_blank(),
+        panel.border = element_rect(linewidth = size/15*2),
+        axis.ticks = element_line(colour = "black",linewidth = size/15*1.4,linetype = 1, lineend = 'square'),
         strip.background = element_rect(fill="white"),
-        strip.text = element_text(size = size/15*12,colour = "black",face = "bold")); # win.graph(10,10); print(p)
+        strip.text = element_text(size = size/15*12,colour = "black",face = "bold")); # win.graph(10,7); print(p1)
   }
 
   # Output
   if(verbose) LuckyVerbose('plot.CCS: All done!')
-  return(p)
+  return(p1)
 }
 
+
+
+setGeneric("plotCancerSubtype", function(object, ...) {
+  standardGeneric("plotCancerSubtype")
+})
+
+#' @rdname CCS-method.plotCancerSubtype
+#' @title CCS method: plotCancerSubtype
+#' @description \code{plotCancerSubtype} method for \code{CCS} class. Plot CCS subtype across cancer types.
+#' @inheritParams CCSPublicParams
+#' @import ComplexHeatmap
+#' @importFrom luckyBase LuckyVerbose
+#' @importFrom grid gpar grid.text
+#' @return plotCancerSubtype: a complete CCS class.
+#' @exportMethod plotCancerSubtype
+setMethod(
+  "plotCancerSubtype",
+  signature(object='CCS'),
+  function(object,
+           CCS = NULL,
+           rm.zero = TRUE,
+           size = 15,
+           verbose = TRUE){
+
+    # Test
+    if(F){
+      library(luckyBase)
+      Plus.library(c('tidyr','dplyr','circlize','ComplexHeatmap'))
+      model.dir = 'E:/iProjects/RCheck/GSClassifier/test01/ccs/v20240106'
+      object = readRDS(paste0(model.dir, '/resCCS.rds'))
+      CCS = NULL
+      rm.zero = TRUE
+      size = 15
+      verbose = TRUE
+    }
+
+    # Data
+    if(is.null(CCS)){
+      y2 <- object@Data[["CCS"]]
+    } else {
+      y2 <- CCS
+    }
+    cancer_type <- object@Data[["CancerType"]]
+    # y2 <- y2[names(cancer_type)]
+
+    # Remove zero value
+    if(rm.zero){
+      target_sample <- !y2 %in% 0
+      y2 <- y2[target_sample]
+      cancer_type <- cancer_type[target_sample]
+      if(verbose) LuckyVerbose('plotCancerSubtype: Remove ', sum(!target_sample), ' zero value in CCS subtypes...')
+    }
+
+    # Data
+    hm.dat <- table(y2, cancer_type) %>% as.data.frame() %>% spread(cancer_type, Freq)
+    hm_x <- as.matrix(hm.dat[,-1]); rownames(hm_x) <- as.character(hm.dat[,1]); hm_x[hm_x == 0] <- NA;
+    # hm_x2 <- as.matrix(as.vector(hm_x)/sum(hm_x, na.rm = T)) %>% scale() %>% as.vector()
+    # hm_x3 <- matrix(hm_x2, nrow = nrow(hm_x), byrow = F, dimnames = list(rownames(hm_x), colnames(hm_x)))
+    hm_x3 <- scale(hm_x)
+
+    # Cell function
+    cell_fun = function(j, i, x, y, width, height, fill) {
+      grid.text(ifelse(is.na(hm_x[i, j]), '', hm_x[i, j]), x, y, gp = gpar(fontsize = size/15*5))
+    }
+
+    # Heatmap
+    # col = colorRamp2(c(0,0.01,0.03,0.05,0.06,0.07,0.08,0.11), c("#3300FF","#0066FF","#00FFFF","#00FF66","#33FF00","#CCFF00","#FF9900","#FF0000"))
+    p2 <- Heatmap(
+      hm_x3,
+      # col = col,
+      name = 'Percentage',
+      na_col = "grey",
+
+      cluster_columns = F,
+      show_column_names = T,
+      show_column_dend = F,
+      column_names_rot = 45,
+      # column_names_max_height = unit(6, "cm"),
+      column_names_gp = gpar(fontsize = size/15*8, fontface = "bold"),
+
+      cluster_rows = F,
+      show_row_names = F,
+      row_names_side = 'left',
+      show_row_dend = F,
+      row_names_gp = gpar(fontsize = size/15*8, fontface = "bold"),
+
+      show_heatmap_legend = F,
+
+      cell_fun = cell_fun
+    ) # ;print(p2)
+
+    # Output
+    if(verbose) LuckyVerbose('plotCancerSubtype: All done!')
+    return(p2)
+
+  }
+)
 
 
 setGeneric("completeModel", function(object, ...) {

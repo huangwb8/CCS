@@ -10,7 +10,9 @@
   geom = c("cancer_type", "CCS"),
   hide.legend = c("cancer_type", "CCS")[2],
   model.dir = NULL,
-  size = 15
+  size = 15,
+  width = 12,
+  height = 9
 )
 }
 \arguments{
@@ -25,6 +27,10 @@
 \item{model.dir}{a character. the path of model series.}
 
 \item{size}{The plot size}
+
+\item{width}{The plot width}
+
+\item{height}{The plot height}
 }
 \description{
 \code{exploreCluster} method for \code{CCS} class

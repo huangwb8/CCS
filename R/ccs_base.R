@@ -2,6 +2,8 @@
 #' @description CSS Public Parameter Delivering
 #' @param object a \code{\link{CCS-class}} object
 #' @param size The plot size
+#' @param width The plot width
+#' @param height The plot height
 #' @param geom Some of \code{'cancer_type'} and \code{'CCS'}.
 #' @param hide.legend Some of \code{'cancer_type'} and \code{'CCS'}. Which type of data should be hided in the plot legend.
 #' @param method Clustering methods. One of "\code{dbscan}", "\code{ward.D}", "\code{ward.D2}", "\code{single}", "\code{complete}", "\code{average}" (= UPGMA), "\code{mcquitty}" (= WPGMA), "\code{median}" (= WPGMC) or "\code{centroid}" (= UPGMC).
@@ -11,6 +13,7 @@
 CCSPublicParams <- function(
     object,
     size = 15,
+    width = 12, height = 9,
     model.dir,
     geom,
     hide.legend,

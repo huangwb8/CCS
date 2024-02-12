@@ -192,7 +192,7 @@ setMethod(
            geom = c('cancer_type','CCS'),
            hide.legend = c('cancer_type','CCS')[2],
            model.dir = NULL,
-           size = 15){
+           size = 15, width = 12, height = 9){
 
     # Test
     if(F){
@@ -227,7 +227,7 @@ setMethod(
 
       # Plot
       name.i <- CCS:::reportParams(params.i)
-      cairo_pdf(paste0(path_child, "/DimPlot_",name.i,'.pdf'), width = size/15*12, height = size/15*10)
+      cairo_pdf(paste0(path_child, "/DimPlot_",name.i,'.pdf'), width = size/15*width, height = size/15*height)
       l[[name.i]] <- plot(object.i,
                           CCS = object.i@Data$CCS,
                           geom = geom,
