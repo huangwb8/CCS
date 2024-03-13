@@ -104,6 +104,8 @@ ccs <- function(
   # Grobal seeds
   set.seed(seed); seeds <- sample(1:10000, 20, replace = T)
   dir.create(model.dir, showWarnings = F, recursive = T)
+  path_tmp <- paste0(model.dir,'/tmp')
+  dir.create(path_tmp, showWarnings = F, recursive = T)
 
   # Parameters
   params_xg <- params[-match(c('n','sampSize','ptail'), names(params))]
@@ -173,7 +175,23 @@ ccs <- function(
         dir.create(path_child, recursive = T, showWarnings = F)
         path_prob <- paste0(path_child,'/ccsProb.rds')
         if(!file.exists(path_prob)){
-          a <- lapply(data, function(x) lapply(x, function(y) oneCCSProbability(y, path_model1, geneAnnotation, geneSet, geneid, numCores)))
+          # a <- lapply(data, function(x) lapply(x, function(y) oneCCSProbability(y, path_model1, geneAnnotation, geneSet, geneid, numCores, verbose = T))) # No detail. Work, but not I want.
+          a <- NULL
+          for(j in 1:length(data)){
+            data_cancer <- data[[j]]; cancer_name <- names(data)[j]
+            for(k in 1:length(data_cancer)){
+              data_cohort <- data_cancer[[k]]; cohort_name <- names(data_cancer)[k]
+              path_a_tmp <- paste0(path_tmp, '/oneCCSProbabilityResult_Model-',cancertype_model1,'-',cohort_model1,'_Data-',cancer_name, ' - ',cohort_name,'.rds')
+              if(!file.exists(path_a_tmp)){
+                a[[cancer_name]][[cohort_name]] <- a_tmp <- oneCCSProbability(data_cohort, path_model1, geneAnnotation, geneSet, geneid, numCores, dataName = paste0(cancer_name, ' - ',cohort_name),verbose = T)
+                saveRDS(a_tmp, path_a_tmp)
+              } else {
+                if(verbose) LuckyVerbose('The result of ', path_a_tmp,' exists. Use it!')
+                a[[cancer_name]][[cohort_name]] <- readRDS(path_a_tmp)
+              }
+            }
+          }
+
           a2 <- NULL
           for(z in 1:length(a)){ # i=1
             a2 <- rbind(a2, do.call("rbind", a[[z]]))

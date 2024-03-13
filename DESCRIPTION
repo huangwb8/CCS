@@ -1,7 +1,7 @@
 Package: CCS
 Type: Package
 Title: Cohort Congress System
-Version: 0.2.12
+Version: 0.2.16
 Authors@R:
     person(given = "Weibin",
            family = "Huang",
@@ -12,7 +12,7 @@ Description: A Computational Framwork for Personalized Pan-cancer Genomic Classi
 License: Apache-2.0
 Encoding: UTF-8
 LazyData: true
-RoxygenNote: 7.2.3
+RoxygenNote: 7.3.1
 Imports: 
     dbscan,
     digest,

@@ -125,6 +125,7 @@ CHindex <- function (
 #' @param data1 a list containing an expression matrix and its subtype vector
 #' @param path_model1 the path of a (GSClassifier) model
 #' @importFrom GSClassifier parCallEnsemble
+#' @importFrom luckyBase LuckyVerbose Fastextra
 #' @return a data frame with sample IDS and the softmax probability.
 #' @author Weibin Huang<\email{hwb2012@@qq.com}>
 oneCCSProbability <- function(
@@ -133,14 +134,43 @@ oneCCSProbability <- function(
     geneAnnotation,
     geneSet,
     geneid,
-    numCores
+    numCores,
+    dataName = 'GSEXXX',
+    verbose = T
 ){
 
   # Test
   if(F){
+    library(luckyBase)
+    Plus.library(c('GSClassifier'))
     data1 = data[[2]][[3]]
     path_model1 = "./ccs/test01/cohort.1.1/modelFit.rds"
+    dataName = 'GSEXXX'
+    verbose = T
+    l <- list(A=list(A1=1,A2=2), B=list(B1=1,B2=2))
+    l_name <- lapply(l, function(x) lapply(x, function(y) names(x)))
+
+    # 20240302
+    # Error in exp(x) : non-numeric argument to mathematical function
+    data_all <- readRDS('E:/Sync/@Analysis/PanCan_Data/Level 1/PanCan_CancerSample_DataListForCCS-PAD_Train+Valid_v20231224.rds')
+    PADi <- readRDS(system.file("extdata", paste0('PAD.train_20220916.rds'), package = "GSClassifier"))
+    path_model1 = "E:/iProjects/RCheck/GSClassifier/test01/ccs/v20240225/model/ACC/GSE33371/modelFit.rds"
+    data <- readRDS('E:/Sync/@Analysis/PanCan_Data/Level 1/PanCan_CancerSample_DataListForCCS-PAD_Train+Valid_v20231224.rds')
+    data1 = data[['PAAD']][['GSE21501']]
+    # data1 = data[['AEG']][['GSE74553']]
+    dataName = 'GSE21501'
+    PADi <- readRDS(system.file("extdata", paste0('PAD.train_20220916.rds'), package = "GSClassifier"))
+    geneAnnotation = PADi$geneAnnotation
+    geneSet = PADi$geneSet
+    geneid = "ensembl"
+    numCores= 6
   }
+
+  # Project
+  x <- rev(Fastextra(path_model1, '[/]'))
+  cancer <- x[3]; cohort <- x[2]
+  project <- paste0(cancer, ' - ' ,cohort)
+  if(verbose) LuckyVerbose('oneCCSProbability: Model ', project, '; Data ', dataName, ' ...')
 
   # Call probability score
   modelFit <- readRDS(path_model1)
@@ -162,6 +192,7 @@ oneCCSProbability <- function(
       t(apply(res[-c(1,2,3)], 1, softmax))
     )
   )
+  if(verbose) LuckyVerbose('oneCCSProbability: Model ', project, ' Done!')
   return(res)
 
 }
