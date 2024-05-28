@@ -6,7 +6,7 @@
 \usage{
 \S4method{dr}{CCS}(
   object,
-  method = c("UMAP", "t-SNE")[1],
+  method = c("UMAP", "t-SNE", "PCA")[1],
   dimension = c(2, 2),
   model.dir = NULL,
   seed = 456,

@@ -24,7 +24,7 @@ setMethod(
   signature(object='CCS'),
   function(
     object,
-    method = c('UMAP','t-SNE')[1],
+    method = c('UMAP','t-SNE','PCA')[1],
     dimension = c(2,2),
     model.dir = NULL,
     seed = 456,
@@ -46,7 +46,7 @@ setMethod(
 
   # Dimensionality reduction (DR)
   if(!file.exists(path_dr)){
-    if (method == 'UMAP' | length(args) == 0) {
+    if (method == 'UMAP') {
       if(verbose) LuckyVerbose('dr: use UMAP methods...')
       d2 <- drCCSProbability_UMAP(
         data = data,
@@ -82,8 +82,22 @@ setMethod(
         verbose = verbose,
         ...
       )
+    } else if (method == 'PCA') {
+      if(verbose) LuckyVerbose('dr: use PCA methods...')
+      d2 <- drCCSProbability_PCA(
+        data = data,
+        reference = reference,
+        dims = dimension[1],
+        ...
+      )
+      d3 <- drCCSProbability_PCA(
+        data = d2,
+        reference = NULL,
+        dims = dimension[2],
+        ...
+      )
     } else {
-      stop("Wrong method. One of 'UMAP' and 't-SNE'. Please retry!")
+      stop("Wrong method. One of 'UMAP', 't-SNE', and 'PCA'. Please retry!")
     }
     saveRDS(list(d2=d2,d3=d3), path_dr)
   } else {
@@ -172,6 +186,79 @@ drCCSProbability_UMAP <- function(
   if(verbose) LuckyVerbose("drCCSProbability: Done!")
   return(as.matrix(d2_dr_data[,-1]))
 }
+
+
+#' @description Dimensionality reduction for CCS probability matrix
+#' @param data a matrix with feature columns and sample rows.
+#' @param reference Character. Cancer type or other references.
+#' @param dims The target number of dimensionality reduction. Default is 2.
+#' @inheritParams ccs
+#' @importFrom dplyr full_join
+#' @importFrom luckyBase LuckyVerbose
+#' @importFrom stats prcomp
+#' @return data frame. Series of PC1, PC2 and etc after dimensionality reduction
+#' @author Weibin Huang<\email{hwb2012@@qq.com}>
+drCCSProbability_PCA <- function(
+    data,
+    reference,
+    dims = 2,
+    verbose = F,
+    ...
+){
+
+  # Test
+  if(F){
+    library(digest); library(GSClassifier); library(dplyr); library(stats)
+    model.dir <- "./test/ccs/project_01"
+    path_resCCS <- 'E:/iProjects/RCheck/GSClassifier/test01/ccs/v20231225/resCCS.rds'
+    object <- readRDS(path_resCCS)
+    data <- object@Data$Probability$d1
+    reference <- Fastextra(colnames(data), '[|]', 1)
+    dims = 2
+    verbose = T
+  }
+
+  # Data
+  d2 <- data
+  if(is.null(reference)){
+    reference <- rep('all', ncol(d2))
+  }
+  reference_unique <- unique(reference)
+  nCancerType <- length(reference_unique)
+
+  # Dimensionality reduction
+  d2_dr_data <- data.frame()
+  for(i in 1:nCancerType){ # i=1
+    subtype.i <- reference_unique[i]
+    d2_i <- d2[, reference %in% subtype.i]
+    if(verbose) LuckyVerbose("drCCSProbability: ",subtype.i)
+    d2_dr <- CCS:::data_for_dr(d2_i, rm.dup.col = F, verbose = verbose)
+    d2_dr_cleanedData <- d2_dr[['cleaned']][['data']]
+    d2_i_dr <- prcomp(
+      d2_dr_cleanedData,
+      center = TRUE, scale. = TRUE,
+      rank. = dims,
+      ...
+    )
+    d2_i_dr_data <- as.data.frame(d2_i_dr$x)
+    rownames(d2_i_dr_data) <- names(d2_dr[['cleaned']][['md5']])
+    d2_i_dr_data <- CCS:::repairCCS(expr = d2_i_dr_data, restSNE = d2_dr)
+    colnames(d2_i_dr_data) <- paste(subtype.i, paste('D',1:dims,sep=''), sep='|')
+    d2_i_dr_data <- cbind(SampleIDs = rownames(d2_i_dr_data), d2_i_dr_data)
+
+    if(i == 1){
+      d2_dr_data <- d2_i_dr_data
+    } else {
+      d2_dr_data <- full_join(d2_dr_data, d2_i_dr_data, by = "SampleIDs")
+    }
+  }
+
+  # Output
+  rownames(d2_dr_data) <- as.character(d2_dr_data$SampleIDs)
+  if(verbose) LuckyVerbose("drCCSProbability: Done!")
+  return(as.matrix(d2_dr_data[,-1]))
+}
+
 
 
 

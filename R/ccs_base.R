@@ -192,7 +192,7 @@ oneCCSProbability <- function(
       t(apply(res[-c(1,2,3)], 1, softmax))
     )
   )
-  if(verbose) LuckyVerbose('oneCCSProbability: Model ', project, ' Done!')
+  if(verbose) LuckyVerbose('oneCCSProbability: Model ', project, '; Data ', dataName, ' Done!')
   return(res)
 
 }

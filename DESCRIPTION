@@ -1,7 +1,7 @@
 Package: CCS
 Type: Package
 Title: Cohort Congress System
-Version: 0.2.16
+Version: 0.2.18
 Authors@R:
     person(given = "Weibin",
            family = "Huang",
@@ -23,5 +23,6 @@ Imports:
     luckyBase,
     pROC,
     Rtsne,
+    stats,
     umap,
     xgboost

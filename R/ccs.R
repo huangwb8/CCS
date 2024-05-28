@@ -181,7 +181,7 @@ ccs <- function(
             data_cancer <- data[[j]]; cancer_name <- names(data)[j]
             for(k in 1:length(data_cancer)){
               data_cohort <- data_cancer[[k]]; cohort_name <- names(data_cancer)[k]
-              path_a_tmp <- paste0(path_tmp, '/oneCCSProbabilityResult_Model-',cancertype_model1,'-',cohort_model1,'_Data-',cancer_name, ' - ',cohort_name,'.rds')
+              path_a_tmp <- paste0(path_tmp, '/oneCCSProbabilityResult_Model-',cancertype_model1,'-',cohort_model1,'_Data-',cancer_name, '-',cohort_name,'.rds')
               if(!file.exists(path_a_tmp)){
                 a[[cancer_name]][[cohort_name]] <- a_tmp <- oneCCSProbability(data_cohort, path_model1, geneAnnotation, geneSet, geneid, numCores, dataName = paste0(cancer_name, ' - ',cohort_name),verbose = T)
                 saveRDS(a_tmp, path_a_tmp)
