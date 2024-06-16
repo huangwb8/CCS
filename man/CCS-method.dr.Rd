@@ -9,8 +9,6 @@
   method = c("UMAP", "t-SNE", "PCA")[1],
   dimension = c(2, 2),
   model.dir = NULL,
-  seed = 456,
-  numCores = 6,
   verbose = T,
   ...
 )
@@ -18,23 +16,29 @@
 \arguments{
 \item{object}{a \code{\link{CCS-class}} object}
 
-\item{method}{One of \code{'UMAP'} and \code{'t-SNE'}.}
+\item{method}{method for the establishment of sub-models. One of \code{'GSClassifier'}}
 
 \item{dimension}{the hyperparameters for 2 level t-SNE.}
 
 \item{model.dir}{a character. the path of model series.}
 
-\item{numCores}{No. of CPU core}
-
 \item{verbose}{whether report messages}
 
-\item{...}{Parameters of the core DR function.}
+\item{...}{Parameters of DR functions.}
 }
 \value{
 data frame. Series of PC1, PC2 and etc after dimensionality reduction
 }
 \description{
 \code{dr} method for \code{CCS} class. Dimensionality reduction (DR) for CCS probability matrix.
+}
+\details{
+## Parameters
+
+### Method == 't-SNE'
+
+- \code{seed}: random seed
+- \code{numCores}: CPU threads
 }
 \seealso{
 \code{\link{ccs}}.

@@ -37,24 +37,8 @@ setClass(
 
 #' @title Cohort Congress System
 #' @description Cohort Congress System
-#' @param data a list with components (expression matrix + subtype vector)
-#' @param model.dir a character. the path of model series.
-#' @param params parameters of \code{\link[xgboost]{xgb.cv}}, \code{\link[xgboost]{xgboost}}, and \code{\link[GSClassifier]{fitEnsembleModel}}. Some important options are:
-#' \itemize{
-#'   \item \code{nfold} No. of cross validation subcohorts.
-#'   \item \code{nrounds} Max number of boosting iterations. GSClassifier have optimized nrounds, so here I set a large value.
-#'   \item \code{nthread} No. of CPU cores used in \code{\link[xgboost]{xgboost}}.
-#'   \item \code{eta} Step size shrinkage used in update to prevent overfitting. Range = [0,1]
-#'   \item \code{gamma} The larger gamma is, the more conservative the algorithm will be. Range = [0,∞]
-#'   \item \code{max_depth} Maximum depth of a tree. Deeper trees can capture more complex patterns in the data, but may also lead to overfitting. Range = [0,∞]
-#'   \item \code{colsample_bytree} Percentage of columns used for each tree construction. Lowering this value can prevent overfitting by training on a subset of the features. Range = (0, 1]
-#'   \item \code{min_child_weight} The larger min_child_weight is, the more conservative the algorithm will be. Range = [0,∞]
-#'   \item \code{subsample} Preventing overfitting
-#'   \item \code{n} \code{\link[GSClassifier]{fitEnsembleModel}} parameter
-#'   \item \code{sampSize} \code{\link[GSClassifier]{fitEnsembleModel}} parameter. Range = (0,1]
-#'   \item \code{ptail} \code{\link[GSClassifier]{fitEnsembleModel}} parameter. Range = (0,0.5]
-#' }
-#' @inheritParams GSClassifier::parCallEnsemble
+#' @inheritParams ccsSubModel
+#' @inheritParams ccsProb
 #' @importFrom luckyBase LuckyVerbose is.one.true Fastextra
 #' @importFrom Rtsne Rtsne
 #' @import GSClassifier
@@ -73,6 +57,7 @@ ccs <- function(
     data,
     geneSet,
     geneAnnotation,
+    method = 'GSClassifier',
     geneid = "ensembl",
     params = list(
       nfold = 5,
@@ -106,120 +91,32 @@ ccs <- function(
   dir.create(model.dir, showWarnings = F, recursive = T)
   path_tmp <- paste0(model.dir,'/tmp')
   dir.create(path_tmp, showWarnings = F, recursive = T)
-
-  # Parameters
-  params_xg <- params[-match(c('n','sampSize','ptail'), names(params))]
-  params_xg2 <- params_xg[-match(c('nfold','nrounds'), names(params_xg))]
   path_ccs <- paste0(model.dir, "/resCCS.rds")
 
-  # Model
-  if(verbose) LuckyVerbose('Build GSClassifier models...')
-  for(i in 1:length(data)){ # i=1
-
-    data.i <- data[[i]]; cancer_type.i <- names(data)[i]
-
-    for(j in 1:length(data.i)){ # j=1
-
-      data.i.j <- data.i[[j]];
-
-      cohort.j <- names(data.i)[j]
-
-      project <- paste0(cancer_type.i, ' - ' ,cohort.j)
-
-      if(verbose) LuckyVerbose('New project: ', project)
-
-      path_child <- paste0(model.dir,'/model/',cancer_type.i, '/' ,cohort.j)
-      dir.create(path_child, showWarnings = F, recursive = T)
-
-      # fit
-      path_fit <- paste0(path_child, '/modelFit.rds')
-      if(!file.exists(path_fit)){
-        modelFit <- fitEnsembleModel(
-          Xs = data.i.j$expr,
-          Ys = data.i.j$subtype,
-          geneSet = geneSet,
-          na.fill.method = "quantile",
-          na.fill.seed = seeds[1],
-          n = params$n,
-          sampSize = params$sampSize,
-          sampSeed = seeds[2],
-          breakVec = c(0, 0.25, 0.5, 0.75, 1),
-          params = params_xg,
-          xgboost.seed = seeds[3],
-          caret.grid = NULL,
-          ptail = params$ptail,
-          verbose = T,
-          numCores = numCores
-        )
-        saveRDS(modelFit, path_fit)
-      } else {
-        if(verbose) LuckyVerbose(project, ': modelFit exists. Ignored!')
-      }
-
-    }
-
-  }
+  # Training sub-models
+  ccsSubModel(
+    data = data,
+    model.dir = model.dir,
+    method = method,
+    geneSet = geneSet,
+    params = params,
+    seeds = seeds,
+    numCores = numCores,
+    verbose
+  )
 
   # Cohort-based probability
-  if(verbose) LuckyVerbose('Calculate cohort-based probability...')
-  if(T){
-    path_models <- list.files(path = model.dir, pattern = 'modelFit.rds$', full.names = T, recursive = T)
-    path_resCBP <- paste0(model.dir, '/Cohort-based probability.rds')
-    if(!file.exists(path_resCBP)){
-      res <- data.frame()
-      for(i in 1:length(path_models)){ # i=1
-        path_model1 <- path_models[i]
-        name_model1 <- rev(Fastextra(path_model1, '[/]'))
-        cohort_model1 <- name_model1[2]; cancertype_model1 <- name_model1[3]
-        path_child <- paste0(model.dir,'/probability/',cancertype_model1, '/' , cohort_model1)
-        dir.create(path_child, recursive = T, showWarnings = F)
-        path_prob <- paste0(path_child,'/ccsProb.rds')
-        if(!file.exists(path_prob)){
-          # a <- lapply(data, function(x) lapply(x, function(y) oneCCSProbability(y, path_model1, geneAnnotation, geneSet, geneid, numCores, verbose = T))) # No detail. Work, but not I want.
-          a <- NULL
-          for(j in 1:length(data)){
-            data_cancer <- data[[j]]; cancer_name <- names(data)[j]
-            for(k in 1:length(data_cancer)){
-              data_cohort <- data_cancer[[k]]; cohort_name <- names(data_cancer)[k]
-              path_a_tmp <- paste0(path_tmp, '/oneCCSProbabilityResult_Model-',cancertype_model1,'-',cohort_model1,'_Data-',cancer_name, '-',cohort_name,'.rds')
-              if(!file.exists(path_a_tmp)){
-                a[[cancer_name]][[cohort_name]] <- a_tmp <- oneCCSProbability(data_cohort, path_model1, geneAnnotation, geneSet, geneid, numCores, dataName = paste0(cancer_name, ' - ',cohort_name),verbose = T)
-                saveRDS(a_tmp, path_a_tmp)
-              } else {
-                if(verbose) LuckyVerbose('The result of ', path_a_tmp,' exists. Use it!')
-                a[[cancer_name]][[cohort_name]] <- readRDS(path_a_tmp)
-              }
-            }
-          }
-
-          a2 <- NULL
-          for(z in 1:length(a)){ # i=1
-            a2 <- rbind(a2, do.call("rbind", a[[z]]))
-          }
-          a2 <- a2[!duplicated(a2$SampleIDs),] # Remove duplicated data
-          colnames(a2)[2:ncol(a2)] <- paste(cancertype_model1, cohort_model1,  colnames(a2)[2:ncol(a2)], sep = '|')
-          rownames(a2) <- as.character(a2$SampleIDs)
-          saveRDS(a2, path_prob)
-        } else {
-          if(verbose) LuckyVerbose(cancer_type.i, '-' ,cohort.j, ': The result of ccsProb exists. Use it!')
-          a2 <- readRDS(path_prob)
-        }
-
-        # merge
-        if(i==1){
-          res <- a2
-        } else {
-          res <- cbind(res, a2[,-1])
-        }
-
-      }
-      saveRDS(res, path_resCBP)
-    } else {
-      if(verbose) LuckyVerbose('The result of Cohort-based probability exists. Use it!')
-      res <- readRDS(path_resCBP)
-    }
-    res2 <- res[,-1]; res2 <- matrix(as.numeric(as.matrix(res2)), nrow = nrow(res2), byrow = F, dimnames = list(as.character(res$SampleIDs), colnames(res2)))
-  }
+  res2 <- ccsProb(
+    data = data,
+    model.dir = model.dir,
+    path_tmp = path_tmp,
+    method = method,
+    geneAnnotation = geneAnnotation,
+    geneSet = geneSet,
+    geneid = geneid,
+    numCores = numCores,
+    verbose
+  )
 
   # Output
   l <- new(

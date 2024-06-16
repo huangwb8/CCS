@@ -40,6 +40,71 @@ softmax <- function(x){
 }
 
 
+#' @rdname CCS-package.createCCSData
+#' @title createCCSData
+#' @description Create training data for CCS package based on expression matrix and GEPs
+#' @param dataList A nested list object. The first layer is the type of tumor; the second layer is the gene expression matrix.
+#' @param ... parameters for \code{\link[GSClassifier]{subtypeVector}} function
+#' @inheritParams GSClassifier::subtypeVector
+#' @importFrom GSClassifier subtypeVector
+#' @return training data for \code{\link{ccs}} function
+#' @seealso \code{\link{ccs}}.
+#' @author Weibin Huang<\email{hwb2012@@qq.com}>
+#' @export
+createCCSData <- function(
+    dataList,
+    GEPs,
+    verbose = T,
+    ...
+){
+
+  # Test
+  if(F){
+    dataList <- readRDS('E:/Sync/@Analysis/CCS_Data/raw/PanCan_CancerSample_DataListForCCS_v20240614_GEO.rds')
+    GEPs <- readRDS('E:/RCloud/database/Signature/report/Signature_PanCanWGCNA-Top10.rds')
+  }
+
+  # Cancer type
+  cancer_type <- names(dataList)
+
+  # Calling subtype vector
+  if(verbose) LuckyVerbose('createCCSData: Calling subtype vector...')
+  l <- list()
+  for(i in 1:length(cancer_type)){ # i=1
+    expr_type <- names(dataList[[cancer_type[i]]])
+    for(j in 1:length(expr_type)){ # j=1
+      expr.j <- dataList[[i]][[j]]
+      expr.j.res <- GSClassifier::subtypeVector(
+        expr = expr.j,
+        GEPs = GEPs,
+        verbose = verbose,
+        ...
+      )
+      l[[cancer_type[i]]][[expr_type[j]]] <- expr.j.res$Data
+    }
+  }
+
+  # filtering out ineligable datasets
+  data_filter <- NULL
+  for(i in 1:length(l)){
+    l_i <- l[[i]]
+    for(j in 1:length(l_i)){
+      l_j <- l_i[[j]]
+      if(length(unique(l_j$subtype)) == 1){
+        data_filter <- c(data_filter, names(l_i)[i])
+        l[[i]][[j]] <- NULL
+      }
+    }
+  }
+  if(verbose) LuckyVerbose('createCCSData: Datasets ',paste0(data_filter, collapse = ', '),' would be ignored due to lack of subtype diversity...')
+
+  # Output
+  if(verbose) LuckyVerbose('createCCSData: Done!')
+  return(l)
+
+}
+
+
 #' @title Calinski-Harabasz index
 #' @description Calinski-Harabasz index from fpc::cluster.stats
 #' @inheritParams fpc::cluster.stats
@@ -118,83 +183,6 @@ CHindex <- function (
   between.cluster.ss <- nonnoise.ss - within.cluster.ss
   ch <- between.cluster.ss * (n - noisen - cwn)/(within.cluster.ss * (cwn - 1))
   return(ch)
-}
-
-
-#' @description OneModel-OneData CSS process
-#' @param data1 a list containing an expression matrix and its subtype vector
-#' @param path_model1 the path of a (GSClassifier) model
-#' @importFrom GSClassifier parCallEnsemble
-#' @importFrom luckyBase LuckyVerbose Fastextra
-#' @return a data frame with sample IDS and the softmax probability.
-#' @author Weibin Huang<\email{hwb2012@@qq.com}>
-oneCCSProbability <- function(
-    data1,
-    path_model1,
-    geneAnnotation,
-    geneSet,
-    geneid,
-    numCores,
-    dataName = 'GSEXXX',
-    verbose = T
-){
-
-  # Test
-  if(F){
-    library(luckyBase)
-    Plus.library(c('GSClassifier'))
-    data1 = data[[2]][[3]]
-    path_model1 = "./ccs/test01/cohort.1.1/modelFit.rds"
-    dataName = 'GSEXXX'
-    verbose = T
-    l <- list(A=list(A1=1,A2=2), B=list(B1=1,B2=2))
-    l_name <- lapply(l, function(x) lapply(x, function(y) names(x)))
-
-    # 20240302
-    # Error in exp(x) : non-numeric argument to mathematical function
-    data_all <- readRDS('E:/Sync/@Analysis/PanCan_Data/Level 1/PanCan_CancerSample_DataListForCCS-PAD_Train+Valid_v20231224.rds')
-    PADi <- readRDS(system.file("extdata", paste0('PAD.train_20220916.rds'), package = "GSClassifier"))
-    path_model1 = "E:/iProjects/RCheck/GSClassifier/test01/ccs/v20240225/model/ACC/GSE33371/modelFit.rds"
-    data <- readRDS('E:/Sync/@Analysis/PanCan_Data/Level 1/PanCan_CancerSample_DataListForCCS-PAD_Train+Valid_v20231224.rds')
-    data1 = data[['PAAD']][['GSE21501']]
-    # data1 = data[['AEG']][['GSE74553']]
-    dataName = 'GSE21501'
-    PADi <- readRDS(system.file("extdata", paste0('PAD.train_20220916.rds'), package = "GSClassifier"))
-    geneAnnotation = PADi$geneAnnotation
-    geneSet = PADi$geneSet
-    geneid = "ensembl"
-    numCores= 6
-  }
-
-  # Project
-  x <- rev(Fastextra(path_model1, '[/]'))
-  cancer <- x[3]; cohort <- x[2]
-  project <- paste0(cancer, ' - ' ,cohort)
-  if(verbose) LuckyVerbose('oneCCSProbability: Model ', project, '; Data ', dataName, ' ...')
-
-  # Call probability score
-  modelFit <- readRDS(path_model1)
-  res <- parCallEnsemble(
-    X = data1$expr,
-    ens = modelFit$Model,
-    geneAnnotation = geneAnnotation,
-    geneSet = geneSet,
-    geneid = geneid,
-    scaller = NULL,
-    subtype = NULL,
-    numCores = numCores
-  )
-
-  # Output
-  res <- as.data.frame(
-    cbind(
-      SampleIDs = as.character(res[,'SampleIDs']),
-      t(apply(res[-c(1,2,3)], 1, softmax))
-    )
-  )
-  if(verbose) LuckyVerbose('oneCCSProbability: Model ', project, '; Data ', dataName, ' Done!')
-  return(res)
-
 }
 
 
@@ -428,7 +416,6 @@ multiXClass_roc <- function(response, predictor, verbose = T){
   return(res.adjust)
 
 }
-
 
 
 

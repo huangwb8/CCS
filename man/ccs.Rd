@@ -8,6 +8,7 @@ ccs(
   data,
   geneSet,
   geneAnnotation,
+  method = "GSClassifier",
   geneid = "ensembl",
   params = list(nfold = 5, nrounds = 100, nthread = 2, eta = 0.5, gamma = 0, max_depth =
     10, colsample_bytree = 1, min_child_weight = 1, subsample = 0.7, n = 100, sampSize =
@@ -24,6 +25,8 @@ ccs(
 \item{geneSet}{A list of genes for classification}
 
 \item{geneAnnotation}{A data frame with ENSEMBL, SYMBOL and ENTREZID of the genes in \code{geneSet}}
+
+\item{method}{method for the establishment of sub-models. One of \code{'GSClassifier'}}
 
 \item{geneid}{type of gene id in \code{X}. One of \code{'symbol'}, \code{'entrez'} and \code{'ensembl'}.}
 
