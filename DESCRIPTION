@@ -1,7 +1,7 @@
 Package: CCS
 Type: Package
 Title: Cohort Congress System
-Version: 0.3.9
+Version: 0.3.19
 Authors@R:
     person(given = "Weibin",
            family = "Huang",
@@ -14,15 +14,19 @@ Encoding: UTF-8
 LazyData: true
 RoxygenNote: 7.3.1
 Imports: 
+    ComplexHeatmap,
     dbscan,
     digest,
     dplyr,
+    ggplot2,
     grid,
     GSClassifier,
     irr,
-    luckyBase,
     pROC,
     Rtsne,
     stats,
+    tidyr,
     umap,
     xgboost
+Depends: 
+    luckyBase

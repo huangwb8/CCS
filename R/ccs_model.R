@@ -11,6 +11,7 @@ ccsSubModel <- function(
     params,
     seeds,
     numCores,
+    parallel.method = c('ensemble','discrete')[1],
     verbose
   ){
 
@@ -95,6 +96,16 @@ ccsSubModel_GSClassifier <- function(
     seeds,
     numCores
 ){
+
+  nround.mode = {
+    if(is.null(params$nround.mode)){
+      nround.mode = 'polling'
+    } else {
+      nround.mode = params$nround.mode
+    }
+    nround.mode
+  }
+
   modelFit <- GSClassifier::fitEnsembleModel(
     Xs = data.i.j$expr,
     Ys = data.i.j$subtype,
@@ -106,6 +117,7 @@ ccsSubModel_GSClassifier <- function(
     sampSeed = seeds[2],
     breakVec = c(0, 0.25, 0.5, 0.75, 1),
     params = params_xg,
+    nround.mode = nround.mode,
     xgboost.seed = seeds[3],
     caret.grid = NULL,
     ptail = params$ptail,
@@ -114,7 +126,7 @@ ccsSubModel_GSClassifier <- function(
   )
 
   # model size control
-  modelFit[['Repeat']] <- NA
+  # modelFit[['Repeat']] <- NA
 
   # Output
   return(modelFit)

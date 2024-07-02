@@ -10,6 +10,7 @@ ccs(
   geneAnnotation,
   method = "GSClassifier",
   geneid = "ensembl",
+  parallel.method = c("ensemble", "discrete")[1],
   params = list(nfold = 5, nrounds = 100, nthread = 2, eta = 0.5, gamma = 0, max_depth =
     10, colsample_bytree = 1, min_child_weight = 1, subsample = 0.7, n = 100, sampSize =
     0.7, ptail = 0.2),
@@ -29,6 +30,8 @@ ccs(
 \item{method}{method for the establishment of sub-models. One of \code{'GSClassifier'}}
 
 \item{geneid}{type of gene id in \code{X}. One of \code{'symbol'}, \code{'entrez'} and \code{'ensembl'}.}
+
+\item{parallel.method}{The strategy to to do parallel calculation via \code{\link{parCallEnsemble}}. If \code{parallel.method = 'ensemble'}(default), all dataset in \code{data} would be merge into one large dataset. If \code{parallel.method = 'discrete'}(legacy), every dataset would be calling respectively.}
 
 \item{params}{parameters of \code{\link[xgboost]{xgb.cv}}, \code{\link[xgboost]{xgboost}}, and \code{\link[GSClassifier]{fitEnsembleModel}}. Some important options are:
 \itemize{

@@ -4,12 +4,26 @@
 \alias{createCCSData}
 \title{createCCSData}
 \usage{
-createCCSData(dataList, GEPs, ...)
+createCCSData(
+  dataList,
+  geneSet,
+  geneAnnotation = NULL,
+  na.fill.method = c("quantile", "rpart", NULL)[1],
+  na.fill.seed = 2024,
+  verbose = TRUE,
+  ...
+)
 }
 \arguments{
 \item{dataList}{A nested list object. The first layer is the type of tumor; the second layer is the gene expression matrix.}
 
-\item{GEPs}{List. Gene expression profiles - Co-expressed modules from WGCNA, etc}
+\item{geneSet}{A list of genes for classification}
+
+\item{na.fill.method}{Missing value imputation method for \code{\link[GSClassifier]{na_fill}} function. One of \code{'quantile'}, \code{'rpart'} and \code{NULL}.}
+
+\item{na.fill.seed}{Seed for \code{\link[GSClassifier]{na_fill}} function.}
+
+\item{verbose}{whether report modeling process}
 
 \item{...}{parameters for \code{\link[GSClassifier]{subtypeVector}} function}
 }
@@ -17,7 +31,7 @@ createCCSData(dataList, GEPs, ...)
 training data for \code{\link{ccs}} function
 }
 \description{
-Create training data for CCS package based on expression matrix and GEPs
+Create training data for CCS package based on expression matrix and geneSet
 }
 \seealso{
 \code{\link{ccs}}.

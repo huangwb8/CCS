@@ -59,6 +59,7 @@ ccs <- function(
     geneAnnotation,
     method = 'GSClassifier',
     geneid = "ensembl",
+    parallel.method = c('ensemble','discrete')[1],
     params = list(
       nfold = 5,
       nrounds = 100,
@@ -89,8 +90,8 @@ ccs <- function(
   # Grobal seeds
   set.seed(seed); seeds <- sample(1:10000, 20, replace = T)
   dir.create(model.dir, showWarnings = F, recursive = T)
-  path_tmp <- paste0(model.dir,'/tmp')
-  dir.create(path_tmp, showWarnings = F, recursive = T)
+  # path_log <- paste0(model.dir,'/log')
+  # dir.create(path_log, showWarnings = F, recursive = T)
   path_ccs <- paste0(model.dir, "/resCCS.rds")
 
   # Training sub-models
@@ -102,26 +103,27 @@ ccs <- function(
     params = params,
     seeds = seeds,
     numCores = numCores,
-    verbose
+    verbose = verbose
   )
 
   # Cohort-based probability
   res2 <- ccsProb(
     data = data,
     model.dir = model.dir,
-    path_tmp = path_tmp,
     method = method,
     geneAnnotation = geneAnnotation,
     geneSet = geneSet,
     geneid = geneid,
+    parallel.method = parallel.method,
     numCores = numCores,
-    verbose
+    verbose = verbose
   )
 
   # Output
   l <- new(
     'CCS',
     Repeat = list(
+      method = method,
       geneSet = geneSet,
       geneAnnotation = geneAnnotation,
       geneid = geneid,

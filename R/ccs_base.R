@@ -42,44 +42,80 @@ softmax <- function(x){
 
 #' @rdname CCS-package.createCCSData
 #' @title createCCSData
-#' @description Create training data for CCS package based on expression matrix and GEPs
+#' @description Create training data for CCS package based on expression matrix and geneSet
 #' @param dataList A nested list object. The first layer is the type of tumor; the second layer is the gene expression matrix.
 #' @param ... parameters for \code{\link[GSClassifier]{subtypeVector}} function
+#' @inheritParams GSClassifier::fitEnsembleModel
 #' @inheritParams GSClassifier::subtypeVector
 #' @importFrom GSClassifier subtypeVector
+#' @import luckyBase
 #' @return training data for \code{\link{ccs}} function
 #' @seealso \code{\link{ccs}}.
 #' @author Weibin Huang<\email{hwb2012@@qq.com}>
 #' @export
 createCCSData <- function(
     dataList,
-    GEPs,
-    verbose = T,
+    geneSet,
+    geneAnnotation = NULL,
+    na.fill.method = c("quantile", "rpart", NULL)[1],
+    na.fill.seed = 2024,
+    verbose = TRUE,
     ...
 ){
 
   # Test
   if(F){
-    dataList <- readRDS('E:/Sync/@Analysis/CCS_Data/raw/PanCan_CancerSample_DataListForCCS_v20240614_GEO.rds')
-    GEPs <- readRDS('E:/RCloud/database/Signature/report/Signature_PanCanWGCNA-Top10.rds')
+    library(luckyBase)
+    Plus.library(c('GSClassifier'))
+    dataList <- readRDS('E:/Sync/@Analysis/PanCan_Data/Level 1/PanCan_CancerSample_DataListForCCS_v20240614_GEO.rds')
+    geneSet <- readRDS('E:/RCloud/database/Signature/report/Signature_PanCanWGCNA-Top10.rds')
+    geneAnnotation <- NULL
+    na.fill.method = c("quantile", "rpart", NULL)[1]
+    na.fill.seed = 2024
+    verbose = TRUE
   }
+
+  # Environments
+  if(is.null(geneAnnotation)){
+    geneAnnotation <- common.annot[match(as.character(unlist(geneSet)), common.annot$ENSEMBL),]
+  }
+  set.seed(na.fill.seed); seeds <- sample(1:100000, countListElement(dataList), replace = F)
 
   # Cancer type
   cancer_type <- names(dataList)
 
   # Calling subtype vector
   if(verbose) LuckyVerbose('createCCSData: Calling subtype vector...')
-  l <- list()
+  l <- list(); seed_order <- 1
   for(i in 1:length(cancer_type)){ # i=1
     expr_type <- names(dataList[[cancer_type[i]]])
     for(j in 1:length(expr_type)){ # j=1
       expr.j <- dataList[[i]][[j]]
       expr.j.res <- GSClassifier::subtypeVector(
         expr = expr.j,
-        GEPs = GEPs,
+        geneSet = geneSet,
         verbose = verbose,
         ...
       )
+      expr.j.res2 <- GSClassifier::geneMatch(
+          X = expr.j.res$Data$expr,
+          geneAnnotation = geneAnnotation,
+          geneid = "ensembl",
+          matchmode = c("fix", "free")[1]
+        )
+      # if(verbose) GSClassifier:::reportError(expr.j.res2)
+
+      # Missing value imputation
+      expr.j.res$Data$expr <- GSClassifier::na_fill(
+        expr.j.res2$Subset,
+        method = na.fill.method,
+        seed = seeds[seed_order],
+        verbose = verbose)
+      seed_order <-  seed_order + 1
+
+      # Other results
+      expr.j.res$Data$matchError <- expr.j.res2$matchError
+      expr.j.res$Data$missGenes <- expr.j.res2$missGenes
       l[[cancer_type[i]]][[expr_type[j]]] <- expr.j.res$Data
     }
   }
@@ -96,12 +132,13 @@ createCCSData <- function(
       }
     }
   }
-  if(verbose) LuckyVerbose('createCCSData: Datasets ',paste0(data_filter, collapse = ', '),' would be ignored due to lack of subtype diversity...')
+  if(!is.null(data_filter)){
+    if(verbose) LuckyVerbose('createCCSData: Datasets ',paste0(data_filter, collapse = ', '),' would be ignored due to lack of subtype diversity...')
+  }
 
   # Output
   if(verbose) LuckyVerbose('createCCSData: Done!')
   return(l)
-
 }
 
 
