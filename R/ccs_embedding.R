@@ -22,7 +22,7 @@ ccsProb <- function(
   if(F){
     library(luckyBase)
     np <- Plus.library(c('tidyr','dplyr','GSClassifier'))
-    data <- readRDS('E:/iProjects/CCS_Data/product/PanCan_CancerSample_DataListForCCS-Signature-PanCanWGCNA-Top10_v20240623_GEO.rds')
+    data <- readRDS('E:/iProjects/CCS_Data/product/PanCan_CancerSample_DataListForCCS-Signature-PanCanWGCNA-Top10_v20240623_GEO.rds')[c(1,2)]
     model.dir = 'E:/iProjects/RCheck/GSClassifier/test01/ccs/Testv20240623'
     method = 'GSClassifier'
     numCores = 16
@@ -50,13 +50,13 @@ ccsProb <- function(
 
       # Get & save every dataset-dataset probability as oneCCSProbabilityResult_*.rds
       if(parallel.method == 'ensemble'){
-        ccsProbEnsemble(
+        CCS:::ccsProbEnsemble(
           method, data, model.dir, path_model1,
           geneAnnotation, geneSet, geneid,
           numCores, verbose
         )
       } else if(parallel.method == 'discrete'){
-        ccsProbDiscrete(
+        CCS:::ccsProbDiscrete(
           method, data, model.dir, path_model1,
           geneAnnotation, geneSet, geneid,
           numCores, verbose
@@ -259,7 +259,7 @@ splitProbData <- function(data2_prob, data, pred_i_res, path_child, cancertype_m
     path_a_tmp <- paste0(path_child, '/oneCCSProbabilityResult_Model-',cancertype_model1,'-',cohort_model1,'_Data-',cancer_type.n, '-',cohort.n,'.rds')
     index <- match(sample.n, as.character(data2_prob$SampleIDs)) # cannot use `match` because there might be duplicati samples!
     data2_prob_2 <- data2_prob[index,]
-    data2_prob_2$SampleIDs <- as.character(Fastextra(data2_prob_2$SampleIDs,'|',3))
+    data2_prob_2$SampleIDs <- as.character(Fastextra(data2_prob_2$SampleIDs,'[|]',3))
     saveRDS(data2_prob_2, path_a_tmp)
   }
 }
@@ -298,7 +298,9 @@ ccsProbEnsemble <- function(
       numCores, dataName = paste(pred_i_res, collapse = ', '),
       verbose = T
     )
-    # saveRDS(data2_prob, paste0(path_child,'/','data2_prob.rds'))
+    data2_prob$SampleIDs <- gsub('[.]','|',data2_prob$SampleIDs)
+    saveRDS(data2_prob, paste0(path_child,'/','data2_prob.rds'))
+
     splitProbData(
       data2_prob, data, pred_i_res,
       path_child, cancertype_model1, cohort_model1
