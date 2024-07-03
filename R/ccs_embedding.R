@@ -179,7 +179,7 @@ oneCCSProbability <- function(
       as.data.frame(res[-c(1,2,3)])
     )
 
-  if(verbose) LuckyVerbose('oneCCSProbability: Model ', project, '; Data ', dataName, ' Done!')
+  if(verbose) LuckyVerbose('oneCCSProbability: Done!')
   return(res)
 
 }
