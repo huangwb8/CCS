@@ -1,7 +1,7 @@
 Package: CCS
 Type: Package
 Title: Cohort Congress System
-Version: 0.3.21
+Version: 0.3.22
 Authors@R:
     person(given = "Weibin",
            family = "Huang",
@@ -18,11 +18,14 @@ Imports:
     dbscan,
     digest,
     dplyr,
+    furrr,
     ggplot2,
     grid,
     GSClassifier,
     irr,
+    plyr,
     pROC,
+    purrr,
     Rtsne,
     stats,
     tidyr,
