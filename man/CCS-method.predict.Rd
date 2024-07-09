@@ -4,7 +4,14 @@
 \alias{predict.CCS}
 \title{CCS method: predict}
 \usage{
-\method{predict}{CCS}(object, X, model.dir = NULL, verbose = T, numCores = 4)
+\method{predict}{CCS}(
+  object,
+  X,
+  model.dir = NULL,
+  project.name = "01",
+  verbose = T,
+  numCores = 4
+)
 }
 \arguments{
 \item{object}{a \code{\link{CCS-class}} object}
@@ -12,6 +19,8 @@
 \item{X}{a numeric RNA expression vector or matrix with gene names}
 
 \item{model.dir}{a character. the path of model series.}
+
+\item{project.name}{a project name about \code{X}. Because some might call lots of dataset based on one \code{CCS} model, It's recommended to set a projec name. Default is \code{01}.}
 
 \item{verbose}{whether report messages}
 

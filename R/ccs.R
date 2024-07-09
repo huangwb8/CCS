@@ -152,6 +152,7 @@ ccs <- function(
 #' @rdname CCS-method.predict
 #' @title CCS method: predict
 #' @description \code{predict} method for \code{CCS} class
+#' @param project.name a project name about \code{X}. Because some might call lots of dataset based on one \code{CCS} model, It's recommended to set a projec name. Default is \code{01}.
 #' @inheritParams CCSPublicParams
 #' @inheritParams GSClassifier::parCallEnsemble
 #' @import GSClassifier
@@ -167,18 +168,25 @@ ccs <- function(
 predict.CCS <- function(
     object, X,
     model.dir = NULL,
+    project.name = "01",
     verbose = T,
     numCores = 4){
 
   # Test
   if(F){
-    library(luckyBase); library(GSClassifier)
-    work.space = 'E:/RCloud/RFactory/CCS/test/ccs/project_01'
+    library(luckyBase)
+    Plus.library(c('GSClassifier','tidyr'))
+    # work.space = 'E:/RCloud/RFactory/CCS/test/ccs/project_01'
+    work.space = 'E:/iProjects/RCheck/GSClassifier/test01/ccs/Testv20240623'
     object = readRDS(paste0(work.space, '/', 'resCCS.rds'))
-    X = data[["cancer_1"]][["cohort.1.1"]][["expr"]][,1:5]
-    model.dir = './test/ccs/project_01'
-    numCores = 4
-    verbose = F
+    # X = data[["cancer_1"]][["cohort.1.1"]][["expr"]][,1:5]
+    data_all <- readRDS('E:/iProjects/CCS_Data/product/PanCan_CancerSample_DataListForCCS-Signature-PanCanWGCNA-Top10_v20240623_GEO.rds')
+    X <- data_all$CRC$GSE26906$expr[,1:5]
+    # model.dir = './test/ccs/project_01'
+    model.dir = 'E:/iProjects/RCheck/GSClassifier/test01/ccs/Testv20240623'
+    numCores = 16
+    verbose = FALSE
+    project.name = "01"
   }
 
   # Model parameters
@@ -192,110 +200,105 @@ predict.CCS <- function(
   # scaller = readRDS(paste0(model.dir,'/scaller.rds'))
   models = object@Model
   cluster_translator = object@Data[['scaller.parameters']][['cluster_translator']]
+  method = object@Repeat$method
+  work.space = paste0(model.dir, '/prediction/', project.name)
+  dir.create(work.space, showWarnings = F, recursive = T)
 
   # Check integrity
   if(is.null(scaller)){
-    stop('Lack subtype caller. Stop!')
+    stop('predict.CCS: Lack subtype caller. Stop!')
   }
 
   # Expression matrix
   X <- GSClassifier:::rightX(X)
   nSample <- ncol(X)
 
+  # gather models
+  # This method is memory consuming, because there should be space for the `models` object. However, this strategy provides a uniform way to use models and promote the development of parallel algorithms.
+  if(identical(models, list(NA))){
+    if(verbose) LuckyVerbose('predict.CCS: Light mode CCS. Load external model...')
+    path_models <- list.files(path = model.dir, pattern = 'modelFit.rds$', recursive = T, full.names = T)
+    models <- list()
+    for(i in 1:length(path_models)){
+      path_model_i <- path_models[i]
+      name_model <- rev(Fastextra(path_model_i, '[/]'))
+      cancertype_model1 <- name_model[3]
+      cohort_model1 <- name_model[2]
+      models[[cancertype_model1]][[cohort_model1]] <- 'LightMode'
+    }
+  }
+
+
   # Call CCS probability
   X_CCSprobability <- NULL
-  if(identical(models, list(NA))){
-    if(verbose) LuckyVerbose('Light mode CCS. Use external model...')
-    path_models <- list.files(path = model.dir, pattern = 'modelFit.rds$', recursive = T, full.names = T)
-    for(i in 1:length(path_models)){ # i=1
+  for(i in 1:length(models)){ # i=1
 
-      # A GSClassifier model
-      path_models.i <- path_models[i]
-      modelFit <- readRDS(path_models.i)
-      name_model1 <- rev(Fastextra(path_models.i, '[/]'))
-      cohort_model1 <- name_model1[2]; cancertype_model1 <- name_model1[3]
-      if(verbose) LuckyVerbose('Load model of ', cancertype_model1, ' - ', cohort_model1 ," cohort : ")
+    cancertype_model1 <- names(models)[i]
+    model.i <- models[[i]]
 
-      # Call CCS probability
-      if(nSample > 100){
-        X_CCSprobability.i <- parCallEnsemble(
-          X = X,
-          ens = modelFit$Model,
-          geneAnnotation = geneAnnotation,
-          geneSet = geneSet,
-          geneid = geneid,
-          scaller = NULL,
-          subtype = NULL,
-          verbose = verbose,
-          numCores = numCores
-        )
+    for(j in 1:length(model.i)){ # j=1
+
+      cohort_model1 <- names(model.i)[[j]]
+
+      path_X_CCSprobability.i <- paste0(work.space,'/Model-',cancertype_model1,'-',cohort_model1,'_Data-',project.name,'.rds')
+
+      if(file.exists(path_X_CCSprobability.i)){
+
+        if(verbose) LuckyVerbose('predict.CCS: ',paste0('Results of Model-',cancertype_model1,'-',cohort_model1,'_Data-',project.name), ' exists. Use it!')
+        X_CCSprobability.i <- readRDS(path_X_CCSprobability.i)
+
       } else {
-        X_CCSprobability.i <- callEnsemble(
-          X = X,
-          ens = modelFit$Model,
-          geneAnnotation = geneAnnotation,
-          geneSet = geneSet,
-          geneid = geneid,
-          scaller = NULL,
-          subtype = NULL,
-          verbose = verbose
-        )
+
+        if(model.i[[j]] == 'LightMode'){
+          modelFit <- readRDS(path_models[grepl(cancertype_model1,path_models) & grepl(cohort_model1,path_models)])
+        } else {
+          modelFit <- model.i[[j]]
+        }
+
+        if(verbose) LuckyVerbose('predict.CCS: Model-',cancertype_model1,' - ',cohort_model1,'...')
+        # Call CCS probability
+        if(method == 'GSClassifier'){
+          if(verbose) LuckyVerbose('predict.CCS: Model method =  "GSClassifier" ...')
+          if(nSample > numCores){
+            X_CCSprobability.i <- parCallEnsemble(
+              X = X,
+              ens = modelFit$Model,
+              geneAnnotation = geneAnnotation,
+              geneSet = geneSet,
+              geneid = geneid,
+              scaller = NULL,
+              subtype = NULL,
+              verbose = verbose,
+              numCores = numCores
+            )
+          } else {
+            X_CCSprobability.i <- callEnsemble(
+              X = X,
+              ens = modelFit$Model,
+              geneAnnotation = geneAnnotation,
+              geneSet = geneSet,
+              geneid = geneid,
+              scaller = NULL,
+              subtype = NULL,
+              verbose = verbose
+            )
+          }
+        } else {
+          stop('predict.CCS: Please use right methods - One of "GSClassifier".')
+        }
+
+        colnames(X_CCSprobability.i)[4:ncol(X_CCSprobability.i)] <- paste(cancertype_model1, cohort_model1,  colnames(X_CCSprobability.i)[4:ncol(X_CCSprobability.i)], sep = '|')
+        saveRDS(X_CCSprobability.i, path_X_CCSprobability.i)
       }
 
-      colnames(X_CCSprobability.i)[3:ncol(X_CCSprobability.i)] <- paste(cancertype_model1, cohort_model1,  colnames(X_CCSprobability.i)[3:ncol(X_CCSprobability.i)], sep = '|')
-      res.i <- t(apply(X_CCSprobability.i[-c(1,2,3)], 1, softmax))
+      # res.i <- t(apply(X_CCSprobability.i[-c(1,2,3)], 1, softmax))
+      res.i <- as.matrix(X_CCSprobability.i[,-c(1,2,3)])
 
       # Merge results
-      if(i == 1){
+      if(i == 1 & j == 1){
         X_CCSprobability <- res.i
       } else {
         X_CCSprobability <- cbind(X_CCSprobability, res.i)
-      }
-    }
-  } else {
-    if(verbose) LuckyVerbose('Complete mode CCS. Use internal model...')
-    for(i in 1:length(models)){ # i=1
-      cancertype_model1 <- names(models)[i]
-      model.i <- models[[i]]
-      for(j in 1:length(model.i)){
-        cohort_model1 <- names(model.i)[[j]]
-        modelFit <- model.i[[j]]
-
-        # Call CCS probability
-        if(nSample > 100){
-          X_CCSprobability.i <- parCallEnsemble(
-            X = X,
-            ens = modelFit$Model,
-            geneAnnotation = geneAnnotation,
-            geneSet = geneSet,
-            geneid = geneid,
-            scaller = NULL,
-            subtype = NULL,
-            verbose = verbose,
-            numCores = numCores
-          )
-        } else {
-          X_CCSprobability.i <- callEnsemble(
-            X = X,
-            ens = modelFit$Model,
-            geneAnnotation = geneAnnotation,
-            geneSet = geneSet,
-            geneid = geneid,
-            scaller = NULL,
-            subtype = NULL,
-            verbose = verbose
-          )
-        }
-
-        colnames(X_CCSprobability.i)[3:ncol(X_CCSprobability.i)] <- paste(cancertype_model1, cohort_model1,  colnames(X_CCSprobability.i)[3:ncol(X_CCSprobability.i)], sep = '|')
-        res.i <- t(apply(X_CCSprobability.i[-c(1,2,3)], 1, softmax))
-
-        # Merge results
-        if(i == 1 & j == 1){
-          X_CCSprobability <- res.i
-        } else {
-          X_CCSprobability <- cbind(X_CCSprobability, res.i)
-        }
       }
     }
   }
@@ -306,9 +309,9 @@ predict.CCS <- function(
   X_CCS_Pred <- convert(X_CCS_Pred, 'adjust', 'raw', cluster_translator) %>% as.integer()
   names(X_CCS_Pred) <- colnames(X)
 
-
   # Output
   l <- list(
+    project.name = project.name,
     X = X,
     model.dir = model.dir,
     CCS = list(
@@ -316,7 +319,8 @@ predict.CCS <- function(
       Prediction = X_CCS_Pred
     )
   )
-  if(verbose) LuckyVerbose('All done!')
+  if(verbose) LuckyVerbose('predict.CCS: All done!')
+  saveRDS(l, paste0(work.space,'/','ResultCCSPrediction.rds'))
   return(l)
 }
 
