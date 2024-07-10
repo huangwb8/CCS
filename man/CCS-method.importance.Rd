@@ -15,7 +15,7 @@
 
 \item{numCores}{No. of CPU core}
 
-\item{...}{parameters to \code{\link[ggplot2]{geom_bar}}.}
+\item{...}{parameters for \code{\link[xgboost]{xgb.cv}} and \code{\link[xgboost]{xgboost}}.}
 }
 \description{
 \code{importance} method for \code{CCS} class
@@ -24,5 +24,5 @@
 To be continued!
 }
 \seealso{
-\code{\link{ccs}}.
+\code{\link{ccs}};\code{\link{plotImportance}}.
 }

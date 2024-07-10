@@ -7,13 +7,13 @@ setGeneric("importance", function(object, ...) {
 #' @rdname CCS-method.importance
 #' @title CCS method: importance
 #' @description \code{importance} method for \code{CCS} class
-#' @param ... parameters to \code{\link[ggplot2]{geom_bar}}.
+#' @param ... parameters for \code{\link[xgboost]{xgb.cv}} and \code{\link[xgboost]{xgboost}}.
 #' @param seed random seed for \code{xgboost}
 #' @inheritParams CCSPublicParams
 #' @inheritParams ccs
 #' @inheritParams dr
 #' @importFrom plyr llply
-#' @seealso \code{\link{ccs}}.
+#' @seealso \code{\link{ccs}};\code{\link{plotImportance}}.
 #' @examples
 #' To be continued!
 #' @exportMethod importance
@@ -68,7 +68,7 @@ setMethod(
       }
       params_xg <- params[-match(c('n','sampSize','ptail'), names(params))]
       params_xg[['objective']] <- "reg:squarederror"
-      # params_xg[['nthread']] <- numCores # numCores
+      params_xg[['nthread']] <- numCores # numCores
       # params_xg[['device']] <- 'cpu'
       # params_xg[['eta']] <- 0.2
     }
@@ -114,11 +114,11 @@ setGeneric("plotImportance", function(object, ...) {
 #' @inheritParams CCSPublicParams
 #' @inheritParams ccs
 #' @inheritParams dr
-#' @importFrom plyr llply
+#' @importFrom plyr llply ldply
 #' @importFrom dplyr slice_max
 #' @importFrom tidyr `%>%`
 #' @import ggplot2
-#' @seealso \code{\link{ccs}}.
+#' @seealso \code{\link{ccs}}; \code{\link{importance}}.
 #' @examples
 #' To be continued!
 #' @exportMethod plotImportance
@@ -271,8 +271,9 @@ ctImportance <- function(object, params_xg, seed, verbose){
 #' @description Feature(genes) Importance estimation
 #' @importFrom xgboost xgb.DMatrix xgb.cv xgboost xgb.importance
 #' @importFrom luckyBase Fastextra
-#' @import furrr
-#' @import purrr
+#' @importFrom purrr map_dfr imap_dfr
+#' @importFrom dplyr full_join arrange
+#' @import plyr
 #' @author Weibin Huang<\email{hwb2012@@qq.com}>
 featureImportance_GSClassifier <- function(object, resctImportance, numCores){
 
@@ -431,8 +432,8 @@ featureImportance_GSClassifier <- function(object, resctImportance, numCores){
 
 
 #' @description Merge all|D1 and all|D2
-#' @importFrom dplyr full_join
-#' @importFrom luckyBase mergeMatrixDup
+#' @importFrom dplyr full_join arrange
+#' @importFrom luckyBase mergeMatrixDup Fastextra
 #' @author Weibin Huang<\email{hwb2012@@qq.com}>
 mergeImportance <- function(lst){
 

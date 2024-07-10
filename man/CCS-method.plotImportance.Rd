@@ -28,5 +28,5 @@
 To be continued!
 }
 \seealso{
-\code{\link{ccs}}.
+\code{\link{ccs}}; \code{\link{importance}}.
 }

@@ -214,7 +214,6 @@ predict.CCS <- function(
   nSample <- ncol(X)
 
   # gather models
-  # This method is memory consuming, because there should be space for the `models` object. However, this strategy provides a uniform way to use models and promote the development of parallel algorithms.
   if(identical(models, list(NA))){
     if(verbose) LuckyVerbose('predict.CCS: Light mode CCS. Load external model...')
     path_models <- list.files(path = model.dir, pattern = 'modelFit.rds$', recursive = T, full.names = T)
@@ -227,7 +226,6 @@ predict.CCS <- function(
       models[[cancertype_model1]][[cohort_model1]] <- 'LightMode'
     }
   }
-
 
   # Call CCS probability
   X_CCSprobability <- NULL
