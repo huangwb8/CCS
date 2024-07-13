@@ -131,7 +131,7 @@ setMethod(
     }
     path_scaller <- paste0(model.dir, '/scaller.rds')
 
-    params_xg <- params[-match(c('n','sampSize','ptail'), names(params))]
+    params_xg <- params[-match(c('n','sampSize','ptail','nround_mode'), names(params))]
     params_xg2 <- params_xg[-match(c('nfold','nrounds'), names(params_xg))]
 
 

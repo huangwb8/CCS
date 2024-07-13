@@ -182,17 +182,19 @@ setGeneric("exploreCluster", function(object, ...) {
 #' @description \code{exploreCluster} method for \code{CCS} class
 #' @inheritParams CCSPublicParams
 #' @param nTop Integer. The count of top parameters you want to plot.
-#' @seealso \code{\link{ccs}}.
+#' @param ... Parameters in \code{\link{CCS-method.plot}}.
+#' @seealso \code{\link{ccs}}; \code{\link{CCS-method.plot}}.
 #' @exportMethod exploreCluster
 setMethod(
   "exploreCluster",
   signature(object='CCS'),
-  function(object,
-           nTop = 10,
-           geom = c('cancer_type','CCS'),
-           hide.legend = c('cancer_type','CCS')[2],
-           model.dir = NULL,
-           size = 15, width = 12, height = 9){
+  function(
+    object,
+    nTop = 10,
+    model.dir = NULL,
+    size = 15, width = 12, height = 9,
+    ...
+  ){
 
     # Test
     if(F){
@@ -228,10 +230,11 @@ setMethod(
       # Plot
       name.i <- CCS:::reportParams(params.i)
       cairo_pdf(paste0(path_child, "/DimPlot_",name.i,'.pdf'), width = size/15*width, height = size/15*height)
-      l[[name.i]] <- plot(object.i,
-                          CCS = object.i@Data$CCS,
-                          geom = geom,
-                          size = size)
+      l[[name.i]] <- plot(
+        object.i,
+        CCS = object.i@Data$CCS,
+        ...
+      )
       print(l[[name.i]])
       dev.off()
 

@@ -336,6 +336,7 @@ predict.CCS <- function(
 #' @title CCS method: plot
 #' @description \code{plot} method for \code{CCS} class. Plot dimension scatter plot for CCS results.
 #' @param CCS Character. A vector of samples' CCS subtype.
+#' @param log.scale Whether to show x/y axis in the log scale.
 #' @inheritParams CCSPublicParams
 #' @import ggplot2
 #' @import luckyBase
@@ -351,6 +352,7 @@ plot.CCS <- function(
     geom = c('cancer_type','CCS'),
     hide.legend = c('cancer_type','CCS')[2],
     rm.zero = TRUE,
+    log.scale = FALSE,
     size = 15,
     verbose = TRUE){
 
@@ -395,6 +397,7 @@ plot.CCS <- function(
   } else {
     default_color <- mycolor[1:n_ccstype]
   }
+
   if('CCS' %in% geom){
     gghead <-
       ggplot(dat_plot, aes(x = `all|D1`, y = `all|D2`, group = CCS)) +
@@ -402,6 +405,7 @@ plot.CCS <- function(
       scale_color_manual(values = default_color, breaks = unique_csstype) +
       labs(title = "", color = 'CCS')
   }
+
   if('cancer_type' %in% geom){
     dat_plot <- cbind(dat_plot, cancer_type = cancer_type)
     unique_cancertype <- unique(dat_plot$cancer_type)
@@ -425,6 +429,11 @@ plot.CCS <- function(
   }
   if(all(c('CCS','cancer_type') %in% hide.legend)){
     gghead <- gghead + guides(color = "none", shape = "none")
+  }
+
+  # axis scale
+  if(log.scale){
+    gghead <- gghead + scale_x_log10() + scale_y_log10()
   }
 
   # Plot complete

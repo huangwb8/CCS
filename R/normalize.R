@@ -21,7 +21,7 @@ normalize <- function(object, .fun = CCS:::softmax){
   }
 
   # d1
-  if(class(object) == 'CCS'){
+  if('CCS' %in% class(object)){
     is.normalized <- object@Data$Probability$d1_normalized$.true
     if(!is.null(is.normalized)){
       if(is.normalized){
@@ -52,7 +52,7 @@ normalize <- function(object, .fun = CCS:::softmax){
   }
 
   # Output
-  if(class(object) == 'CCS'){
+  if('CCS' %in% class(object)){
     object@Data$Probability$d1 <- d1_norm
     object@Data$Probability$d1_normalized$.true <- TRUE
     object@Data$Probability$d1_normalized$.fun <- .fun

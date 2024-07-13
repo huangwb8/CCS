@@ -10,6 +10,7 @@
   geom = c("cancer_type", "CCS"),
   hide.legend = c("cancer_type", "CCS")[2],
   rm.zero = TRUE,
+  log.scale = FALSE,
   size = 15,
   verbose = TRUE
 )
@@ -24,6 +25,8 @@
 \item{hide.legend}{Some of \code{'cancer_type'} and \code{'CCS'}. Which type of data should be hided in the plot legend.}
 
 \item{rm.zero}{Whether to remove zero value of CCS subtypes. In the strategy of \code{dbscan}, 0 means uncategorized, so you should set \code{rm.zero = TRUE}(default).}
+
+\item{log.scale}{Whether to show x/y axis in the log scale.}
 
 \item{size}{The plot size}
 
