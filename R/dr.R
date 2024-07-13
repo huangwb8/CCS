@@ -31,7 +31,7 @@ setMethod(
   signature(object='CCS'),
   function(
     object,
-    method = c('UMAP','t-SNE','PCA')[1],
+    method = c('UWOT','UMAP','t-SNE','PCA')[1],
     dimension = c(2,2),
     model.dir = NULL,
     verbose = T,
@@ -92,7 +92,7 @@ setMethod(
 #' @author Weibin Huang<\email{hwb2012@@qq.com}>
 drCCSProbability <- function(
     data,
-    method = c('UMAP','t-SNE','PCA')[1],
+    method = c('UWOT','UMAP','t-SNE','PCA')[1],
     reference,
     dims = 2,
     verbose = F,
@@ -171,18 +171,27 @@ drCCSProbability <- function(
 #' @param dims The target number of dimensionality reduction.
 #' @importFrom Rtsne Rtsne
 #' @importFrom stats prcomp
-#' @importFrom umap umap
+#' @import umap
+#' @import uwot
 #' @return data frame
 #' @author Weibin Huang<\email{hwb2012@@qq.com}>
 CORE_DR <- function(method, data, dims, ...){
 
   if(method == 'UMAP'){
     # [Frequently Asked Questions — umap 0.5 documentation](https://umap-learn.readthedocs.io/en/latest/faq.html)
-    d2_i_dr <- umap(
+    d2_i_dr <- umap::umap(
       data,
       n_components = dims,
       ...)
     d2_i_dr_data <- as.data.frame(d2_i_dr$layout)
+
+  } else if(method == 'UWOT'){
+    # [Frequently Asked Questions — umap 0.5 documentation](https://umap-learn.readthedocs.io/en/latest/faq.html)
+    d2_i_dr <- uwot::umap(
+      data,
+      n_components = dims,
+      ...)
+    d2_i_dr_data <- as.data.frame(d2_i_dr)
 
   } else if(method == 'PCA'){
 
@@ -201,7 +210,6 @@ CORE_DR <- function(method, data, dims, ...){
       data,
       dims = dims,
       verbose = verbose,
-      num_threads = numCores,
       ...
     )
     d2_i_dr_data <- as.data.frame(d2_i_dr$Y)

@@ -299,7 +299,7 @@ ccsProbEnsemble <- function(
       verbose = T
     )
     data2_prob$SampleIDs <- gsub('[.]','|',data2_prob$SampleIDs)
-    saveRDS(data2_prob, paste0(path_child,'/','data2_prob.rds'))
+    # saveRDS(data2_prob, paste0(path_child,'/','data2_prob.rds'))
 
     splitProbData(
       data2_prob, data, pred_i_res,

@@ -40,7 +40,6 @@ setClass(
 #' @inheritParams ccsSubModel
 #' @inheritParams ccsProb
 #' @importFrom luckyBase LuckyVerbose is.one.true Fastextra
-#' @importFrom Rtsne Rtsne
 #' @import GSClassifier
 #' @import xgboost
 #' @return a CCS object
@@ -298,6 +297,16 @@ predict.CCS <- function(
       } else {
         X_CCSprobability <- cbind(X_CCSprobability, res.i)
       }
+    }
+  }
+
+  # Normalization
+  is.normalized <- object@Data[["Probability"]][["d1_normalized"]][[".true"]]
+  if(!is.null(is.normalized)){
+    if(is.normalized){
+      if(verbose) LuckyVerbose('predict.CCS: do normalization...')
+      normFun <- object@Data$Probability$d1_normalized$.fun
+      X_CCSprobability <- CCS::normalize(X_CCSprobability, .fun = normFun)
     }
   }
 
