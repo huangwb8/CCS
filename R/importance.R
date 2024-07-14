@@ -66,7 +66,7 @@ setMethod(
         }
         params[[args_name_i]] <- args[[args_name_i]]
       }
-      params_xg <- params[-match(c('n','sampSize','ptail', 'nround_mode'), names(params))]
+      params_xg <- params[-match(c('n','sampSize','ptail', 'nround.mode'), names(params))]
       params_xg[['objective']] <- "reg:squarederror"
       params_xg[['nthread']] <- numCores # numCores
       # params_xg[['device']] <- 'cpu'
@@ -273,7 +273,7 @@ ctImportance <- function(object, params_xg, seed, verbose){
 #' @importFrom luckyBase Fastextra
 #' @importFrom purrr map_dfr imap_dfr
 #' @importFrom dplyr full_join arrange
-#' @import plyr
+#' @importFrom plyr ddply summarize
 #' @author Weibin Huang<\email{hwb2012@@qq.com}>
 featureImportance_GSClassifier <- function(object, resctImportance, numCores){
 
@@ -325,7 +325,9 @@ featureImportance_GSClassifier <- function(object, resctImportance, numCores){
 
     # Summary
     df2 <- ddply(
-      df, .(dataset,Feature), summarize,
+      df,
+      c('dataset','Feature'),
+      plyr::summarize,
       Gain = median(Gain,na.rm = T),
       Cover = median(Cover,na.rm = T),
       Frequency = median(Frequency, na.rm = T)
@@ -342,7 +344,9 @@ featureImportance_GSClassifier <- function(object, resctImportance, numCores){
       colnames(df.i.2) <- c(c("Gain","Cover","Frequency"))
       df.i.2 <- cbind(df.i[,c("dataset","Feature")],df.i.2)
       df.i.3 <- ddply(
-        df.i.2, .(Feature), summarize,
+        df.i.2,
+        "Feature",
+        summarize,
         Gain = median(Gain, na.rm = T),
         Cover = median(Cover, na.rm = T),
         Frequency = median(Frequency, na.rm = T)

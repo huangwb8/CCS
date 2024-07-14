@@ -1,7 +1,7 @@
 Package: CCS
 Type: Package
 Title: Cohort Congress System
-Version: 0.3.35
+Version: 0.3.36
 Authors@R:
     person(given = "Weibin",
            family = "Huang",
@@ -30,7 +30,7 @@ Imports:
     stats,
     tidyr,
     umap,
-    uwot,
-    xgboost
+    uwot
 Depends: 
-    luckyBase
+    luckyBase,
+    xgboost

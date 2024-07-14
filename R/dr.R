@@ -166,13 +166,13 @@ drCCSProbability <- function(
 
 
 #' @description Core Function for Dimensionality reduction in CCS
-#' @param method One of \code{'UMAP'}, \code{'t-SNE'} and \code{'PCA'}
+#' @param method One of \code{'UWOT'}, \code{'UMAP'},\code{'t-SNE'} and \code{'PCA'}
 #' @param data cleaned data from the result of \code{CCS:::data_for_dr}
 #' @param dims The target number of dimensionality reduction.
 #' @importFrom Rtsne Rtsne
 #' @importFrom stats prcomp
-#' @import umap
-#' @import uwot
+#' @importFrom umap umap.knn
+#' @importFrom uwot load_uwot
 #' @return data frame
 #' @author Weibin Huang<\email{hwb2012@@qq.com}>
 CORE_DR <- function(method, data, dims, ...){
@@ -221,5 +221,7 @@ CORE_DR <- function(method, data, dims, ...){
   return(d2_i_dr_data)
 
 }
+
+
 
 
