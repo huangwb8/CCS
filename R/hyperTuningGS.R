@@ -210,7 +210,7 @@ hyperTuningGS <- function(
       best_iteration <- cvRes$best_iteration
 
       # xgboost via best interation
-      set.seed(seeds[5])
+      set.seed(seeds[4])
       scaller <- xgboost(
         params = params_xg2,
         data = dtrain,
