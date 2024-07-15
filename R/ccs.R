@@ -201,7 +201,8 @@ predict.CCS <- function(
   cluster_translator = object@Data[['scaller.parameters']][['cluster_translator']]
   method = object@Repeat$method
   work.space = paste0(model.dir, '/prediction/', project.name)
-  dir.create(work.space, showWarnings = F, recursive = T)
+  work.space.tmp = paste0(work.space,'/tmp')
+  dir.create(work.space.tmp, showWarnings = F, recursive = T)
 
   # Check integrity
   if(is.null(scaller)){
@@ -237,7 +238,7 @@ predict.CCS <- function(
 
       cohort_model1 <- names(model.i)[[j]]
 
-      path_X_CCSprobability.i <- paste0(work.space,'/Model-',cancertype_model1,'-',cohort_model1,'_Data-',project.name,'.rds')
+      path_X_CCSprobability.i <- paste0(work.space.tmp,'/Model-',cancertype_model1,'-',cohort_model1,'_Data-',project.name,'.rds')
 
       if(file.exists(path_X_CCSprobability.i)){
 

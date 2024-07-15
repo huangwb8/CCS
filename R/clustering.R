@@ -80,6 +80,8 @@ setGeneric("optimizeCluster", function(object, ...) {
 #' @inheritParams CCSPublicParams
 #' @importFrom dbscan dbscan
 #' @importFrom dplyr arrange
+#' @importFrom foreach foreach `%dopar%`
+#' @importFrom doParallel registerDoParallel stopImplicitCluster
 #' @seealso \code{\link{ccs}}.
 #' @examples
 #' resCCS <- optimizeCluster(resCCS)
@@ -95,6 +97,7 @@ setMethod(
       minPts = c(5,6,7,8,9,10,15,20)
     ),
     cover = FALSE,
+    numCores = 1,
     verbose = TRUE
   ){
 
@@ -124,35 +127,67 @@ setMethod(
     d3_dist <- dist(scale(object@Data$Probability$d3), method = "euclidean")
 
     # Calinski-Harabasz index
-    df <- NULL
-    for(i in 1:nrow(params)){ # i=1
-      params.i <- params[i,]
+    if(numCores <= 1){
+      df <- NULL
+      for(i in 1:nrow(params)){ # i=1
+        params.i <- params[i,]
 
-      # Verbose management
-      if(verbose) LuckyVerbose(reportParams(params.i))
+        # Verbose management
+        if(verbose) LuckyVerbose(reportParams(params.i))
 
-      # Params list
-      params.i.list <- listParams(params.i)
-      params.i.list[['method']] <- method
-      params.i.list[['object']] <- object
+        # Params list
+        params.i.list <- listParams(params.i)
+        params.i.list[['method']] <- method
+        params.i.list[['object']] <- object
 
-      # CCS subtypes based on the params
-      object <- do.call(CCS::cluster, params.i.list)
+        # CCS subtypes based on the params
+        object <- do.call(CCS::cluster, params.i.list)
 
-      # Calculate Calinski-Harabasz index
-      ch.i <- CCS::CHindex(d = d3_dist,
-                           clustering = object@Data$CCS,
-                           noisecluster = TRUE)
+        # Calculate Calinski-Harabasz index
+        ch.i <- CCS::CHindex(d = d3_dist,
+                             clustering = object@Data$CCS,
+                             noisecluster = TRUE)
 
-      # Output
-      df <- rbind(
-        df,
+        # Output
+        df <- rbind(
+          df,
+          cbind(
+            CHindex = ch.i,
+            params.i
+          )
+        )
+      }
+    } else {
+      registerDoParallel(cores = numCores)
+      df <- foreach(i = 1:nrow(params), .combine = rbind, .packages = c("CCS")) %dopar% {
+        params.i <- params[i,]
+
+        # Verbose management
+        if(verbose) LuckyVerbose(reportParams(params.i))
+
+        # Params list
+        params.i.list <- listParams(params.i)
+        params.i.list[['method']] <- method
+        params.i.list[['object']] <- object
+
+        # CCS subtypes based on the params
+        object <- do.call(CCS::cluster, params.i.list)
+
+        # Calculate Calinski-Harabasz index
+        ch.i <- CCS::CHindex(d = d3_dist,
+                             clustering = object@Data$CCS,
+                             noisecluster = TRUE)
+
+        # Output
         cbind(
           CHindex = ch.i,
           params.i
         )
-      )
+      }
+      stopImplicitCluster()
     }
+
+    # Rank via CHindex
     df <- arrange(df, desc(CHindex))
     if(verbose) LuckyVerbose('The best parameter group is: ', reportParams(df[1,]))
     # mymusic()
