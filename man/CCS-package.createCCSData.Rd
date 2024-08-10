@@ -8,6 +8,7 @@ createCCSData(
   dataList,
   geneSet,
   geneAnnotation = NULL,
+  geneid = "ensembl",
   na.fill.method = c("quantile", "rpart", NULL)[1],
   na.fill.seed = 2024,
   verbose = TRUE,

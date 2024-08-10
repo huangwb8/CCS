@@ -57,6 +57,7 @@ createCCSData <- function(
     dataList,
     geneSet,
     geneAnnotation = NULL,
+    geneid = "ensembl",
     na.fill.method = c("quantile", "rpart", NULL)[1],
     na.fill.seed = 2024,
     verbose = TRUE,
@@ -100,7 +101,7 @@ createCCSData <- function(
       expr.j.res2 <- GSClassifier::geneMatch(
           X = expr.j.res$Data$expr,
           geneAnnotation = geneAnnotation,
-          geneid = "ensembl",
+          geneid = geneid,
           matchmode = c("fix", "free")[1]
         )
       # if(verbose) GSClassifier:::reportError(expr.j.res2)
@@ -138,6 +139,134 @@ createCCSData <- function(
 
   # Output
   if(verbose) LuckyVerbose('createCCSData: Done!')
+  return(l)
+}
+
+
+#' @rdname CCS-package.selectCCSData
+#' @title selectCCSData
+#' @description Advanced selection of CCS data list
+#' @param dataList A nested list object. The first layer is the type of tumor; the second layer is the gene expression matrix.
+#' @param coreTissueType Core tissue type you want for the CCS model establishment.
+#' @param minSampleSize The lower margin of sample size of eligible cohorts.
+#' @param maxMissingRate The upper margin of missing rate of eligible cohorts.
+#' @inheritParams createCCSData
+#' @importFrom GSClassifier geneMatch
+#' @importFrom plyr laply
+#' @importFrom purrr flatten
+#' @import luckyBase
+#' @return dataList for \code{\link{createCCSData}}.
+#' @seealso \code{\link{ccs}}; \code{\link{createCCSData}}.
+#' @author Weibin Huang<\email{hwb2012@@qq.com}>
+#' @export
+selectCCSData <- function(
+    dataList,
+    geneSet,
+    geneAnnotation = NULL,
+    geneid = "ensembl",
+    coreTissueType = c("ACC","AEG","BRCA","CRC","KIRC","PAAD","PRAD","STAD","Pediatric","Blood"),
+    minSampleSize = 20,
+    maxMissingRate = 0.3,
+    verbose = TRUE
+) {
+
+  # Test
+  if(F){
+
+    library(luckyBase)
+    Plus.library(c('GSClassifier', 'plyr', 'tidyr', 'purrr'))
+    dataList = readRDS("E:/Sync/@Analysis/PanCan_Data/Level 1/PanCan_CancerSample_DataListForCCS_v20240809_GEO+cBioPortal+UCXCXena.rds")
+    PAD <- readRDS(system.file("extdata", "PAD.train_20220916.rds", package = "GSClassifier"))
+    geneSet <- PAD$geneSet
+    geneAnnotation <- PAD$geneAnnotation
+    geneid = "ensembl"
+    coreTissueType = c("ACC","AEG","BRCA","CRC","KIRC","PAAD","PRAD","STAD","Pediatric","Blood")
+    minSampleSize = 20
+    maxMissingRate = 0.3
+  }
+
+
+  # Environments
+  if(is.null(geneAnnotation)){
+    geneAnnotation <- common.annot[match(as.character(unlist(geneSet)), common.annot$ENSEMBL),]
+  }
+
+
+  # Filter small cohorts
+  dataList_2 <- list()
+  for(i in 1:length(dataList)){ # i=1
+    cancer_type <- names(dataList)[i]
+    dataList_i <- dataList[[i]]
+    for(j in 1:length(dataList_i)){ # j=1
+      dataList_i_j <- dataList_i[[j]]
+      cohort_name <- names(dataList_i)[j]
+      expr_i_j <- dataList[[cancer_type]][[cohort_name]]
+      if(ncol(expr_i_j) >= minSampleSize){
+        res_j <- GSClassifier::geneMatch(
+          X = expr_i_j,
+          geneAnnotation = geneAnnotation,
+          geneid = geneid,
+          matchmode = c("fix", "free")[1]
+        )
+        if(res_j$matchError <= maxMissingRate){
+          dataList_2[[cancer_type]][[cohort_name]] <- res_j[["Subset"]]
+        }
+      } else {
+        if(verbose) LuckyVerbose('selectCCSData: The sample size of ', names(dataList[[i]])[j], ' is lower than ', minSampleSize,'. Ignored!')
+      }
+    }
+  }
+  dataList_2 <- dataList_2[laply(dataList_2, length)>0]
+
+
+  # Core Tissue Type
+  dataList_3 <- list()
+  for(i in 1:length(dataList_2)){ # i=1
+    cancer_type_i <- names(dataList_2)[i]
+    if(cancer_type_i %in% coreTissueType){
+      if(!cancer_type_i %in% names(dataList_3)){
+        dataList_3[[cancer_type_i]] <- dataList_2[[cancer_type_i]]
+      } else {
+        dataList_3[[cancer_type_i]] <- c(dataList_3[[cancer_type_i]], dataList_2[[cancer_type_i]])
+      }
+    } else {
+      if(!'Undefined' %in% names(dataList_3)){
+        dataList_3[['Undefined']] <- dataList_2[[cancer_type_i]]
+      } else {
+        dataList_3[['Undefined']] <- c(dataList_3[['Undefined']], dataList_2[[cancer_type_i]])
+      }
+    }
+  }
+
+
+  # Report
+  raw_nSample <- laply(flatten(dataList), ncol) %>% sum(., na.rm = TRUE)
+  new_nSample <- laply(flatten(dataList_3), ncol) %>% sum(., na.rm = TRUE)
+  raw_nCohort <- length(flatten(dataList))
+  new_nCohort <- length(flatten(dataList_3))
+  diff_cohort_name <- setdiff(names(flatten(dataList)), names(flatten(dataList_3)))
+  if(verbose) LuckyVerbose(raw_nSample, ' samples in the raw CCSDataList and ', new_nSample, ' (',round(new_nSample/raw_nSample,2)*100,"%)" ,' samples are kept. Filtered cohorts includes:    ', paste0(diff_cohort_name, collapse = ', '))
+
+
+  # Output
+  l <- list(
+    Repeat = list(
+      geneSet = geneSet,
+      geneAnnotation = geneAnnotation,
+      geneid = geneid,
+      coreTissueType = coreTissueType,
+      minSampleSize = minSampleSize,
+      maxMissingRate = maxMissingRate
+    ),
+    Data = dataList_3,
+    Report = list(
+      raw_nSample = raw_nSample,
+      raw_nCohort = raw_nCohort,
+      new_nSample = new_nSample,
+      new_nCohort = new_nCohort,
+      diff_cohort_name = diff_cohort_name
+    )
+  )
   return(l)
 }
 
