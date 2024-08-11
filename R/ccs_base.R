@@ -358,6 +358,8 @@ CHindex <- function (
 #' @inheritParams GSClassifier::parCallEnsemble
 #' @importFrom digest digest
 #' @return a list with raw/cleaned data or md5 sum.
+#' @details
+#' DR algorithm like t-SNE doesn't allow the exact same rows (or samples), so \code{data_for_dr} is necessary.
 #' @author Weibin Huang<\email{hwb2012@@qq.com}>
 data_for_dr <- function(res2, rm.dup.col = F, verbose = F){
 
@@ -371,8 +373,8 @@ data_for_dr <- function(res2, rm.dup.col = F, verbose = F){
   }
 
   if(verbose){
-    if(sum(!s)>=1) LuckyVerbose('No. of Duplicati sample = ',sum(!s),'. Remove them!')
-    if(sum(!s2)>=1) LuckyVerbose('No. of Duplicati feature = ',sum(!s2),'. Remove them!')
+    if(sum(!s)>=1) LuckyVerbose('No. of Duplicati sample = ',sum(!s),'. Remove them! No. of Kept sample = ', length(s) - sum(!s), ', Percentage=',round((length(s) - sum(!s))/length(s)*100, 2), '%.')
+    if(sum(!s2)>=1) LuckyVerbose('No. of Duplicati feature = ',sum(!s2),'. Remove them! No. of Kept sample = ', length(s2) - sum(!s2), ', Percentage=',round((length(s2) - sum(!s2))/length(s2)*100, 2), '%.')
   }
   return(list(
     raw = list(md5=res2_md5, data=res2),
