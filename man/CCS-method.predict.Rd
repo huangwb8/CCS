@@ -8,7 +8,7 @@
   object,
   X,
   model.dir = NULL,
-  project.name = "01",
+  work.space = paste0(model.dir, "/prediction/", project.name),
   verbose = T,
   numCores = 4
 )
@@ -20,11 +20,11 @@
 
 \item{model.dir}{a character. the path of model series.}
 
-\item{project.name}{a project name about \code{X}. Because some might call lots of dataset based on one \code{CCS} model, It's recommended to set a projec name. Default is \code{01}.}
-
 \item{verbose}{whether report messages}
 
 \item{numCores}{No. of CPU core}
+
+\item{project.name}{a project name about \code{X}. Because some might call lots of dataset based on one \code{CCS} model, It's recommended to set a projec name. Default is \code{01}.}
 }
 \value{
 predict: A list object with CCS subtype prediction.

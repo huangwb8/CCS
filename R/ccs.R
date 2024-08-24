@@ -167,7 +167,7 @@ ccs <- function(
 predict.CCS <- function(
     object, X,
     model.dir = NULL,
-    project.name = "01",
+    work.space = paste0(model.dir, '/prediction/', project.name),
     verbose = T,
     numCores = 4){
 
@@ -200,7 +200,8 @@ predict.CCS <- function(
   models = object@Model
   cluster_translator = object@Data[['scaller.parameters']][['cluster_translator']]
   method = object@Repeat$method
-  work.space = paste0(model.dir, '/prediction/', project.name)
+  # work.space = paste0(model.dir, '/prediction/', project.name)
+  project.name = basename(work.space)
   work.space.tmp = paste0(work.space,'/tmp')
   dir.create(work.space.tmp, showWarnings = F, recursive = T)
 
@@ -328,7 +329,7 @@ predict.CCS <- function(
     )
   )
   if(verbose) LuckyVerbose('predict.CCS: All done!')
-  saveRDS(l, paste0(work.space,'/','ResultCCSPrediction.rds'))
+  # saveRDS(l, paste0(work.space,'/','ResultCCSPrediction.rds'))
   return(l)
 }
 
