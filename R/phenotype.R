@@ -123,9 +123,8 @@ subtypeEffect <- function(
     # Normalized response rate &95CI
     # 衡量该亚型的相对效应
     Subtype_i_vectorNRR <- df6.i$normalized_response_rate
-    # 计算均值
+    Subtype_i_vectorNRR_Mean <- mean(Subtype_i_vectorNRR, na.rm = TRUE)
     if(length(Subtype_i_vectorNRR) >= 3){
-      Subtype_i_vectorNRR_Mean <- mean(Subtype_i_vectorNRR, na.rm = TRUE)
       n <- length(Subtype_i_vectorNRR); alpha <- 1 - 0.95
       t_value <- qt(1 - alpha/2, df = n - 1) # 计算t分布的临界值
       standard_error <- sd(Subtype_i_vectorNRR) / sqrt(n) # 计算标准误差
