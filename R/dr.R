@@ -9,6 +9,7 @@ setGeneric("dr", function(object, ...) {
 #' @description \code{dr} method for \code{CCS} class. Dimensionality reduction (DR) for CCS probability matrix.
 #' @param object a \code{\link{CCS-class}} object
 #' @param dimension the hyperparameters for 2 level t-SNE.
+#' @param cover Whether to create an exact new dr result
 #' @param ... Parameters of DR functions.
 #' @inheritParams ccs
 #' @inheritParams drCCSProbability
@@ -33,7 +34,9 @@ setMethod(
     object,
     method = c('UWOT','UMAP','t-SNE','PCA')[1],
     dimension = c(2,2),
+    cover = F,
     model.dir = NULL,
+    seed = 2024,
     verbose = T,
     ...
   ){
@@ -48,12 +51,13 @@ setMethod(
   path_dr <- paste0(model.dir, '/drMatrix.rds')
 
   # Dimensionality reduction (DR)
-  if(!file.exists(path_dr)){
+  if(!file.exists(path_dr) | cover){
     d2 <- drCCSProbability(
       data = data,
       method = method,
       reference = reference,
       dims = dimension[1],
+      seed = seed,
       verbose = verbose,
       ...)
     d3 <- drCCSProbability(
@@ -61,6 +65,7 @@ setMethod(
       method = method,
       reference = NULL,
       dims = dimension[2],
+      seed = seed,
       verbose = verbose,
       ...)
     saveRDS(list(d2=d2,d3=d3), path_dr)
@@ -84,6 +89,7 @@ setMethod(
 #' @description Dimensionality reduction for CCS probability matrix
 #' @param data a matrix with feature columns and sample rows.
 #' @param reference Character. Cancer type or other references.
+#' @param seed random seed
 #' @inheritParams ccs
 #' @inheritParams CORE_DR
 #' @importFrom dplyr full_join
@@ -96,6 +102,7 @@ drCCSProbability <- function(
     reference,
     dims = 2,
     verbose = F,
+    seed = 2024,
     ...
 ){
 
@@ -123,9 +130,7 @@ drCCSProbability <- function(
   nCancerType <- length(reference_unique)
 
   # Seeds management
-  if(method %in% c('t-SNE')){
-    set.seed(seed); seeds_dr <- sample(1:10000, nCancerType, replace = F)
-  }
+  set.seed(seed); seeds_dr <- sample(1:10000, nCancerType, replace = F)
 
   # Dimensionality reduction
   d2_dr_data <- data.frame()
@@ -143,6 +148,7 @@ drCCSProbability <- function(
       method = method,
       data = d2_dr_cleanedData,
       dims = dims,
+      seed = seeds_dr[i],
       ...
     )
 
@@ -178,10 +184,11 @@ drCCSProbability <- function(
 #' @importFrom uwot load_uwot
 #' @return data frame
 #' @author Weibin Huang<\email{hwb2012@@qq.com}>
-CORE_DR <- function(method, data, dims, ...){
+CORE_DR <- function(method, data, dims, seed = seeds_dr[i],...){
 
   if(method == 'UMAP'){
     # [Frequently Asked Questions — umap 0.5 documentation](https://umap-learn.readthedocs.io/en/latest/faq.html)
+    set.seed(seed)
     d2_i_dr <- umap::umap(
       data,
       n_components = dims,
@@ -193,11 +200,12 @@ CORE_DR <- function(method, data, dims, ...){
     d2_i_dr <- uwot::umap(
       data,
       n_components = dims,
+      seed = seed,
       ...)
     d2_i_dr_data <- as.data.frame(d2_i_dr)
 
   } else if(method == 'PCA'){
-
+    set.seed(seed)
     d2_i_dr <- prcomp(
       data,
       center = TRUE, scale. = TRUE,
@@ -207,8 +215,7 @@ CORE_DR <- function(method, data, dims, ...){
     d2_i_dr_data <- as.data.frame(d2_i_dr$x)
 
   } else if(method == 't-SNE'){
-
-    set.seed(seeds_dr[i])
+    set.seed(seed)
     d2_i_dr <- Rtsne(
       data,
       dims = dims,

@@ -1,5 +1,558 @@
 
 
+
+#' @title Downstream analysis: Molecular subtypes & Clinical features
+#' @description Downstream analysis: Molecular subtypes & Clinical features
+#' @inheritParams subtypeEffect
+#' @inheritParams CCSPublicParams
+#' @param cohort_level The level of cohort used in scater+bar plot
+#' @param color_tissue a named vector like \code{c(Brain = "#984EA3",Oral = "#BF5B17")}
+#' @param n_norm_subtype The number of normalized subtypes you want to explore
+#' @importFrom tidyr `%>%`
+#' @importFrom dplyr summarize arrange desc filter
+#' @importFrom plyr ddply
+#' @return A list
+#' \itemize{
+#'   \item \code{Repeat} Data or parameters for repeatability
+#'   \item \code{Plot} 1. Scatter plot + bar plot for RR & NRR; 2. Forest plot for RR.
+#'   \item \code{Data} 1. ROC data; 2. Normalized subtype results 3. Clinic utility from \code{\link{subtypeEffect}}.
+#' }
+#' @author Weibin Huang</email{hwb2012@@qq.com}>
+#' @export
+subtypePeformance <- function(
+    data,
+    col_subtype = "CCS",
+    col_cohort = "Cohort",
+    col_response = "response",
+    col_id = "SampleIDs",
+    col_tissue = "tissue",
+    cohort_level = NULL,
+    color_tissue = c(
+      Brain = "#984EA3",
+      Oral = "#BF5B17",
+      Nasopharynx = "#8DD3C7",
+      Lung = "#FF6868",
+      Gastric = "#FF9843",
+      Breast = "#A6D854",
+      Colon = "#E31A1C",
+      Kedney = "#86A7FC",
+      Bladder = "#3468C0",
+      Ovary = "#B3B3B3",
+      Blood = "#F781BF",
+      Skin = "#4DAF4A"
+    ),
+    n_norm_subtype = 2,
+    numCores = NULL
+){
+
+  # Test
+  if(F){
+
+    library(luckyBase)
+    Plus.library(c('CCS', 'GSClassifier', 'plotly','cowplot','tidyr','ggplot2','purrr','stringi','digest', 'pROC','ComplexHeatmap','scales','plyr','dplyr','forestplot','ggrepel','writexl','readxl','patchwork','gtable','grid',"reshape2","circlize","parallel","foreach","doParallel"))
+
+
+    data = read_xlsx('E:/iProjects/RCheck/GSClassifier/routine01/test/DataFrame_CCS+ClinicFeature_PanIMTv20240726+CDSDBv20240726.xlsx')
+    col_subtype = "CCS"
+    col_cohort = "Cohort"
+    col_response = "response"
+    col_id = "SampleIDs"
+    col_tissue = "tissue"
+
+    cohort_level = c('Carol2020_PD1_Melanoma','E-MTAB-4030_Nivolumab_Melanoma','Eliezer2015_CTLA-4_Melanoma','Gide2019_PD1_Melanoma','Gide2019_PD1+CTLA4_Melanoma','GSE35640_MAGE-A3_melanoma','GSE78220_PD-1_melanoma','GSE91061_Nivolumab_Melanoma','Hugo2016_PD1_Melanoma','Noam2018_CTLA-4+PD-1_Melanoma','Riaz2017_PD1_Melanoma','GSE162137_Pembrolizumab_Mature T-cell and NK-cell lymphoma','IMvigor210_PD-L1_metastatic urothelial cancer','Braun2020_PD-1_kedney clear cell renal','CheckMate025_PD1_kedney clear cell renal','E-MTAB-3218_Nivolumab_Clear cell renal cell carcinoma','Kim2018_PD-1_gastric', 'GSE154538_Nivolumab_Esophageal cancer','Cho2020_PD-1_Nonsmall-cell lung cancer','Hyunchul2019_PD-1_Nonsmall-cell lung cancer','GSE179730_Nivolumab_Oral squamous cell carcinoma','Zhao2019_PD-1_Glioblastoma')
+    # extravalid_cohort = c('LSY01_PD1XCTLA4_LUNG','LSY01_PD1XCTLA4_NPC')
+
+    color_tissue <- c(
+      Brain = "#984EA3",
+      Oral = "#BF5B17",
+      Nasopharynx = "#8DD3C7",
+      Lung = "#FF6868",
+      Gastric = "#FF9843",
+      Breast = "#A6D854",
+      Colon = "#E31A1C",
+      Kedney = "#86A7FC",
+      Bladder = "#3468C0",
+      Ovary = "#B3B3B3",
+      Blood = "#F781BF",
+      Skin = "#4DAF4A"
+    )
+
+    # n_norm_subtype <- 4
+    n_norm_subtype <- 2
+    numCores = NULL
+
+
+  }
+
+  # Data
+  if(T){
+
+    # Data: df
+    col_selected <- c(col_cohort, col_id, col_tissue, col_subtype, col_response)
+    df <- data[col_selected]
+    colnames(df) <- c('Cohort','SampleIDs','tumor_type','Subtype','response')
+    if(is.null(cohort_level)){
+      cohort_level = as.character(unique(df$Cohort))
+    } else {
+      cohort_level = intersect(cohort_level, as.character(unique(df$Cohort)))
+    }
+    df <- df %>% filter(Cohort %in% cohort_level)
+
+    # Data for performance analysis
+    df2 <- ddply(df, c('Cohort', 'Subtype', 'response'), dplyr::summarize, nSample = length(SampleIDs), tumor_type = unique(tumor_type))
+    df3 <- ddply(
+      df2, c('Cohort', 'Subtype', 'tumor_type'), dplyr::summarize,
+      size = sum(nSample, na.rm = TRUE),
+      nResponse = ifelse(length(nSample[response %in% c(1,"1")]) == 0, 0, nSample[response %in% c(1,"1")]),
+      response_rate = nResponse/size
+    )
+    df4 <- ddply(df3, c('Cohort'), dplyr::reframe, Subtype = 'All', size = sum(size, na.rm = TRUE), nResponse = sum(nResponse, na.rm = TRUE), response_rate = nResponse/size)
+    df6 <- NULL
+    for(i in 1:nrow(df3)){
+      df3.i <- df3[i,] # i=1
+      df3.i_all_response_rate <-  df4[df4$Cohort %in% df3.i$Cohort & df4$Subtype == 'All','response_rate']
+      df3.i$normalized_response_rate <- (df3.i$response_rate - df3.i_all_response_rate)/df3.i_all_response_rate
+      df6 <- rbind(df6, df3.i)
+    }
+
+    # Data: RR/NRR - scatter plot/box plot
+    dat.plot <- arrange(df6, Subtype)
+    dat.plot$normalized_response_rate <- ifelse(dat.plot$normalized_response_rate >1, 1, ifelse(dat.plot$normalized_response_rate < -1, -1, dat.plot$normalized_response_rate))
+    dat.plot$Cohort <- factor(dat.plot$Cohort, levels = rev(cohort_level))
+    dat.plot$Subtype <- factor(dat.plot$Subtype)
+    nSubtype <- length(unique(dat.plot$Subtype))
+
+  }
+
+  # ROC analysis
+  data_roc <- subtypeROC(df)
+
+  # Forest plot
+  plot_f <- forestPlotSubtypeRate(df3)
+
+  # RR/NRR - scatter plot/box plot
+  plot_r <- plotSubtypeRate(dat.plot, cohort_level, color_tissue, dodge.width = 0.8) # plot_r$`Normalized response rate`
+
+  # Performance of normalized subtype
+  if(!is.null(n_norm_subtype)){
+    data_norm <- subtypeNorm(df, df6, n_norm_subtype = n_norm_subtype, numCores = numCores)
+  } else {
+    data_norm <- NULL
+  }
+
+  # Clinical utility
+  data_utility <- subtypeEffect(
+    data = df,
+    col_subtype = 'Subtype', col_cohort = 'Cohort',
+    col_response = 'response', col_id = 'SampleIDs', col_tissue = 'tumor_type'
+  )
+
+  # Output
+  l <- list(
+    Repeat = list(
+      data = data,
+      col_subtype = col_subtype,
+      col_cohort = col_cohort,
+      col_response = col_response,
+      col_id = col_id,
+      col_tissue = col_tissue,
+      cohort_level = cohort_level,
+      n_norm_subtype = n_norm_subtype
+    ),
+    Plot = list(
+      ScatterBarPlot = plot_r,
+      ForestPlot = plot_f
+    ),
+    Data = list(
+      ROC = data_roc,
+      Normalization = data_norm,
+      ClinicUtility = data_utility
+    )
+  )
+  return(l)
+
+}
+
+
+
+####%%%%%%%%%%%%% sub-module functions %%%%%%%%%%%%%%%%%%%%####
+
+#' @importFrom dplyr summarize arrange desc
+#' @importFrom plyr ddply rbind.fill
+#' @importFrom tidyr `%>%`
+subtypeROC <- function(df){
+
+  df_roc_01 <- df %>%
+    dplyr::summarize(
+      Cohort = 'All',
+      nSample = length(SampleIDs),
+      ROCAUC = multiXClass_roc(response, Subtype, verbose = FALSE)[["auc"]]
+      # get_perform_markers(response, Subtype, length(unique(Subtype)))
+    )
+
+  df_roc_02 <- ddply(
+    df, c('Cohort'),
+    dplyr::summarize,
+    nSample = length(SampleIDs),
+    ROCAUC = multiXClass_roc(response, Subtype, verbose = F) %>% .[["auc"]]
+    # get_perform_markers(response, Subtype, length(unique(Subtype)))
+  ) %>% arrange(desc(ROCAUC))
+
+  df_roc <- rbind.fill(df_roc_01, df_roc_02)
+  return(df_roc)
+}
+
+
+#' @importFrom plyr ddply
+#' @import ggplot2
+#' @import patchwork
+#' @importFrom ggrepel geom_label_repel geom_text_repel
+plotSubtypeRate <- function(dat.plot, cohort_level, color_tissue, dodge.width = 0.8){
+
+  # Barplot
+  if(T){
+
+    unique_tissue <- unique(dat.plot$tumor_type)
+
+    dat.plot.bar <- ddply(dat.plot, c('tumor_type', 'Cohort'), dplyr::summarize)
+    dat.plot.bar$Cohort <- factor(dat.plot.bar$Cohort, levels = rev(cohort_level))
+
+    stacked_bar <- ggplot(dat.plot.bar, aes(x = 1, y = Cohort, fill = tumor_type)) +
+      geom_tile() +
+      geom_text(aes(label = tumor_type), color = "white") +
+      scale_fill_manual(values = color_tissue[names(color_tissue) %in% unique_tissue]) +
+      theme_void() +
+      theme(legend.position = "none")
+  }
+
+  dodge <- position_dodge(width = dodge.width)
+
+  # Scatterplot + boxplot: Response rate
+  if(T){
+    p1 <- ggplot(dat.plot,
+                 aes(x=Subtype,
+                     y=response_rate,
+                     fill = Subtype)) +
+      stat_boxplot(geom ='errorbar', width = 0.3,linewidth = 1, position = dodge) +
+      geom_boxplot(outlier.shape = NA,width = 0.6,linewidth = 1, color='black', position = dodge) +
+      geom_point(position = position_jitterdodge(jitter.width = 0.3,dodge.width = dodge.width), aes(group = Subtype), alpha = 0.35, size = 1.5) +
+      labs(x = NULL,y = 'Response rate') +
+      guides(color = "none", fill = "none") +
+      theme_bw() +
+      theme(
+        panel.border = element_rect(colour = "black", linewidth=1.5),
+        axis.line = element_line(colour = "black", linewidth=0, linetype = 1)
+      )
+
+    # Raw response rate - Scatter plot
+    p2 <- ggplot(dat.plot, aes(x=Subtype, y=Cohort, colour = response_rate, size = size)) +
+      geom_point(alpha = 1) +
+      geom_text_repel(aes(x=Subtype, y=Cohort, label = size), size = 4, color = 'black', box.padding = unit(0.5, "lines")) +
+      labs(y = NULL, title = NULL, colour = 'Response rate') +
+      scale_colour_gradientn(
+        colours  = c("#5F8D4E","#D3D3D3","#D24545"),  #387ADF
+        values = scales::rescale(c(0, 0.25, 1)),
+        na.value = "grey50",
+        guide = "colourbar",
+        aesthetics = "colour"
+      ) +
+      scale_size(
+        range = c(3,12),
+        limits = c(1, max(dat.plot$size, na.rm = T)),
+        transform = c('reverse',"identity")[2]
+      ) +
+      theme_bw() +
+      theme(
+        panel.border = element_rect(colour = "black", linewidth=1.5),
+        axis.line = element_line(colour = "black", linewidth=0, linetype = 1),
+        legend.position = 'bottom'
+      )
+
+    # Plot: patchwork grid
+    p12 <- (
+      p1 + theme(axis.title = element_blank(),
+                 axis.text.x = element_blank(),
+                 axis.ticks.x = element_blank()) +
+        plot_spacer() +
+        p2 +
+        stacked_bar
+    ) +
+      plot_layout(ncol = 2, nrow = 2,
+                  widths = c(9, 1),
+                  heights = c(2, 8)) &
+      theme(plot.margin = margin(1, 1, 1, 1))
+    # cairo_pdf('test/Rate_scatter-bar-box.pdf', width = 20, height = 12); print(p12); dev.off()
+  }
+
+  # Scatterplot + boxplot: Normalized response rate
+  if(T){
+    p3 <- ggplot(dat.plot,
+                 aes(x=Subtype,
+                     y=normalized_response_rate,
+                     fill = Subtype)) +
+      stat_boxplot(geom ='errorbar', width = 0.3,linewidth = 1, position = dodge) +
+      geom_boxplot(outlier.shape = NA,width = 0.6,linewidth = 1, color='black', position = dodge) +
+      geom_point(position = position_jitterdodge(jitter.width = 0.3,dodge.width = dodge.width), aes(group = Subtype), alpha = 0.35, size = 1.5) +
+      geom_hline(yintercept = 0, linetype = "dashed") +
+      labs(x = NULL,y = 'Normalized response rate') +
+      guides(color = "none", fill = "none") +
+      theme_bw() +
+      theme(
+        panel.border = element_rect(colour = "black", linewidth=1.5),
+        axis.line = element_line(colour = "black", linewidth=0, linetype = 1)
+      )
+
+    # Normalized response rate - Scatter plot
+    p4 <- ggplot(dat.plot, aes(x=Subtype, y=Cohort, colour = normalized_response_rate, size = size)) +
+      geom_point(alpha = 1) +
+      geom_text_repel(aes(x=Subtype, y=Cohort, label = size), size = 4, color = 'black', box.padding = unit(0.5, "lines")) +
+      labs(y = NULL, title = NULL, colour = 'Normalized response rate') +
+      scale_colour_gradient2(
+        low = "blue",
+        mid = "white",
+        high = "red",
+        limits = c(-1, 1),  midpoint = 0,
+        na.value = "grey50",
+        guide = "colourbar",
+        aesthetics = "colour",
+        labels = c('≤-1.0','-0.5','0','0.5','≥1.0')
+      ) +
+      scale_size(
+        range = c(3,12),
+        limits = c(1,max(dat.plot$size, na.rm = T)),
+        transform = c('reverse',"identity")[2]
+      ) +
+      theme_bw() +
+      theme(
+        panel.border = element_rect(colour = "black", linewidth=1.5),
+        axis.line = element_line(colour = "black", linewidth=0, linetype = 1),
+        legend.position = 'bottom'
+      )
+
+
+    # Plot: patchwork grid
+    p34 <- (
+      p3 + theme(axis.title = element_blank(),
+                 axis.text.x = element_blank(),
+                 axis.ticks.x = element_blank()) +
+        plot_spacer() +
+        p4 +
+        stacked_bar
+    ) +
+      plot_layout(ncol = 2, nrow = 2,
+                  widths = c(9, 1),
+                  heights = c(2, 8)) &
+      theme(plot.margin = margin(1, 1, 1, 1))
+  }
+
+  # https://wilkelab.org/cowplot/reference/plot_grid.html
+  # Not work well. Deprecated
+  # p12 <- plot_grid(
+  #   p1 + theme(axis.title = element_blank(),
+  #              axis.text.x = element_blank(),
+  #              axis.ticks.x = element_blank()),
+  #   NULL,
+  #   p2,
+  #   stacked_bar,
+  #   align = c("hv"),
+  #   axis =  "tblr",
+  #   ncol = 2, nrow = 2,
+  #   rel_widths = c(0.7, 0.3),
+  #   rel_heights = c(0.2, 0.8)
+  # )
+
+  return(list(
+    'Response rate' = p12,
+    'Normalized response rate' = p34
+  ))
+
+}
+
+
+#' @importFrom plyr ddply
+#' @importFrom tidyr `%>%`
+#' @importFrom dplyr summarize arrange desc filter
+#' @importFrom forestplot forestplot fpColors fpTxtGp
+#' @importFrom grid unit
+#' @importFrom stats binom.test fisher.test
+forestPlotSubtypeRate <- function(df3){
+
+  # Data: statistics
+  if(T){
+
+    # confidential intervals
+    df3_conf <-  df3[c("Cohort", "Subtype", "size", "nResponse")] %>% ddply(., c('Subtype'), dplyr::summarize, size = sum(size, na.rm = T), nResponse=sum(nResponse, na.rm = T))
+    No_allPatient <- sum(df3_conf$size, na.rm = T)
+    No_allresponder <- sum(df3_conf$nResponse, na.rm = T)
+    # binom.test(No_allresponder, No_allPatient)
+    p_all <- No_allresponder / No_allPatient
+    df3_conf2 <- data.frame()
+    for(i in 1:nrow(df3_conf)){ # i=1
+      df3_conf_i <- df3_conf[i,]
+      # H0: ICI治疗对该亚组的患者没有积极影响。
+      res.i <- binom.test(df3_conf_i$nResponse,df3_conf_i$size,conf.level= 0.95, p = p_all) # p_all
+      df3_conf_i$rr <- res.i[["estimate"]]
+      res.i.conf <- res.i[["conf.int"]]
+      df3_conf_i$rr_lower <- res.i.conf[[1]]
+      df3_conf_i$rr_upper <- res.i.conf[[2]]
+      df3_conf_i$binom_P <- res.i$p.value
+
+      # Fisher's Exact Test
+      # 干预组-阳性，对照组-阳性， 干预组-阴性， 对照组-阴性
+      fisher_i <- c(df3_conf_i$nResponse, No_allresponder, df3_conf_i$size - df3_conf_i$nResponse,  No_allPatient - No_allresponder)
+      dim(fisher_i) <- c(2,2)
+      fisher_i_res <- fisher.test(fisher_i)
+      df3_conf_i$fisher_or <- fisher_i_res$estimate
+      df3_conf_i$fisher_or_lower <- fisher_i_res$conf.int[1]
+      df3_conf_i$fisher_or_upper <- fisher_i_res$conf.int[2]
+      df3_conf_i$fisher_P <- fisher_i_res$p.value
+
+      # Output
+      df3_conf2 <- rbind(df3_conf2, df3_conf_i)
+    }
+
+  }
+
+  # Plot
+  if(T){
+
+    # data
+    df3_conf3 <- df3_conf2 %>% filter(size >= 10) %>% arrange(binom_P, desc(size))
+    df3_conf3_colsum <- colSums(df3_conf3)
+    tabletext <- cbind(
+      c("Subtype","\n", df3_conf3$Subtype),
+      # c(paste0("No. of patients \n n=",as.integer(df3_conf3_colsum['size'])),"\n", df3_conf3$size),
+      # c(paste0("No. of responders \n n=", as.integer(df3_conf3_colsum['nResponse'])),"\n", df3_conf3$nResponse),
+      c(paste0("No. of patients \n n=", No_allPatient),"\n", df3_conf3$size),
+      c(paste0("No. of responders \n n=", No_allresponder),"\n", df3_conf3$nResponse),
+      c(paste0("95% CI"),"\n", paste(sprintf("%.3f",df3_conf3$rr),' ','[', sprintf("%.3f",df3_conf3$rr_lower),'-',  sprintf("%.3f",df3_conf3$rr_upper), ']', sep = '')),
+      c('P Value',"\n",sprintf("%.4f",df3_conf3$binom_P))
+    )
+
+    # plot
+    if(T){
+
+      p_f <- forestplot(
+        labeltext=tabletext, graph.pos=5,
+        mean=c(NA,NA,df3_conf3$rr),
+        lower=c(NA,NA,df3_conf3$rr_lower),
+        upper=c(NA,NA,df3_conf3$rr_upper),
+        xlog = F,
+        xticks = seq(0.1,0.9,0.2), xticks.digits = 1,
+        xlab="Response rate",
+        col=fpColors(box="#1c61b6", lines="#1c61b6", zero = "gray50"),
+        txt_gp=fpTxtGp(label=gpar(cex = 1.1),
+                       ticks=gpar(cex = 1.1),
+                       xlab=gpar(cex = 1.4),
+                       title=gpar(cex = 1.1)),
+        zero = p_all,
+        cex = 0.9, lineheight = "auto",
+        colgap = unit(8,"mm"),
+        lwd.ci=2, boxsize=0.3*nrow(df3_conf3)/25,
+        ci.vertices=TRUE, ci.vertices.height = 0.25
+      )
+      # α=0.0; cairo_pdf(paste0(resPath, '/forestplot_response rate across Subtype subtypes.pdf'),width = 10*(1-α), height = 6*(1-α)*nrow(tabletext)/15); print(p_f); dev.off()
+    }
+
+  }
+
+  return(p_f)
+}
+
+
+#' @importFrom plyr ddply
+#' @importFrom tidyr `%>%`
+#' @importFrom dplyr summarize arrange desc filter
+#' @importFrom parallel detectCores
+#' @importFrom doParallel registerDoParallel stopImplicitCluster
+#' @importFrom foreach foreach `%dopar%`
+#' @import luckyBase
+subtypeNorm <- function(df, df6, n_norm_subtype=2, numCores = NULL){
+
+  df_cutoff <- df6 %>% ddply(
+    c('Subtype'), dplyr::summarize,
+    medianNRR = median(normalized_response_rate, na.rm = T)
+  ) %>% arrange(desc(medianNRR))
+
+  combinations <- combn(1:(nrow(df_cutoff)-1), n_norm_subtype - 1)
+
+  # Assistant function
+  get_perform_markers <- function(response, predictor, n_norm_subtype){
+    if(n_norm_subtype == 2){
+      CCS:::compareRealPred2(real = response, pred = predictor)
+    } else if(n_norm_subtype > 2){
+      data.frame(ROCAUC = CCS::multiXClass_roc(response, predictor, verbose = FALSE)[['auc']])
+    } else {
+      NULL
+    }
+  }
+
+  # Parallel processing: Find best combination
+  system.time({
+      if(is.null(numCores)){
+        numCores <- detectCores() - 1  # Use all but one core
+      }
+      registerDoParallel(cores = numCores)
+      df_perform <- foreach(
+        i = 1:ncol(combinations), .combine = rbind,
+        .packages = c("plyr", "dplyr", "dplyr", "luckyBase")
+      ) %dopar% {
+        x <- combinations[, i]
+        medianNRR_category <- rep(NA, nrow(df_cutoff))
+
+        for (j in 0:length(x)) {
+          lower_limit_j <- ifelse(j == 0, 1, (x[j] + 1))
+          upper_limit_j <- ifelse(j == length(x), nrow(df_cutoff), x[j + 1])
+          medianNRR_category[lower_limit_j:upper_limit_j] <- n_norm_subtype - j
+        }
+
+        df_cutoff$medianNRR_category <- medianNRR_category - 1
+
+        df_cutoff_summary <- ddply(
+          df_cutoff, c('medianNRR_category'),
+          dplyr::summarize,
+          annotation = paste0(Subtype, collapse = ',')
+        )
+
+        df$normSubtype <- convert(df$Subtype, "Subtype", "medianNRR_category", df_cutoff) %>% as.numeric()
+
+        df_perform_i1 <- cbind(
+          Cohort = 'All',
+          Info = paste(df_cutoff_summary$medianNRR_category, df_cutoff_summary$annotation, sep = '=') %>%
+            paste0(., collapse = '; '),
+          nSample = nrow(df),
+          get_perform_markers(df$response, df$normSubtype, n_norm_subtype),
+          stringsAsFactors = FALSE
+        )
+
+        df_perform_i2 <- df %>% ddply(
+          ., c('Cohort'),
+          dplyr::summarize,
+          Info = paste(df_cutoff_summary$medianNRR_category, df_cutoff_summary$annotation, sep = '=') %>%
+            paste0(., collapse = '; '),
+          nSample = length(Cohort),
+          get_perform_markers(response, normSubtype ,n_norm_subtype)
+        )
+
+        rbind(df_perform_i1, df_perform_i2)
+      }
+      # length(unique(df_perform$Info))
+      stopImplicitCluster()
+    })
+
+  # Output
+  df_perform <- df_perform %>% arrange(Cohort, desc(ROCAUC))
+  df_perform_summary <- ddply(df_perform, c('Info'), dplyr::summarize, medianROCAUC = median(ROCAUC, na.rm = TRUE)) %>% arrange(desc(medianROCAUC))
+  return(
+    list(
+      Raw = df_perform,
+      Summary = df_perform_summary
+    )
+  )
+
+}
+
+
 #' @title Tumor clinical parameters based on molecular subtypes
 #' @description Tumor clinical parameters based on molecular subtypes
 #' @param data Data frame
@@ -54,7 +607,7 @@ subtypeEffect <- function(
   colnames(df) <- c('Cohort','SampleIDs','tumor_type','Subtype','response')
 
   # Load data
-  df2 <- ddply(df, .variables = c('Cohort', 'Subtype', 'response'), plyr::summarize, nSample = length(SampleIDs), tumor_type = unique(tumor_type))
+  df2 <- ddply(df, .variables = c('Cohort', 'Subtype', 'response'), dplyr::summarize, nSample = length(SampleIDs), tumor_type = unique(tumor_type))
   df2_type <- ddply(df2, .variables	= c('Cohort', 'Subtype'), dplyr::summarize)
   df3_x <- data.frame()
   for(i in 1:nrow(df2_type)){ # i=1
@@ -205,12 +758,13 @@ subtypeEffect <- function(
 
 ####%%%%%%%%%%%%% Assistant functions %%%%%%%%%%%%%%%%%%%%####
 
+# For subtypeEffect
 calculate_bounded_confidence_interval <- function(data, conf_level = 0.95, lower_limit = 0, upper_limit = 1) {
   # 计算样本均值
   sample_mean <- mean(data, na.rm = T)
 
   # 计算样本标准误差
-  standard_error <- sd(data, na.rm = T) / sqrt(length(data), na.rm = T)
+  standard_error <- sd(data, na.rm = T) / sqrt(length(data))
 
   # 计算t值（自由度为n-1）
   degrees_of_freedom <- length(data) - 1
@@ -224,25 +778,5 @@ calculate_bounded_confidence_interval <- function(data, conf_level = 0.95, lower
   # 返回结果
   return(c(lower_bound, upper_bound))
 }
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
 
 

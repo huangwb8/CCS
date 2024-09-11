@@ -40,7 +40,7 @@ softmax <- function(x){
 }
 
 
-#' @rdname CCS-package.createCCSData
+#' @rdname CCS-method.createCCSData
 #' @title createCCSData
 #' @description Create training data for CCS package based on expression matrix and geneSet
 #' @param dataList A nested list object. The first layer is the type of tumor; the second layer is the gene expression matrix.
@@ -78,7 +78,7 @@ createCCSData <- function(
 
   # Environments
   if(is.null(geneAnnotation)){
-    geneAnnotation <- common.annot[match(as.character(unlist(geneSet)), common.annot$ENSEMBL),]
+    geneAnnotation <- common.annot[match(as.character(unique(unlist(geneSet))), common.annot$ENSEMBL),]
   }
   set.seed(na.fill.seed); seeds <- sample(1:100000, countListElement(dataList), replace = F)
 
@@ -143,7 +143,7 @@ createCCSData <- function(
 }
 
 
-#' @rdname CCS-package.selectCCSData
+#' @rdname CCS-method.selectCCSData
 #' @title selectCCSData
 #' @description Advanced selection of CCS data list
 #' @param dataList A nested list object. The first layer is the type of tumor; the second layer is the gene expression matrix.
@@ -188,7 +188,7 @@ selectCCSData <- function(
 
   # Environments
   if(is.null(geneAnnotation)){
-    geneAnnotation <- common.annot[match(as.character(unlist(geneSet)), common.annot$ENSEMBL),]
+    geneAnnotation <- common.annot[match(as.character(unique(unlist(geneSet))), common.annot$ENSEMBL),]
   }
 
 
@@ -464,13 +464,12 @@ listParams <- function(params.i){
 }
 
 
-
-#' @description Adjust XGBoost Subtype
+#' @description Comparing real and pred
 #' @param real Character. Real subtypes
 #' @param pred Character. Predicted subtypes
 #' @importFrom pROC multiclass.roc roc
 #' @importFrom irr kappa2
-#' @return Character
+#' @return data.frame
 #' @author Weibin Huang<\email{hwb2012@@qq.com}>
 compareRealPred <- function(real,pred,cluster_translator=NULL){
 
@@ -586,7 +585,42 @@ multiXClass_roc <- function(response, predictor, verbose = T){
 }
 
 
+#' @description Comparing real and pred - 2
+#' @param real Integer containing 0 or 1 (Positive class should be 1)
+#' @param pred Integer containing 0 or 1 (Positive class should be 1)
+#' @importFrom caret confusionMatrix
+#' @importFrom pROC roc
+#' @return data.frame
+#' @author Weibin Huang<\email{hwb2012@@qq.com}>
+compareRealPred2 <- function(real, pred){
 
+  #  Test
+  if(F){
+    library(luckyBase)
+    Plus.library(c('irr','pROC','caret'))
+    real = c(1, 0, 1, 1, 0, 1, 0, 0, 1, 0)
+    pred = c(1, 0, 1, 0, 0, 1, 1, 0, 1, 0)
+  }
 
+  # Binary ROC
+  res_roc<- roc(factor(real), pred, quiet = TRUE, ci=TRUE)
+
+  # confusion matrix
+  conf_matrix <- confusionMatrix(factor(pred), factor(real), positive = "1")
+
+  # Summary
+  res.all <- cbind(
+    ROCAUC = as.numeric(res_roc$auc),
+    ROCAUC_lower = as.numeric(res_roc$ci)[1],
+    ROCAUC_upper = as.numeric(res_roc$ci)[3],
+    accuracy = conf_matrix[["overall"]][["Accuracy"]],
+    accuracy_lower = conf_matrix[["overall"]][["AccuracyLower"]],
+    accuracy_upper = conf_matrix[["overall"]][["AccuracyUpper"]],
+    as.data.frame(t(conf_matrix[["byClass"]]))
+  )
+
+  # Output
+  return(res.all)
+}
 
 

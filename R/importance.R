@@ -272,8 +272,8 @@ ctImportance <- function(object, params_xg, seed, verbose){
 #' @importFrom xgboost xgb.DMatrix xgb.cv xgboost xgb.importance
 #' @importFrom luckyBase Fastextra
 #' @importFrom purrr map_dfr imap_dfr
-#' @importFrom dplyr full_join arrange
-#' @importFrom plyr ddply summarize
+#' @importFrom dplyr full_join arrange summarize
+#' @importFrom plyr ddply
 #' @author Weibin Huang<\email{hwb2012@@qq.com}>
 featureImportance_GSClassifier <- function(object, resctImportance, numCores){
 
@@ -327,7 +327,7 @@ featureImportance_GSClassifier <- function(object, resctImportance, numCores){
     df2 <- ddply(
       df,
       c('dataset','Feature'),
-      plyr::summarize,
+      dplyr::summarize,
       Gain = median(Gain,na.rm = T),
       Cover = median(Cover,na.rm = T),
       Frequency = median(Frequency, na.rm = T)
@@ -346,7 +346,7 @@ featureImportance_GSClassifier <- function(object, resctImportance, numCores){
       df.i.3 <- ddply(
         df.i.2,
         "Feature",
-        summarize,
+        dplyr::summarize,
         Gain = median(Gain, na.rm = T),
         Cover = median(Cover, na.rm = T),
         Frequency = median(Frequency, na.rm = T)

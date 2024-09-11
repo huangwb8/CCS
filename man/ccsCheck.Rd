@@ -12,10 +12,11 @@ ccsCheck(
   params = list(device = "cpu", nfold = 5, nrounds = 100, nthread = 2, eta = 0.3, gamma =
     0, max_depth = 14, colsample_bytree = 1, min_child_weight = 1, subsample = 0.7, n =
     30, sampSize = 0.7, ptail = 0.1, nround.mode = c("fixed", "polling")[1]),
+  train.proc = 0.8,
   seed = 145,
   mode = c("dataset", "submodel")[1],
   nTest = 3,
-  minAccuracy = 0.9,
+  minAccuracy = 0.85,
   model.dir = "./ccs/PADv20240810",
   verbose = TRUE
 )
@@ -54,6 +55,9 @@ ccsCheck(
 \item{model.dir}{a character. the path of model series.}
 
 \item{verbose}{whether report messages}
+}
+\value{
+data frame
 }
 \description{
 Check whether CCS data list or submodels are well prepared

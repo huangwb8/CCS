@@ -198,6 +198,7 @@ predict.CCS <- function(
   scaller = object@Data$scaller
   # scaller = readRDS(paste0(model.dir,'/scaller.rds'))
   models = object@Model
+  models_filtered_name <- object@Data$filtered.cohort
   cluster_translator = object@Data[['scaller.parameters']][['cluster_translator']]
   method = object@Repeat$method
   # work.space = paste0(model.dir, '/prediction/', project.name)
@@ -217,7 +218,11 @@ predict.CCS <- function(
   # gather models
   if(identical(models, list(NA))){
     if(verbose) LuckyVerbose('predict.CCS: Light mode CCS. Load external model...')
-    path_models <- list.files(path = model.dir, pattern = 'modelFit.rds$', recursive = T, full.names = T)
+    if(!is.null(models_filtered_name)){
+      path_models <- list.files(path = model.dir, pattern = 'modelFit.rds$', recursive = T, full.names = T) %>% .[!grepl(paste0(models_filtered_name,collapse = '|'), .)]
+    } else {
+      path_models <- list.files(path = model.dir, pattern = 'modelFit.rds$', recursive = T, full.names = T)
+    }
     models <- list()
     for(i in 1:length(path_models)){
       path_model_i <- path_models[i]
@@ -291,13 +296,15 @@ predict.CCS <- function(
       }
 
       # res.i <- t(apply(X_CCSprobability.i[-c(1,2,3)], 1, softmax))
-      res.i <- as.matrix(X_CCSprobability.i[,-c(1,2,3)])
+      # res.i <- as.matrix(X_CCSprobability.i[,-c(1,2,3)])
+      res.i <- X_CCSprobability.i[, -c(2,3), drop = FALSE]
 
       # Merge results
       if(i == 1 & j == 1){
         X_CCSprobability <- res.i
       } else {
-        X_CCSprobability <- cbind(X_CCSprobability, res.i)
+        # X_CCSprobability <- cbind(X_CCSprobability, res.i)
+        X_CCSprobability <- inner_join(X_CCSprobability,res.i,by='SampleIDs')
       }
     }
   }
@@ -308,15 +315,17 @@ predict.CCS <- function(
     if(is.normalized){
       if(verbose) LuckyVerbose('predict.CCS: do normalization...')
       normFun <- object@Data$Probability$d1_normalized$.fun
-      X_CCSprobability <- CCS::normalize(X_CCSprobability, .fun = normFun)
+      X_CCSprobability <- cbind(SampleIDs = X_CCSprobability$SampleIDs, as.data.frame(CCS::normalize(as.matrix(X_CCSprobability[,-1]), .fun = normFun)))
     }
   }
 
   # Prediction
-  X_CCS_Pred <- predict(scaller, X_CCSprobability)
+  coSample <- intersect(X_CCSprobability$SampleIDs, colnames(X))
+  sampleIndex <- match(coSample, X_CCSprobability$SampleIDs)
+  X_CCS_Pred <- predict(scaller, as.matrix(X_CCSprobability[sampleIndex, scaller$feature_names, drop = FALSE]))
   # X_CCS_Pred <- CCS:::adjustXGBoostSubtype(object, X_CCS_Pred, verbose)
   X_CCS_Pred <- convert(X_CCS_Pred, 'adjust', 'raw', cluster_translator) %>% as.integer()
-  names(X_CCS_Pred) <- colnames(X)
+  names(X_CCS_Pred) <- coSample
 
   # Output
   l <- list(
@@ -324,7 +333,7 @@ predict.CCS <- function(
     X = X,
     model.dir = model.dir,
     CCS = list(
-      Probability = cbind(SampleIDs = colnames(X), as.data.frame(X_CCSprobability)),
+      Probability = X_CCSprobability[sampleIndex, c('SampleIDs', scaller$feature_names), drop = FALSE],
       Prediction = X_CCS_Pred
     )
   )

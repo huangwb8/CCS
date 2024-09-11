@@ -11,7 +11,7 @@
 #' @importFrom GSClassifier fitEnsembleModel
 #' @importFrom tidyr `%>%`
 #' @importFrom stringi stri_reverse
-#' @return NULL
+#' @return data frame
 #' @author Weibin Huang<\email{hwb2012@@qq.com}>
 #' @seealso \code{\link{ccs}}.
 #' @export
@@ -26,20 +26,29 @@ ccsCheck <- function(
       nthread = 2, eta = 0.3, gamma = 0, max_depth = 14, colsample_bytree = 1, min_child_weight = 1, subsample = 0.7,
       n = 30, sampSize = 0.7, ptail = 0.1, nround.mode = c("fixed", "polling")[1]
     ),
+    train.proc = 0.8,
     seed = 145,
     mode = c('dataset','submodel')[1],
     nTest = 3,
-    minAccuracy = 0.9,
+    minAccuracy = 0.85,
     model.dir = "./ccs/PADv20240810",
     verbose = TRUE
 ){
 
   # Test
   if(F){
+
+    library(luckyBase)
+    Plus.library(c('CCS', 'GSClassifier', 'plotly','cowplot','tidyr','ggplot2','purrr','stringi','digest', 'pROC','ComplexHeatmap','scales','plyr','dplyr','forestplot','ggrepel','writexl','readxl','patchwork','gtable','grid'))
+
     mode = c('dataset','submodel')[1]
-    data = data
-    geneSet = geneSet
-    geneAnnotation = geneAnnotation
+
+    project <- 'GibbsPanCanv20240909'
+    data <- readRDS(paste0('E:/iProjects/CCS_Data/report/DataListForCCS_GEO+cBioPortal+UCXCXenav20240809_',project,'.rds'))
+    ImmuneSubtype <- readRDS(system.file("extdata", "ImmuneSubtype.rds", package = "GSClassifier"))
+    geneSet <- ImmuneSubtype$geneSet %>% llply(.,function(x)convert(x, fromtype = 'SYMBOL',totype = 'ENSEMBL'))
+    geneAnnotation <- common.annot[match(as.character(unique(unlist(geneSet))), common.annot$ENSEMBL),]
+
     geneid = "ensembl"
     params = list(
       device = "cpu",
@@ -47,23 +56,30 @@ ccsCheck <- function(
       nthread = 2, eta = 0.3, gamma = 0, max_depth = 14, colsample_bytree = 1, min_child_weight = 1, subsample = 0.7,
       n = 30, sampSize = 0.7, ptail = 0.1, nround.mode = c("fixed", "polling")[1]
     )
-    seed = 145; nTest = 3
-    model.dir = "./ccs/PADv20240810"
+    seed = 145;
+    train.proc = 0.8; nTest = 3; minAccuracy = 0.85
+    model.dir = paste("./ccs/",project, sep = '')
     verbose = TRUE
   }
 
   # Parameters
-  params_2 <- params[match(intersect(c("device", "eta", "gamma", "max_depth", "min_child_weight", "nfold", "nrounds", "nthread"), names(params)), names(params))]
+  # params_2 <- params[match(intersect(c("device", "eta", "gamma", "max_depth", "min_child_weight", "nfold", "nrounds", "nthread"), names(params)), names(params))]
+  params_2 <- params[setdiff(names(params), c('n', 'sampSize', 'ptail', 'nround.mode'))]
+
 
   if(mode == 'dataset'){
 
-    set.seed(seed); data_test <- flatten(data) %>% .[sample(1:length(.), nTest, replace = F)]
+    set.seed(seed); seeds <- sample(1:20000, 2, replace = T)
+    set.seed(seeds[1]); data_test <- flatten(data) %>% .[sample(1:length(.), nTest, replace = F)]
+    data_test_res <- get_train_valid(data_test, train.proc, seed = seeds[2])
+    data_test_train <- data_test_res[['data_test_train']]
+    data_test_valid <- data_test_res[['data_test_valid']]
 
     # submodel <- readRDS("E:/iProjects/RCheck/GSClassifier/test02/ccs/PADv20240810/model/ACC/GSE143383/modelFit.rds")
     submodels <- list()
-    for(i in 1:length(data_test)){
-      submodel_data <- data_test[[i]]
-      cohortName_i <- names(data_test)[i]
+    for(i in 1:length(data_test_train)){
+      submodel_data <- data_test_train[[i]]
+      cohortName_i <- names(data_test_train)[i]
       if(verbose) LuckyVerbose('ccsCheck: build submodels based on cohort - ', cohortName_i, type = 'cat')
       submodels[[cohortName_i]] <- fitEnsembleModel(
         Xs = submodel_data$expr,
@@ -84,9 +100,13 @@ ccsCheck <- function(
       )
     }
 
+    accuracy_1 <- ccsCheck_accuracy(data_test_valid, submodels, geneSet, geneAnnotation, geneid, verbose)
+    accuracy_2 <- ccsCheck_accuracy(data_test_train, submodels, geneSet, geneAnnotation, geneid, verbose)
+
   } else if(mode == 'submodel'){
 
     set.seed(seed); path_submodel <- list.files(paste0(model.dir,'/model', collapse = ''), pattern = 'modelFit.rds$', recursive = T, full.names = T) %>% .[sample(1:length(.), nTest, replace = F)]
+
     data_test <- list(); submodels <- list()
     for(i in 1:length(path_submodel)){ # i=1
       path_submodel_i <- path_submodel[i]
@@ -97,24 +117,92 @@ ccsCheck <- function(
       submodels[[cohortName_i]] <- readRDS(path_submodel_i)
     }
 
+    accuracy_1 <- ccsCheck_accuracy(data_test, submodels, geneSet, geneAnnotation, geneid, verbose)
+    accuracy_2 <- NULL
+
   } else {
     stop('ccsCheck: wrong mode. Please select one of "dataset" or "submodel"!')
   }
 
-  accuracy <- ccsCheck_accuracy(data_test, submodels, geneSet, geneAnnotation, geneid, verbose)
+  if(verbose) LuckyVerbose('ccsCheck-valid: Accuracy=', paste0(accuracy_1, collapse = ', '),', medianAccuracy=', median(accuracy_1, na.rm = T), type = 'cat')
+  if(!is.null(accuracy_2)){
+    if(verbose) LuckyVerbose('ccsCheck-train: Accuracy=', paste0(accuracy_2, collapse = ', '),', medianAccuracy=', median(accuracy_2, na.rm = T), type = 'cat')
+  } else {
+    if(verbose) LuckyVerbose('ccsCheck-train: Unavailable!')
+  }
 
-  if(verbose) LuckyVerbose('ccsCheck: Accuracy=', paste0(accuracy, collapse = ', '),', medianAccuracy=', median(accuracy, na.rm = T), type = 'cat')
-
-  if(median(accuracy, na.rm = T) > minAccuracy){
+  if(median(accuracy_1, na.rm = T) > minAccuracy){
     if(verbose) LuckyVerbose('ccsCheck: pass!', type = 'cat')
   } else {
-    stop('ccsCheck: median accuracy is too low! Stopped')
+    LuckyVerbose('ccsCheck: Attention! Median accuracy is too low!')
   }
+
+  return(data.frame(cohort = names(data_test),trainAccuracy = accuracy_2, validAccuracy = accuracy_1, stringsAsFactors = F))
 
 }
 
 
 ####%%%%%%%%%%%%%% Assistant functions %%%%%%%%%%%%%%%%%%####
+
+
+#' @importFrom GSClassifier modelData
+#' @importFrom plyr ldply llply
+#' @importFrom tidyr `%>%`
+get_train_valid <- function(data_test, train.proc = 0.8, seed = seeds[2]){
+
+  data_test_df <- ldply(data_test, function(x){
+    data.frame(
+      SampleIDs = colnames(x$expr),
+      Subtypes = x$subtype,
+      stringsAsFactors = F)
+  }, .id = "Cohort")
+
+  data_test_df_modelRes <- modelData(
+    design = data_test_df,
+    id.col = "SampleIDs",
+    variable = c("Cohort", "Subtypes"),
+    Prop = train.proc,
+    seed = seed
+  )
+
+  trainSamples <- data_test_df_modelRes$Data$Train$SampleIDs
+  validSamples <- data_test_df_modelRes$Data$Valid$SampleIDs
+
+  data_test_train <- llply(data_test, function(x){
+    index <- colnames(x[['expr']]) %in% trainSamples
+    x[['expr']] <- as.matrix(x[['expr']]) %>% .[,index,drop=FALSE]
+    x[['subtype']] <- x[['subtype']] %>% .[index]
+    return(x)
+  })
+
+  data_test_valid <- llply(data_test, function(x){
+    index <- colnames(x[['expr']]) %in% validSamples
+    x[['expr']] <- as.matrix(x[['expr']]) %>% .[,index,drop=FALSE]
+    x[['subtype']] <- x[['subtype']] %>% .[index]
+    return(x)
+  })
+
+  return(list(
+    data_test_train = data_test_train,
+    data_test_valid = data_test_valid
+  ))
+
+  # Legacy
+  if(F){
+    data_test_train <- list(); data_test_valid <- list()
+    for(i in 1:length(data_test)){ # i=1
+      cohort_i <- names(data_test)[i]
+      expr_i <- data_test[[cohort_i]][['expr']]
+      subtype_i <- data_test[[cohort_i]][['subtype']]
+      set.seed(seeds[i+1]); data_test_train[[cohort_i]][['expr']] <- expr_i %>% .[,sample(1:ncol(.), round(ncol(.)*train.proc), replace = F),drop=FALSE]
+      data_test_valid[[cohort_i]][['expr']] <- expr_i %>% .[,setdiff(colnames(.), colnames(data_test_train[[cohort_i]][['expr']]))]
+      data_test_train[[cohort_i]][['subtype']] <- subtype_i[colnames(data_test_train[[cohort_i]][['expr']])]
+      data_test_valid[[cohort_i]][['subtype']] <- subtype_i[colnames(data_test_valid[[cohort_i]][['expr']])]
+    }
+  }
+
+}
+
 
 #' @importFrom GSClassifier callEnsemble
 #' @importFrom luckyBase LuckyVerbose

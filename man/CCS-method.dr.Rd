@@ -8,7 +8,9 @@
   object,
   method = c("UWOT", "UMAP", "t-SNE", "PCA")[1],
   dimension = c(2, 2),
+  cover = F,
   model.dir = NULL,
+  seed = 2024,
   verbose = T,
   ...
 )
@@ -20,7 +22,11 @@
 
 \item{dimension}{the hyperparameters for 2 level t-SNE.}
 
+\item{cover}{Whether to create an exact new dr result}
+
 \item{model.dir}{a character. the path of model series.}
+
+\item{seed}{random seed}
 
 \item{verbose}{whether report messages}
 
