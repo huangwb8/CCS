@@ -31,16 +31,24 @@ setMethod(
 
     # Test ----
     if(F){
+
+      # 1
       library(luckyBase)
       Plus.library(c('stringi','tidyr'))
       object <- readRDS("E:/Sync/Project/GSClassifier_test2/PADv20240810/optimizeDR/636a52381159cbec9787a0171db7911b/resCCS.rds")
       model.dir <- 'E:/iProjects/RCheck/GSClassifier/test02/ccs/PADv20240810'
-      patten = 'Blood/Broad-Blood-2022'
+      pattern = 'Blood/Broad-Blood-2022'
       method = c('grep','match')[1]
       object_raw <- readRDS("E:/iProjects/RCheck/GSClassifier/test02/ccs/PADv20240810/resCCS.rds")
-
       # path_models_res <- list.files(path = model.dir, pattern = 'modelFit.rds$', recursive = T, full.names = T) %>% .[!grepl(paste0(models_filtered_name,collapse = '|'), .)]
 
+      # 2
+      library(luckyBase)
+      project_version <- 'PADv20240911'
+      model.dir <- paste0("E:/iProjects/RCheck/GSClassifier/routine01/ccs/",project_version)
+      object <- readRDS(paste0(model.dir,'/','resCCS.rds'))
+      pattern = c("blood",'GSE21983','Pediatric','SKCM')
+      method = c('grep','match')[1]
     }
 
     # Path of submodels ----
@@ -72,7 +80,14 @@ setMethod(
 
     # d1 matrix ----
     d1 <- object@Data$Probability$d1
-    index <- Fastgrep(gsub('[/]', '\\|', models_filtered_name), colnames(d1))
+
+    index <- models_filtered_name %>% lapply(., function(x)Fastextra(x, '\\/')) %>% lapply(., function(x){
+      intersect(grep(x[1], colnames(d1)),
+                grep(x[2], colnames(d1)))
+    }) %>% unlist() %>% unique()
+    # p_01 <- gsub('[/]', '\\-', models_filtered_name)
+    # d1_colnames <- gsub('[|]','-', colnames(d1))
+    # index <- Fastgrep(p_01, d1_colnames)
     d1_res <- d1[!rownames(d1) %in% samples_filtered, -index, drop = FALSE]
 
     # summary ----
