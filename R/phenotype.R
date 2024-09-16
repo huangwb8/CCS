@@ -19,7 +19,7 @@
 #' }
 #' @author Weibin Huang</email{hwb2012@@qq.com}>
 #' @export
-subtypePeformance <- function(
+subtypePerformance <- function(
     data,
     col_subtype = "CCS",
     col_cohort = "Cohort",
@@ -42,14 +42,15 @@ subtypePeformance <- function(
       Skin = "#4DAF4A"
     ),
     n_norm_subtype = 2,
-    numCores = NULL
+    numCores = NULL,
+    verbose = TRUE
 ){
 
   # Test
   if(F){
 
     library(luckyBase)
-    Plus.library(c('CCS', 'GSClassifier', 'plotly','cowplot','tidyr','ggplot2','purrr','stringi','digest', 'pROC','ComplexHeatmap','scales','plyr','dplyr','forestplot','ggrepel','writexl','readxl','patchwork','gtable','grid',"reshape2","circlize","parallel","foreach","doParallel"))
+    Plus.library(c('CCS', 'GSClassifier', 'plotly','cowplot','tidyr','ggplot2','purrr','furrr','stringi','digest', 'pROC','ComplexHeatmap','scales','plyr','dplyr','forestplot','ggrepel','writexl','readxl','patchwork','gtable','grid',"reshape2","circlize","parallel","foreach","doParallel"))
 
 
     data = read_xlsx('E:/iProjects/RCheck/GSClassifier/routine01/test/DataFrame_CCS+ClinicFeature_PanIMTv20240726+CDSDBv20240726.xlsx')
@@ -77,8 +78,8 @@ subtypePeformance <- function(
       Skin = "#4DAF4A"
     )
 
-    # n_norm_subtype <- 4
-    n_norm_subtype <- 2
+    n_norm_subtype <- 4
+    # n_norm_subtype <- 2
     numCores = NULL
 
 
@@ -125,22 +126,27 @@ subtypePeformance <- function(
   }
 
   # ROC analysis
+  if(verbose) LuckyVerbose('subtypePerformance: ROC analysis...')
   data_roc <- subtypeROC(df)
 
   # Forest plot
+  if(verbose) LuckyVerbose('subtypePerformance: Forest plot...')
   plot_f <- forestPlotSubtypeRate(df3)
 
   # RR/NRR - scatter plot/box plot
+  if(verbose) LuckyVerbose('subtypePerformance: RR/NRR - scatter plot/box plot...')
   plot_r <- plotSubtypeRate(dat.plot, cohort_level, color_tissue, dodge.width = 0.8) # plot_r$`Normalized response rate`
 
   # Performance of normalized subtype
+  if(verbose) LuckyVerbose('subtypePerformance: Normailized subtype...')
   if(!is.null(n_norm_subtype)){
-    data_norm <- subtypeNorm(df, df6, n_norm_subtype = n_norm_subtype, numCores = numCores)
+    data_norm <- subtypeNorm(df, n_norm_subtype = n_norm_subtype, numCores = numCores, verbose = verbose)
   } else {
     data_norm <- NULL
   }
 
   # Clinical utility
+  if(verbose) LuckyVerbose('subtypePerformance: Clinical utility...')
   data_utility <- subtypeEffect(
     data = df,
     col_subtype = 'Subtype', col_cohort = 'Cohort',
@@ -169,6 +175,7 @@ subtypePeformance <- function(
       ClinicUtility = data_utility
     )
   )
+  if(verbose) LuckyVerbose('subtypePerformance: All done!')
   return(l)
 
 }
@@ -462,19 +469,36 @@ forestPlotSubtypeRate <- function(df3){
 
 #' @importFrom plyr ddply
 #' @importFrom tidyr `%>%`
-#' @importFrom dplyr summarize arrange desc filter
+#' @importFrom dplyr summarize arrange desc filter group_by ungroup
 #' @importFrom parallel detectCores
 #' @importFrom doParallel registerDoParallel stopImplicitCluster
 #' @importFrom foreach foreach `%dopar%`
 #' @import luckyBase
-subtypeNorm <- function(df, df6, n_norm_subtype=2, numCores = NULL){
+subtypeNorm <- function(df, n_norm_subtype=2, numCores = NULL, verbose = TRUE){
 
-  df_cutoff <- df6 %>% ddply(
-    c('Subtype'), dplyr::summarize,
-    medianNRR = median(normalized_response_rate, na.rm = T)
-  ) %>% arrange(desc(medianNRR))
-
-  combinations <- combn(1:(nrow(df_cutoff)-1), n_norm_subtype - 1)
+  # Data
+  if(T){
+    df2 <- ddply(df, c('Cohort', 'Subtype', 'response'), dplyr::summarize, nSample = length(SampleIDs), tumor_type = unique(tumor_type))
+    df3 <- ddply(
+      df2, c('Cohort', 'Subtype', 'tumor_type'), dplyr::summarize,
+      size = sum(nSample, na.rm = TRUE),
+      nResponse = ifelse(length(nSample[response %in% c(1,"1")]) == 0, 0, nSample[response %in% c(1,"1")]),
+      response_rate = nResponse/size
+    )
+    df4 <- ddply(df3, c('Cohort'), dplyr::reframe, Subtype = 'All', size = sum(size, na.rm = TRUE), nResponse = sum(nResponse, na.rm = TRUE), response_rate = nResponse/size)
+    df6 <- NULL
+    for(i in 1:nrow(df3)){
+      df3.i <- df3[i,] # i=1
+      df3.i_all_response_rate <-  df4[df4$Cohort %in% df3.i$Cohort & df4$Subtype == 'All','response_rate']
+      df3.i$normalized_response_rate <- (df3.i$response_rate - df3.i_all_response_rate)/df3.i_all_response_rate
+      df6 <- rbind(df6, df3.i)
+    }
+    df_cutoff <- df6 %>% ddply(
+      c('Subtype'), dplyr::summarize,
+      medianNRR = median(normalized_response_rate, na.rm = T)
+    ) %>% arrange(desc(medianNRR))
+    combinations <- combn(1:(nrow(df_cutoff)-1), n_norm_subtype - 1)
+  }
 
   # Assistant function
   get_perform_markers <- function(response, predictor, n_norm_subtype){
@@ -487,62 +511,102 @@ subtypeNorm <- function(df, df6, n_norm_subtype=2, numCores = NULL){
     }
   }
 
+  # Parallel: Start
+  if(is.null(numCores)){
+    numCores <- detectCores() - 1  # Use all but one core
+  }
+  registerDoParallel(cores = numCores)
+
   # Parallel processing: Find best combination
-  system.time({
-      if(is.null(numCores)){
-        numCores <- detectCores() - 1  # Use all but one core
-      }
-      registerDoParallel(cores = numCores)
+  if(T){
+
+    if(verbose) LuckyVerbose('subtypeNorm: Parallel processing - Find best combination...',levels = 2)
+
+    # Splite data
+    if(ncol(combinations) >= 10*numCores){
+      XL <- cut_vector(1:ncol(combinations), nsplit = numCores)
+    } else {
+      XL <- cut_vector(1:ncol(combinations), nsplit = 4)
+    }
+
+    system.time(
       df_perform <- foreach(
-        i = 1:ncol(combinations), .combine = rbind,
+        i = 1:length(XL), .combine = rbind,
         .packages = c("plyr", "dplyr", "dplyr", "luckyBase")
       ) %dopar% {
-        x <- combinations[, i]
-        medianNRR_category <- rep(NA, nrow(df_cutoff))
+        lapply(XL[[i]], function(k){
+          x <- combinations[, k]
+          medianNRR_category <- rep(NA, nrow(df_cutoff))
 
-        for (j in 0:length(x)) {
-          lower_limit_j <- ifelse(j == 0, 1, (x[j] + 1))
-          upper_limit_j <- ifelse(j == length(x), nrow(df_cutoff), x[j + 1])
-          medianNRR_category[lower_limit_j:upper_limit_j] <- n_norm_subtype - j
-        }
+          for (j in 0:length(x)) {
+            lower_limit_j <- ifelse(j == 0, 1, (x[j] + 1))
+            upper_limit_j <- ifelse(j == length(x), nrow(df_cutoff), x[j + 1])
+            medianNRR_category[lower_limit_j:upper_limit_j] <- n_norm_subtype - j
+          }
 
-        df_cutoff$medianNRR_category <- medianNRR_category - 1
+          df_cutoff$medianNRR_category <- medianNRR_category - 1
 
-        df_cutoff_summary <- ddply(
-          df_cutoff, c('medianNRR_category'),
-          dplyr::summarize,
-          annotation = paste0(Subtype, collapse = ',')
-        )
+          df_cutoff_summary <- ddply(
+            df_cutoff, c('medianNRR_category'),
+            dplyr::summarize,
+            annotation = paste0(Subtype, collapse = ',')
+          )
 
-        df$normSubtype <- convert(df$Subtype, "Subtype", "medianNRR_category", df_cutoff) %>% as.numeric()
+          df$normSubtype <- convert(df$Subtype, "Subtype", "medianNRR_category", df_cutoff) %>% as.numeric()
 
-        df_perform_i1 <- cbind(
-          Cohort = 'All',
-          Info = paste(df_cutoff_summary$medianNRR_category, df_cutoff_summary$annotation, sep = '=') %>%
-            paste0(., collapse = '; '),
-          nSample = nrow(df),
-          get_perform_markers(df$response, df$normSubtype, n_norm_subtype),
-          stringsAsFactors = FALSE
-        )
+          df_perform_i1 <- cbind(
+            Cohort = 'All',
+            Info = paste(df_cutoff_summary$medianNRR_category, df_cutoff_summary$annotation, sep = '=') %>%
+              paste0(., collapse = '; '),
+            nSample = nrow(df),
+            get_perform_markers(df$response, df$normSubtype, n_norm_subtype),
+            stringsAsFactors = FALSE
+          )
 
-        df_perform_i2 <- df %>% ddply(
-          ., c('Cohort'),
-          dplyr::summarize,
-          Info = paste(df_cutoff_summary$medianNRR_category, df_cutoff_summary$annotation, sep = '=') %>%
-            paste0(., collapse = '; '),
-          nSample = length(Cohort),
-          get_perform_markers(response, normSubtype ,n_norm_subtype)
-        )
+          df_perform_i2 <- df %>% ddply(
+            ., c('Cohort'),
+            dplyr::summarize,
+            Info = paste(df_cutoff_summary$medianNRR_category, df_cutoff_summary$annotation, sep = '=') %>%
+              paste0(., collapse = '; '),
+            nSample = length(Cohort),
+            get_perform_markers(response, normSubtype ,n_norm_subtype)
+          )
 
-        rbind(df_perform_i1, df_perform_i2)
+          rbind(df_perform_i1, df_perform_i2)
+        }) %>% do.call('rbind', .)
       }
-      # length(unique(df_perform$Info))
-      stopImplicitCluster()
-    })
+    )
+    # 用户   系统   流逝
+    # 0.86   0.52 249.47
+    stopImplicitCluster()
+
+  }
+
+  # Summary
+  # cl <- makeCluster(numCores)
+  # registerDoParallel(cl)
+  # df_perform <- df_perform %>% arrange(Cohort, desc(ROCAUC))
+  if(verbose) LuckyVerbose('subtypeNorm: Summary...',levels = 2)
+  system.time(
+    df_perform_summary <- df_perform %>%
+      group_by(Info) %>%
+      dplyr::summarize(medianROCAUC = median(ROCAUC, na.rm = TRUE)) %>%
+      ungroup() %>%
+      arrange(desc(medianROCAUC))
+  )
+  # system.time({
+  #   df_perform_summary <- ddply(
+  #     df_perform,
+  #     .variables = "Info",
+  #     .fun = dplyr::summarize,
+  #     medianROCAUC = median(ROCAUC, na.rm = TRUE)
+  #   ) %>% arrange(desc(medianROCAUC))
+  # })
+  # stopCluster(cl)
+
 
   # Output
-  df_perform <- df_perform %>% arrange(Cohort, desc(ROCAUC))
-  df_perform_summary <- ddply(df_perform, c('Info'), dplyr::summarize, medianROCAUC = median(ROCAUC, na.rm = TRUE)) %>% arrange(desc(medianROCAUC))
+  if(verbose) LuckyVerbose('subtypeNorm: Done!',levels = 2)
   return(
     list(
       Raw = df_perform,
@@ -756,7 +820,36 @@ subtypeEffect <- function(
 }
 
 
+
+#' @title Get new normalized subtypes based on a record from \code{subtypePerformance}
+#' @description Get new normalized subtypes based on a record from \code{subtypePerformance}
+#' @param x a character
+#' @param record a record from \code{subtypePerformance}
+#' @importFrom luckyBase Fastextra convert
+#' @importFrom tidyr `%>%`
+#' @return a character
+#' @seealso \code{\link{subtypePerformance }}.
+#' @author Weibin Huang<\email{hwb2012@@qq.com}>
+#' @export
+newSubtype <- function(x, record){
+  record_sub <- Fastextra(record, '; ')
+
+  record_annot <- lapply(record_sub, function(x){
+    data.frame(
+      normSubtype = Fastextra(x,'=',1),
+      Subtype = Fastextra(x,'=',2) %>% Fastextra(., ','),
+      stringsAsFactors = F
+    )
+  }) %>% do.call('rbind', .)
+
+  x2 <- convert(x, 'Subtype','normSubtype', record_annot) %>% as.numeric()
+  return(x2)
+}
+
+
+
 ####%%%%%%%%%%%%% Assistant functions %%%%%%%%%%%%%%%%%%%%####
+
 
 # For subtypeEffect
 calculate_bounded_confidence_interval <- function(data, conf_level = 0.95, lower_limit = 0, upper_limit = 1) {
