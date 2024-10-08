@@ -18,6 +18,7 @@ ccsCheck(
   nTest = 3,
   minAccuracy = 0.85,
   model.dir = "./ccs/PADv20240810",
+  numCores = 16,
   verbose = TRUE
 )
 }
@@ -53,6 +54,8 @@ ccsCheck(
 \item{minAccuracy}{An acceptable accuracy}
 
 \item{model.dir}{a character. the path of model series.}
+
+\item{numCores}{No. of CPU core}
 
 \item{verbose}{whether report messages}
 }

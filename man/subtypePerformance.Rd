@@ -17,6 +17,7 @@ subtypePerformance(
     "#86A7FC", Bladder = "#3468C0", Ovary = "#B3B3B3", Blood = "#F781BF", Skin =
     "#4DAF4A"),
   n_norm_subtype = 2,
+  plot_layout_widths = c(9, 1),
   numCores = NULL,
   verbose = TRUE
 )
@@ -39,6 +40,8 @@ subtypePerformance(
 \item{color_tissue}{a named vector like \code{c(Brain = "#984EA3",Oral = "#BF5B17")}}
 
 \item{n_norm_subtype}{The number of normalized subtypes you want to explore}
+
+\item{plot_layout_widths}{\code{layout_widths} for \code{\link[patchwork]{plot_layout}}}
 
 \item{numCores}{No. of CPU core}
 

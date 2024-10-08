@@ -32,6 +32,7 @@ ccsCheck <- function(
     nTest = 3,
     minAccuracy = 0.85,
     model.dir = "./ccs/PADv20240810",
+    numCores = 16,
     verbose = TRUE
 ){
 
@@ -60,6 +61,7 @@ ccsCheck <- function(
     train.proc = 0.8; nTest = 3; minAccuracy = 0.85
     model.dir = paste("./ccs/",project, sep = '')
     verbose = TRUE
+    numCores = 16
   }
 
   # Parameters
@@ -96,12 +98,12 @@ ccsCheck <- function(
         xgboost.seed = 105,
         ptail = params$ptail,
         verbose = TRUE,
-        numCores = 16
+        numCores = numCores
       )
     }
 
-    accuracy_1 <- ccsCheck_accuracy(data_test_valid, submodels, geneSet, geneAnnotation, geneid, verbose)
-    accuracy_2 <- ccsCheck_accuracy(data_test_train, submodels, geneSet, geneAnnotation, geneid, verbose)
+    accuracy_1 <- ccsCheck_accuracy(data_test_valid, submodels, geneSet, geneAnnotation, geneid, numCores, verbose)
+    accuracy_2 <- ccsCheck_accuracy(data_test_train, submodels, geneSet, geneAnnotation, geneid, numCores, verbose)
 
   } else if(mode == 'submodel'){
 
@@ -117,7 +119,7 @@ ccsCheck <- function(
       submodels[[cohortName_i]] <- readRDS(path_submodel_i)
     }
 
-    accuracy_1 <- ccsCheck_accuracy(data_test, submodels, geneSet, geneAnnotation, geneid, verbose)
+    accuracy_1 <- ccsCheck_accuracy(data_test, submodels, geneSet, geneAnnotation, geneid, numCores, verbose)
     accuracy_2 <- NULL
 
   } else {
@@ -204,9 +206,9 @@ get_train_valid <- function(data_test, train.proc = 0.8, seed = seeds[2]){
 }
 
 
-#' @importFrom GSClassifier callEnsemble
+#' @importFrom GSClassifier callEnsemble parCallEnsemble
 #' @importFrom luckyBase LuckyVerbose
-ccsCheck_accuracy <- function(data_test, submodels, geneSet, geneAnnotation, geneid, verbose){
+ccsCheck_accuracy <- function(data_test, submodels, geneSet, geneAnnotation, geneid, numCores, verbose){
 
   accuracy <- NULL
 
@@ -220,15 +222,30 @@ ccsCheck_accuracy <- function(data_test, submodels, geneSet, geneAnnotation, gen
 
     if(verbose) LuckyVerbose('ccsCheck: subtype calling of cohort - ', cohortName_i, type = 'cat')
 
-    submodel_res <- callEnsemble(
-      X = submodel_data$expr,
-      ens = submodel$Model,
-      geneAnnotation = geneAnnotation,
-      geneSet = geneSet,
-      geneid = geneid,
-      scaller = NULL,
-      subtype = NULL
-    )
+    if(ncol(submodel_data$expr) > numCores){
+      submodel_res <- parCallEnsemble(
+        X = submodel_data$expr,
+        ens = submodel$Model,
+        geneAnnotation = geneAnnotation,
+        geneSet = geneSet,
+        geneid = geneid,
+        scaller = NULL,
+        subtype = NULL,
+        verbose = verbose,
+        numCores = numCores
+      )
+    } else {
+      submodel_res <- callEnsemble(
+        X = submodel_data$expr,
+        ens = submodel$Model,
+        geneAnnotation = geneAnnotation,
+        geneSet = geneSet,
+        geneid = geneid,
+        scaller = NULL,
+        subtype = NULL,
+        verbose = verbose,
+      )
+    }
 
     submodel_real <- submodel_data$subtype
     submodel_pred <- submodel_res$BestCall_Max

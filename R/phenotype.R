@@ -8,6 +8,7 @@
 #' @param cohort_level The level of cohort used in scater+bar plot
 #' @param color_tissue a named vector like \code{c(Brain = "#984EA3",Oral = "#BF5B17")}
 #' @param n_norm_subtype The number of normalized subtypes you want to explore
+#' @param plot_layout_widths \code{layout_widths} for \code{\link[patchwork]{plot_layout}}
 #' @importFrom tidyr `%>%`
 #' @importFrom dplyr summarize arrange desc filter
 #' @importFrom plyr ddply
@@ -42,6 +43,7 @@ subtypePerformance <- function(
       Skin = "#4DAF4A"
     ),
     n_norm_subtype = 2,
+    plot_layout_widths = c(9, 1),
     numCores = NULL,
     verbose = TRUE
 ){
@@ -50,7 +52,7 @@ subtypePerformance <- function(
   if(F){
 
     library(luckyBase)
-    Plus.library(c('CCS', 'GSClassifier', 'plotly','cowplot','tidyr','ggplot2','purrr','furrr','stringi','digest', 'pROC','ComplexHeatmap','scales','plyr','dplyr','forestplot','ggrepel','writexl','readxl','patchwork','gtable','grid',"reshape2","circlize","parallel","foreach","doParallel"))
+    Plus.library(c('CCS', 'GSClassifier', 'plotly','cowplot','tidyr','ggplot2','ggpubr','purrr','furrr','stringi','digest', 'pROC','ComplexHeatmap','scales','plyr','dplyr','forestplot','ggrepel','writexl','readxl','patchwork','gtable','grid',"reshape2","circlize","parallel","foreach","doParallel"))
 
 
     data = read_xlsx('E:/iProjects/RCheck/GSClassifier/routine01/test/DataFrame_CCS+ClinicFeature_PanIMTv20240726+CDSDBv20240726.xlsx')
@@ -81,7 +83,9 @@ subtypePerformance <- function(
     n_norm_subtype <- 4
     # n_norm_subtype <- 2
     numCores = NULL
-
+    verbose = T
+    dodge.width = 0.8
+    plot_layout_widths = c(9, 1)
 
   }
 
@@ -135,7 +139,7 @@ subtypePerformance <- function(
 
   # RR/NRR - scatter plot/box plot
   if(verbose) LuckyVerbose('subtypePerformance: RR/NRR - scatter plot/box plot...')
-  plot_r <- plotSubtypeRate(dat.plot, cohort_level, color_tissue, dodge.width = 0.8) # plot_r$`Normalized response rate`
+  plot_r <- plotSubtypeRate(dat.plot, data_roc, cohort_level, color_tissue, dodge.width = 0.8, plot_layout_widths = plot_layout_widths) # plot_r$`Normalized response rate`
 
   # Performance of normalized subtype
   if(verbose) LuckyVerbose('subtypePerformance: Normailized subtype...')
@@ -201,7 +205,7 @@ subtypeROC <- function(df){
     df, c('Cohort'),
     dplyr::summarize,
     nSample = length(SampleIDs),
-    ROCAUC = multiXClass_roc(response, Subtype, verbose = F) %>% .[["auc"]]
+    ROCAUC = ifelse(length(unique(response)) < 2, NA, multiXClass_roc(response, Subtype, verbose = F) %>% .[["auc"]])
     # get_perform_markers(response, Subtype, length(unique(Subtype)))
   ) %>% arrange(desc(ROCAUC))
 
@@ -213,11 +217,12 @@ subtypeROC <- function(df){
 #' @importFrom plyr ddply
 #' @import ggplot2
 #' @import patchwork
+#' @importFrom ggpubr rotate_x_text
 #' @importFrom ggrepel geom_label_repel geom_text_repel
-plotSubtypeRate <- function(dat.plot, cohort_level, color_tissue, dodge.width = 0.8){
+plotSubtypeRate <- function(dat.plot, data_roc, cohort_level, color_tissue, dodge.width = 0.8, plot_layout_widths = c(9, 1)){
 
-  # Barplot
-  if(T){
+  # Barplot: Tissue
+  if(F){
 
     unique_tissue <- unique(dat.plot$tumor_type)
 
@@ -230,6 +235,36 @@ plotSubtypeRate <- function(dat.plot, cohort_level, color_tissue, dodge.width = 
       scale_fill_manual(values = color_tissue[names(color_tissue) %in% unique_tissue]) +
       theme_void() +
       theme(legend.position = "none")
+  }
+
+  # Barplot: ROC AUC
+  if(T){
+
+    data_roc2 <- data_roc %>% filter(!Cohort %in% 'All') %>% inner_join(., ddply(dat.plot, c('tumor_type', 'Cohort'), dplyr::summarize), by = 'Cohort')
+    data_roc2$Cohort <- factor(data_roc2$Cohort, levels = rev(cohort_level))
+    unique_tissue <- unique(data_roc2$tumor_type)
+
+    stacked_bar <- ggplot(data_roc2, aes(x = ROCAUC, y = Cohort, fill = tumor_type)) +
+      geom_bar(stat="identity", color = "black", linewidth = 1) + # fill='transparent'
+      scale_fill_manual(values = color_tissue[names(color_tissue) %in% unique_tissue]) +
+      geom_vline(xintercept = 0.8, linetype = "dashed", color = "black", linewidth = 1) +
+      scale_x_continuous(
+        breaks = c(0,0.2,0.4,0.6,0.8,1),
+        labels = c(0,0.2,0.4,0.6,0.8,1),
+        limits = c(0, 1), expand = c(0, 0)
+      ) +
+      labs(title = 'ROCAUC') +
+      # theme_minimal() +
+      theme_bw() +
+      theme(
+        axis.text.y = element_blank(),
+        axis.ticks = element_blank(),
+        axis.title = element_blank(),
+        plot.title = element_text(hjust = 0.5),
+        panel.grid = element_blank(),
+        legend.position = "none"
+      )
+
   }
 
   dodge <- position_dodge(width = dodge.width)
@@ -273,7 +308,8 @@ plotSubtypeRate <- function(dat.plot, cohort_level, color_tissue, dodge.width = 
         panel.border = element_rect(colour = "black", linewidth=1.5),
         axis.line = element_line(colour = "black", linewidth=0, linetype = 1),
         legend.position = 'bottom'
-      )
+      ) +
+      rotate_x_text(angle = 90)
 
     # Plot: patchwork grid
     p12 <- (
@@ -285,7 +321,7 @@ plotSubtypeRate <- function(dat.plot, cohort_level, color_tissue, dodge.width = 
         stacked_bar
     ) +
       plot_layout(ncol = 2, nrow = 2,
-                  widths = c(9, 1),
+                  widths = plot_layout_widths,
                   heights = c(2, 8)) &
       theme(plot.margin = margin(1, 1, 1, 1))
     # cairo_pdf('test/Rate_scatter-bar-box.pdf', width = 20, height = 12); print(p12); dev.off()
@@ -334,7 +370,7 @@ plotSubtypeRate <- function(dat.plot, cohort_level, color_tissue, dodge.width = 
         panel.border = element_rect(colour = "black", linewidth=1.5),
         axis.line = element_line(colour = "black", linewidth=0, linetype = 1),
         legend.position = 'bottom'
-      )
+      ) + rotate_x_text(angle = 90)
 
 
     # Plot: patchwork grid
@@ -347,9 +383,35 @@ plotSubtypeRate <- function(dat.plot, cohort_level, color_tissue, dodge.width = 
         stacked_bar
     ) +
       plot_layout(ncol = 2, nrow = 2,
-                  widths = c(9, 1),
+                  widths = plot_layout_widths,
                   heights = c(2, 8)) &
       theme(plot.margin = margin(1, 1, 1, 1))
+  }
+
+  # Merge
+  if(T){
+    p1234 <- (
+      p1 + theme(axis.title = element_blank(),
+                 axis.text.x = element_blank(),
+                 axis.ticks.x = element_blank()) +
+      p3 + theme(axis.title = element_blank(),
+                 axis.text.x = element_blank(),
+                 axis.ticks.x = element_blank()) +
+        scale_y_continuous(position = "right") +
+      plot_spacer() +
+      p2 + guides(size = "none") +
+      p4 + guides(size = "none") + theme(axis.title = element_blank(),
+                 axis.text.y = element_blank(),
+                 axis.ticks.y = element_blank()) +
+      stacked_bar
+    ) +
+      plot_layout(
+        ncol = 3, nrow = 2,
+        widths = c(plot_layout_widths[1]/2,plot_layout_widths[1]/2,plot_layout_widths[2]),
+        heights = c(2, 8)
+      ) &
+      theme(plot.margin = margin(1, 1, 1, 1))
+
   }
 
   # https://wilkelab.org/cowplot/reference/plot_grid.html
@@ -370,7 +432,8 @@ plotSubtypeRate <- function(dat.plot, cohort_level, color_tissue, dodge.width = 
 
   return(list(
     'Response rate' = p12,
-    'Normalized response rate' = p34
+    'Normalized response rate' = p34,
+    'Merge' = p1234
   ))
 
 }
@@ -424,7 +487,8 @@ forestPlotSubtypeRate <- function(df3){
   if(T){
 
     # data
-    df3_conf3 <- df3_conf2 %>% filter(size >= 10) %>% arrange(binom_P, desc(size))
+    # df3_conf3 <- df3_conf2 %>% filter(size >= 10) %>% arrange(binom_P, desc(size))
+    df3_conf3 <- df3_conf2 %>% filter(size >= 10) %>% arrange(desc(rr), binom_P, desc(size))
     df3_conf3_colsum <- colSums(df3_conf3)
     tabletext <- cbind(
       c("Subtype","\n", df3_conf3$Subtype),
