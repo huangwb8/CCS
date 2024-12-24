@@ -595,49 +595,60 @@ subtypeNorm <- function(df, n_norm_subtype=2, numCores = NULL, verbose = TRUE){
 
     system.time(
       df_perform <- foreach(
-        i = 1:length(XL), .combine = rbind,
+        i = 1:length(XL), .combine = 'rbind',
         .packages = c("plyr", "dplyr", "dplyr", "luckyBase")
       ) %dopar% {
-        lapply(XL[[i]], function(k){
+        batch_results <- lapply(XL[[i]], function(k){ # k=1
           x <- combinations[, k]
           medianNRR_category <- rep(NA, nrow(df_cutoff))
 
+          # Calculate categories
           for (j in 0:length(x)) {
             lower_limit_j <- ifelse(j == 0, 1, (x[j] + 1))
             upper_limit_j <- ifelse(j == length(x), nrow(df_cutoff), x[j + 1])
             medianNRR_category[lower_limit_j:upper_limit_j] <- n_norm_subtype - j
           }
-
           df_cutoff$medianNRR_category <- medianNRR_category - 1
 
-          df_cutoff_summary <- ddply(
-            df_cutoff, c('medianNRR_category'),
-            dplyr::summarize,
+          # Summarize cutoff data
+          df_cutoff_summary <- summarize(
+            group_by(df_cutoff, medianNRR_category),
             annotation = paste0(Subtype, collapse = ',')
           )
 
           df$normSubtype <- convert(df$Subtype, "Subtype", "medianNRR_category", df_cutoff) %>% as.numeric()
 
+          # Group relationship
+          info_str <- paste(
+            paste(
+              df_cutoff_summary$medianNRR_category,
+              df_cutoff_summary$annotation,
+              sep = "="
+            ),
+            collapse = "; "
+          )
+
+          # Create summary for all data
           df_perform_i1 <- cbind(
             Cohort = 'All',
-            Info = paste(df_cutoff_summary$medianNRR_category, df_cutoff_summary$annotation, sep = '=') %>%
-              paste0(., collapse = '; '),
+            Info = info_str,
             nSample = nrow(df),
             get_perform_markers(df$response, df$normSubtype, n_norm_subtype),
             stringsAsFactors = FALSE
           )
 
+          # Create summary by cohort
           df_perform_i2 <- df %>% ddply(
             ., c('Cohort'),
             dplyr::summarize,
-            Info = paste(df_cutoff_summary$medianNRR_category, df_cutoff_summary$annotation, sep = '=') %>%
-              paste0(., collapse = '; '),
+            Info = info_str,
             nSample = length(Cohort),
             get_perform_markers(response, normSubtype ,n_norm_subtype)
           )
 
-          rbind(df_perform_i1, df_perform_i2)
-        }) %>% do.call('rbind', .)
+          rbind(df_perform_i1, as.data.frame(df_perform_i2))
+        })
+        do.call('rbind', batch_results)
       }
     )
     # 用户   系统   流逝
