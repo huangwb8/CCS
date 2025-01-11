@@ -8,6 +8,14 @@
 #' @param cohort_level The level of cohort used in scater+bar plot
 #' @param color_tissue a named vector like \code{c(Brain = "#984EA3",Oral = "#BF5B17")}
 #' @param n_norm_subtype The number of normalized subtypes you want to explore
+#' @param norm_roc_method The method to call ROC AUC. One of \code{'OptimizeRank'} and \code{'Raw'}.
+#' @param norm_rank_marker The marker for normalization rank. Interpretation:
+#' \itemize{
+#'   \item \code{NRR} Ranked only by normalized response rate.
+#'   \item \code{RR} Ranked only by raw response rate.
+#'   \item \code{NRR+RR} Ranked by normalized response rate and then by raw response rate.
+#'   \item \code{RR+NRR} Ranked by raw response rate and then by normalized response rate.
+#' }
 #' @param plot_layout_widths \code{layout_widths} for \code{\link[patchwork]{plot_layout}}
 #' @importFrom tidyr `%>%`
 #' @importFrom dplyr summarize arrange desc filter
@@ -43,6 +51,9 @@ subtypePerformance <- function(
       Skin = "#4DAF4A"
     ),
     n_norm_subtype = 2,
+    norm_roc_method = c('OptimizeRank', 'Raw')[1],
+    norm_rank_marker = c('NRR', 'RR', 'NRR+RR', 'RR+NRR')[1],
+    plot_ROCCutoff = 0.8,
     plot_layout_widths = c(9, 1),
     numCores = NULL,
     verbose = TRUE
@@ -52,7 +63,8 @@ subtypePerformance <- function(
   if(F){
 
     library(luckyBase)
-    Plus.library(c('CCS', 'GSClassifier', 'plotly','cowplot','tidyr','ggplot2','ggpubr','purrr','furrr','stringi','digest', 'pROC','ComplexHeatmap','scales','plyr','dplyr','forestplot','ggrepel','writexl','readxl','patchwork','gtable','grid',"reshape2","circlize","parallel","foreach","doParallel"))
+    Plus.library(c('CCS', 'GSClassifier', 'plotly','cowplot','tidyr','ggplot2','ggpubr','purrr','furrr','stringi','digest', 'pROC','ComplexHeatmap','scales','plyr','dplyr','forestplot','ggrepel','writexl','readxl','patchwork','gtable','grid',"reshape2","circlize","parallel","foreach","doParallel","pROC"))
+    source('./R/ccs_base.R',encoding = 'utf-8')
 
 
     data = read_xlsx('E:/iProjects/RCheck/GSClassifier/routine01/test/DataFrame_CCS+ClinicFeature_PanIMTv20240726+CDSDBv20240726.xlsx')
@@ -80,8 +92,12 @@ subtypePerformance <- function(
       Skin = "#4DAF4A"
     )
 
-    n_norm_subtype <- 4
+    n_norm_subtype <- 3
     # n_norm_subtype <- 2
+    norm_roc_method = c('OptimizeRank', 'Raw')[2]
+    norm_rank_marker = c('NRR', 'RR')[2]
+    plot_ROCCutoff = 0.8
+
     numCores = NULL
     verbose = T
     dodge.width = 0.8
@@ -131,7 +147,7 @@ subtypePerformance <- function(
 
   # ROC analysis
   if(verbose) LuckyVerbose('subtypePerformance: ROC analysis...')
-  data_roc <- subtypeROC(df)
+  data_roc <- subtypeROC(df, norm_roc_method)
 
   # Forest plot
   if(verbose) LuckyVerbose('subtypePerformance: Forest plot...')
@@ -139,12 +155,19 @@ subtypePerformance <- function(
 
   # RR/NRR - scatter plot/box plot
   if(verbose) LuckyVerbose('subtypePerformance: RR/NRR - scatter plot/box plot...')
-  plot_r <- plotSubtypeRate(dat.plot, data_roc, cohort_level, color_tissue, dodge.width = 0.8, plot_layout_widths = plot_layout_widths) # plot_r$`Normalized response rate`
+  plot_r <- plotSubtypeRate(dat.plot, data_roc, cohort_level, color_tissue, dodge.width = 0.8, plot_ROCCutoff = plot_ROCCutoff,plot_layout_widths = plot_layout_widths) # plot_r$`Normalized response rate`
 
   # Performance of normalized subtype
   if(verbose) LuckyVerbose('subtypePerformance: Normailized subtype...')
   if(!is.null(n_norm_subtype)){
-    data_norm <- subtypeNorm(df, n_norm_subtype = n_norm_subtype, numCores = numCores, verbose = verbose)
+    data_norm <- subtypeNorm(
+      df,
+      n_norm_subtype = n_norm_subtype,
+      norm_roc_method = norm_roc_method,
+      norm_rank_marker = norm_rank_marker,
+      numCores = numCores,
+      verbose = verbose
+    )
   } else {
     data_norm <- NULL
   }
@@ -191,23 +214,56 @@ subtypePerformance <- function(
 #' @importFrom dplyr summarize arrange desc
 #' @importFrom plyr ddply rbind.fill
 #' @importFrom tidyr `%>%`
-subtypeROC <- function(df){
+subtypeROC <- function(df, norm_roc_method){
 
-  df_roc_01 <- df %>%
-    dplyr::summarize(
-      Cohort = 'All',
-      nSample = length(SampleIDs),
-      ROCAUC = multiXClass_roc(response, Subtype, verbose = FALSE)[["auc"]]
-      # get_perform_markers(response, Subtype, length(unique(Subtype)))
-    )
+  df_roc_01 <- cbind(
+    Cohort = 'All',
+    nSample = nrow(df),
+    get_perform_markers_align(
+      df$response, df$Subtype,
+      n_norm_subtype = length(unique(df$Subtype)),
+      norm_roc_method = norm_roc_method),
+    stringsAsFactors = FALSE
+  )
 
-  df_roc_02 <- ddply(
-    df, c('Cohort'),
-    dplyr::summarize,
-    nSample = length(SampleIDs),
-    ROCAUC = ifelse(length(unique(response)) < 2, NA, multiXClass_roc(response, Subtype, verbose = F) %>% .[["auc"]])
-    # get_perform_markers(response, Subtype, length(unique(Subtype)))
-  ) %>% arrange(desc(ROCAUC))
+  df_roc_02 <- df %>%
+    ddply(
+      .variables = c('Cohort'),
+      .fun = function(sub_df) {
+        nSample = nrow(sub_df)
+        if (length(unique(sub_df$response)) < 2) {
+          sub_df_perf <- data.frame(
+            "accuracy" = NA,
+            "accuracy_lower"= NA,
+            "accuracy_upper"= NA,
+            "Balanced Accuracy"= NA,
+            "Detection Prevalence"= NA,
+            "Detection Rate"= NA,
+            "F1" = NA,
+            "Neg Pred Value"= NA,
+            "Pos Pred Value"= NA,
+            "Precision"= NA,
+            "Prevalence"= NA,
+            "Recall"= NA,
+            "ROCAUC" =NA,
+            "ROCAUC_lower"= NA,
+            "ROCAUC_upper"= NA,
+            "Sensitivity"= NA,
+            "Specificity"= NA
+          )
+        } else {
+          sub_df_perf <- get_perform_markers_align(
+            response = sub_df$response,
+            predictor = sub_df$Subtype,
+            n_norm_subtype = length(unique(sub_df$Subtype)),
+            norm_roc_method = norm_roc_method
+          )
+        }
+        return(cbind(nSample = nSample, sub_df_perf))
+      }
+    ) %>%
+    arrange(desc(ROCAUC))
+
 
   df_roc <- rbind.fill(df_roc_01, df_roc_02)
   return(df_roc)
@@ -219,7 +275,7 @@ subtypeROC <- function(df){
 #' @import patchwork
 #' @importFrom ggpubr rotate_x_text
 #' @importFrom ggrepel geom_label_repel geom_text_repel
-plotSubtypeRate <- function(dat.plot, data_roc, cohort_level, color_tissue, dodge.width = 0.8, plot_layout_widths = c(9, 1)){
+plotSubtypeRate <- function(dat.plot, data_roc, cohort_level, color_tissue, dodge.width = 0.8, plot_ROCCutoff = 0.8, plot_layout_widths = c(9, 1)){
 
   # Barplot: Tissue
   if(F){
@@ -247,7 +303,7 @@ plotSubtypeRate <- function(dat.plot, data_roc, cohort_level, color_tissue, dodg
     stacked_bar <- ggplot(data_roc2, aes(x = ROCAUC, y = Cohort, fill = tumor_type)) +
       geom_bar(stat="identity", color = "black", linewidth = 1) + # fill='transparent'
       scale_fill_manual(values = color_tissue[names(color_tissue) %in% unique_tissue]) +
-      geom_vline(xintercept = 0.8, linetype = "dashed", color = "black", linewidth = 1) +
+      geom_vline(xintercept = plot_ROCCutoff, linetype = "dashed", color = "black", linewidth = 1) +
       scale_x_continuous(
         breaks = c(0,0.2,0.4,0.6,0.8,1),
         labels = c(0,0.2,0.4,0.6,0.8,1),
@@ -538,7 +594,13 @@ forestPlotSubtypeRate <- function(df3){
 #' @importFrom doParallel registerDoParallel stopImplicitCluster
 #' @importFrom foreach foreach `%dopar%`
 #' @import luckyBase
-subtypeNorm <- function(df, n_norm_subtype=2, numCores = NULL, verbose = TRUE){
+subtypeNorm <- function(
+    df,
+    n_norm_subtype=2,
+    norm_roc_method = 'Raw',
+    norm_rank_marker = 'RR',
+    numCores = NULL, verbose = TRUE
+){
 
   # Data
   if(T){
@@ -559,30 +621,34 @@ subtypeNorm <- function(df, n_norm_subtype=2, numCores = NULL, verbose = TRUE){
     }
     df_cutoff <- df6 %>% ddply(
       c('Subtype'), dplyr::summarize,
-      medianNRR = median(normalized_response_rate, na.rm = T)
-    ) %>% arrange(desc(medianNRR))
+      medianNRR = median(normalized_response_rate, na.rm = T),
+      medianRR = median(response_rate, na.rm = T)
+    )
+
+    # Rank
+    if(norm_rank_marker == 'RR+NRR'){
+      df_cutoff <- arrange(df_cutoff, desc(medianRR), desc(medianNRR))
+    } else if(norm_rank_marker == 'NRR+RR'){
+      df_cutoff <- arrange(df_cutoff, desc(medianNRR), desc(medianRR))
+    } else if(norm_rank_marker == 'RR'){
+      df_cutoff <- arrange(df_cutoff, desc(medianRR))
+    } else if(norm_rank_marker == 'NRR'){
+      df_cutoff <- arrange(df_cutoff, desc(medianNRR))
+    } else {
+      stop('Not available rank marker. Please use one of "RR" and "NRR"!')
+    }
+
     combinations <- combn(1:(nrow(df_cutoff)-1), n_norm_subtype - 1)
   }
 
-  # Assistant function
-  get_perform_markers <- function(response, predictor, n_norm_subtype){
-    if(n_norm_subtype == 2){
-      CCS:::compareRealPred2(real = response, pred = predictor)
-    } else if(n_norm_subtype > 2){
-      data.frame(ROCAUC = CCS::multiXClass_roc(response, predictor, verbose = FALSE)[['auc']])
-    } else {
-      NULL
-    }
-  }
-
-  # Parallel: Start
-  if(is.null(numCores)){
-    numCores <- detectCores() - 1  # Use all but one core
-  }
-  registerDoParallel(cores = numCores)
-
   # Parallel processing: Find best combination
   if(T){
+
+    # Parallel: Start
+    if(is.null(numCores)){
+      numCores <- detectCores() - 1  # Use all but one core
+    }
+    registerDoParallel(cores = numCores)
 
     if(verbose) LuckyVerbose('subtypeNorm: Parallel processing - Find best combination...',levels = 2)
 
@@ -596,9 +662,12 @@ subtypeNorm <- function(df, n_norm_subtype=2, numCores = NULL, verbose = TRUE){
     system.time(
       df_perform <- foreach(
         i = 1:length(XL), .combine = 'rbind',
-        .packages = c("plyr", "dplyr", "dplyr", "luckyBase")
+        .packages = c("plyr", "dplyr", "dplyr", "luckyBase","pROC")
       ) %dopar% {
         batch_results <- lapply(XL[[i]], function(k){ # k=1
+
+          # 基于某个特定的标准化方案（某个Info）计算
+
           x <- combinations[, k]
           medianNRR_category <- rep(NA, nrow(df_cutoff))
 
@@ -633,7 +702,10 @@ subtypeNorm <- function(df, n_norm_subtype=2, numCores = NULL, verbose = TRUE){
             Cohort = 'All',
             Info = info_str,
             nSample = nrow(df),
-            get_perform_markers(df$response, df$normSubtype, n_norm_subtype),
+            get_perform_markers(
+              df$response, df$normSubtype,
+              n_norm_subtype = n_norm_subtype,
+              norm_roc_method = norm_roc_method),
             stringsAsFactors = FALSE
           )
 
@@ -643,7 +715,10 @@ subtypeNorm <- function(df, n_norm_subtype=2, numCores = NULL, verbose = TRUE){
             dplyr::summarize,
             Info = info_str,
             nSample = length(Cohort),
-            get_perform_markers(response, normSubtype ,n_norm_subtype)
+            get_perform_markers(
+              response, normSubtype,
+              n_norm_subtype = n_norm_subtype,
+              norm_roc_method = norm_roc_method)
           )
 
           rbind(df_perform_i1, as.data.frame(df_perform_i2))

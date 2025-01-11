@@ -17,6 +17,9 @@ subtypePerformance(
     "#86A7FC", Bladder = "#3468C0", Ovary = "#B3B3B3", Blood = "#F781BF", Skin =
     "#4DAF4A"),
   n_norm_subtype = 2,
+  norm_roc_method = c("OptimizeRank", "Raw")[1],
+  norm_rank_marker = c("NRR", "RR", "NRR+RR", "RR+NRR")[1],
+  plot_ROCCutoff = 0.8,
   plot_layout_widths = c(9, 1),
   numCores = NULL,
   verbose = TRUE
@@ -40,6 +43,16 @@ subtypePerformance(
 \item{color_tissue}{a named vector like \code{c(Brain = "#984EA3",Oral = "#BF5B17")}}
 
 \item{n_norm_subtype}{The number of normalized subtypes you want to explore}
+
+\item{norm_roc_method}{The method to call ROC AUC. One of \code{'OptimizeRank'} and \code{'Raw'}.}
+
+\item{norm_rank_marker}{The marker for normalization rank. Interpretation:
+\itemize{
+  \item \code{NRR} Ranked only by normalized response rate.
+  \item \code{RR} Ranked only by raw response rate.
+  \item \code{NRR+RR} Ranked by normalized response rate and then by raw response rate.
+  \item \code{RR+NRR} Ranked by raw response rate and then by normalized response rate.
+}}
 
 \item{plot_layout_widths}{\code{layout_widths} for \code{\link[patchwork]{plot_layout}}}
 

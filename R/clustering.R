@@ -62,6 +62,12 @@ an integer scalar or vector with the desired number of groups.')
     if('scaller' %in% names(object@Data)){
       object@Data[['scaller']] <- NULL
     }
+    if("scaller.performance" %in% names(object@Data)){
+      object@Data[["scaller.performance"]] <- NULL
+    }
+    if("scaller.parameters"  %in% names(object@Data)){
+      object@Data[["scaller.parameters" ]] <- NULL
+    }
     return(object)
   }
 )

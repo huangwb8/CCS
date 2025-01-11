@@ -471,7 +471,7 @@ listParams <- function(params.i){
 #' @importFrom irr kappa2
 #' @return data.frame
 #' @author Weibin Huang<\email{hwb2012@@qq.com}>
-compareRealPred <- function(real,pred,cluster_translator=NULL){
+compareRealPred <- function(real, pred, cluster_translator=NULL){
 
   # Multi-ROC
   res.multi_auc <- multiclass.roc(real, pred, quiet = TRUE, direction = "auto")
@@ -624,3 +624,59 @@ compareRealPred2 <- function(real, pred){
 }
 
 
+#' @description Comparing real and pred - 3
+#' @param response Integer containing 0 or 1 (Positive class should be 1)
+#' @param predictor Integer containing 0 or 1 (Positive class should be 1)
+#' @inheritParams subtypePerformance
+#' @importFrom caret confusionMatrix
+#' @importFrom pROC roc
+#' @return data.frame
+#' @author Weibin Huang<\email{hwb2012@@qq.com}>
+get_perform_markers <- function(
+    response,
+    predictor,
+    n_norm_subtype,
+    norm_roc_method
+){
+  if(n_norm_subtype == 2){
+    CCS:::compareRealPred2(real = response, pred = predictor)
+  } else if(n_norm_subtype > 2 & norm_roc_method == 'OptimizeRank'){
+    data.frame(ROCAUC = CCS::multiXClass_roc(response, predictor, verbose = FALSE)[['auc']])
+  } else if(n_norm_subtype > 2 & norm_roc_method == 'Raw'){
+    data.frame(ROCAUC = multiclass.roc(response, predictor, quiet = T)[['auc']])
+  } else if(!norm_roc_method %in% c('Raw','OptimizeRank')){
+    stop('Not available ROC method. Please use one of "Raw" and "OptimizeRank"!')
+  } else {
+    NULL
+  }
+}
+
+
+#' @description Comparing real and pred - 4. Optimized for CCS::subtypeROC function.
+#' @param response Integer containing 0 or 1 (Positive class should be 1)
+#' @param predictor Integer containing 0 or 1 (Positive class should be 1)
+#' @inheritParams subtypePerformance
+#' @importFrom caret confusionMatrix
+#' @importFrom pROC roc
+#' @return data.frame
+#' @author Weibin Huang<\email{hwb2012@@qq.com}>
+get_perform_markers_align <- function(
+    response,
+    predictor,
+    n_norm_subtype,
+    norm_roc_method
+){
+  if((n_norm_subtype == 2) |(n_norm_subtype > 2 & norm_roc_method == 'OptimizeRank')){
+    data.frame(
+      "ROCAUC" = CCS::multiXClass_roc(response, predictor, verbose = FALSE)[['auc']]
+    )
+  } else if(n_norm_subtype > 2 & norm_roc_method == 'Raw'){
+    data.frame(
+      "ROCAUC" = multiclass.roc(response, predictor, quiet = T)[['auc']]
+    )
+  } else if(!norm_roc_method %in% c('Raw','OptimizeRank')){
+    stop('Not available ROC method. Please use one of "Raw" and "OptimizeRank"!')
+  } else {
+    NULL
+  }
+}
