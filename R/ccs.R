@@ -481,6 +481,7 @@ setGeneric("plotCancerSubtype", function(object, ...) {
 #' @rdname CCS-method.plotCancerSubtype
 #' @title CCS method: plotCancerSubtype
 #' @description \code{plotCancerSubtype} method for \code{CCS} class. Plot CCS subtype across cancer types.
+#' @param add.cell_fun Logic. Whether add a cell_fun into the heatmap.
 #' @inheritParams CCSPublicParams
 #' @import ComplexHeatmap
 #' @importFrom luckyBase LuckyVerbose
@@ -493,6 +494,7 @@ setMethod(
   function(object,
            CCS = NULL,
            rm.zero = TRUE,
+           add.cell_fun = TRUE,
            size = 15,
            verbose = TRUE){
 
@@ -533,9 +535,14 @@ setMethod(
     hm_x3 <- scale(hm_x)
 
     # Cell function
-    cell_fun = function(j, i, x, y, width, height, fill) {
-      grid.text(ifelse(is.na(hm_x[i, j]), '', hm_x[i, j]), x, y, gp = gpar(fontsize = size/15*5))
+    if(add.cell_fun){
+      cell_fun = function(j, i, x, y, width, height, fill) {
+        grid.text(ifelse(is.na(hm_x[i, j]), '', hm_x[i, j]), x, y, gp = gpar(fontsize = size/15*5))
+      }
+    } else {
+      cell_fun = NULL
     }
+
 
     # Heatmap
     # col = colorRamp2(c(0,0.01,0.03,0.05,0.06,0.07,0.08,0.11), c("#3300FF","#0066FF","#00FFFF","#00FF66","#33FF00","#CCFF00","#FF9900","#FF0000"))

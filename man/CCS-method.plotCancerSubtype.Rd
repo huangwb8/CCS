@@ -8,6 +8,7 @@
   object,
   CCS = NULL,
   rm.zero = TRUE,
+  add.cell_fun = TRUE,
   size = 15,
   verbose = TRUE
 )
@@ -16,6 +17,8 @@
 \item{object}{a \code{\link{CCS-class}} object}
 
 \item{rm.zero}{Whether to remove zero value of CCS subtypes. In the strategy of \code{dbscan}, 0 means uncategorized, so you should set \code{rm.zero = TRUE}(default).}
+
+\item{add.cell_fun}{Logic. Whether add a cell_fun into the heatmap.}
 
 \item{size}{The plot size}
 
