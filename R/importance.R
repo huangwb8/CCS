@@ -117,6 +117,7 @@ setGeneric("plotImportance", function(object, ...) {
 #' @importFrom plyr llply ldply
 #' @importFrom dplyr slice_max
 #' @importFrom tidyr `%>%`
+#' @importFrom ggpubr rotate_x_text
 #' @import ggplot2
 #' @seealso \code{\link{ccs}}; \code{\link{importance}}.
 #' @examples
@@ -171,7 +172,8 @@ setMethod(
         axis.text = element_text(size = size, colour = "black",face = "bold"),
         axis.title = element_text(size = size*1.1, colour = "black",face = "bold"),
         strip.text = element_text(size = size*1.1, colour = "black",face = "bold")
-      )
+      ) +
+      rotate_x_text(angle = 45)
 
     # Output result
     return(p)

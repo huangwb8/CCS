@@ -380,7 +380,10 @@ plotSubtypeRate <- function(dat.plot, data_roc, cohort_level, color_tissue, dodg
                   widths = plot_layout_widths,
                   heights = c(2, 8)) &
       theme(plot.margin = margin(1, 1, 1, 1))
-    # cairo_pdf('test/Rate_scatter-bar-box.pdf', width = 20, height = 12); print(p12); dev.off()
+
+
+
+
   }
 
   # Scatterplot + boxplot: Normalized response rate
