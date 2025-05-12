@@ -482,11 +482,13 @@ setGeneric("plotCancerSubtype", function(object, ...) {
 #' @title CCS method: plotCancerSubtype
 #' @description \code{plotCancerSubtype} method for \code{CCS} class. Plot CCS subtype across cancer types.
 #' @param add.cell_fun Logic. Whether add a cell_fun into the heatmap.
+#' @param ... Arguments to function\code{\link[ComplexHeatmap]{Heatmap}}.
 #' @inheritParams CCSPublicParams
+#' @inheritParams ComplexHeatmap::Heatmap
 #' @import ComplexHeatmap
 #' @importFrom luckyBase LuckyVerbose
 #' @importFrom grid gpar grid.text
-#' @return plotCancerSubtype: a complete CCS class.
+#' @return a complete\code{\link[ComplexHeatmap]{Heatmap}} class.
 #' @exportMethod plotCancerSubtype
 setMethod(
   "plotCancerSubtype",
@@ -496,7 +498,9 @@ setMethod(
            rm.zero = TRUE,
            add.cell_fun = TRUE,
            size = 15,
-           verbose = TRUE){
+           col = NULL,
+           verbose = TRUE,
+           ...){
 
     # Test
     if(F){
@@ -546,29 +550,58 @@ setMethod(
 
     # Heatmap
     # col = colorRamp2(c(0,0.01,0.03,0.05,0.06,0.07,0.08,0.11), c("#3300FF","#0066FF","#00FFFF","#00FF66","#33FF00","#CCFF00","#FF9900","#FF0000"))
-    p2 <- Heatmap(
-      hm_x3,
-      # col = col,
-      name = 'Percentage',
-      na_col = "grey",
+    # p2 <- Heatmap(
+    #   hm_x3,
+    #   name = 'Percentage',
+    #   col = heatmap_col,
+    #   na_col = "grey",
+    #
+    #   cluster_columns = F,
+    #   show_column_names = T,
+    #   show_column_dend = F,
+    #   column_names_rot = 45,
+    #   # column_names_max_height = unit(6, "cm"),
+    #   column_names_gp = gpar(fontsize = size/15*8, fontface = "bold"),
+    #
+    #   cluster_rows = F,
+    #   show_row_names = F,
+    #   row_names_side = 'left',
+    #   show_row_dend = F,
+    #   row_names_gp = gpar(fontsize = size/15*8, fontface = "bold"),
+    #
+    #   show_heatmap_legend = F,
+    #
+    #   cell_fun = cell_fun
+    # ) # ;print(p2)
 
-      cluster_columns = F,
-      show_column_names = T,
-      show_column_dend = F,
-      column_names_rot = 45,
-      # column_names_max_height = unit(6, "cm"),
-      column_names_gp = gpar(fontsize = size/15*8, fontface = "bold"),
+    heatmap_args <- list(
+      matrix = hm_x3,                      # The input matrix
+      name = 'Percentage',                 # Name of the heatmap legend
 
-      cluster_rows = F,
-      show_row_names = F,
-      row_names_side = 'left',
-      show_row_dend = F,
-      row_names_gp = gpar(fontsize = size/15*8, fontface = "bold"),
+      cluster_columns = FALSE,             # Do not cluster columns
+      show_column_names = TRUE,            # Show column names
+      show_column_dend = FALSE,            # Hide column dendrogram
+      column_names_rot = 45,               # Rotate column names by 45 degrees
+      # column_names_max_height = unit(6, "cm"), # Optional: max height for column names
+      column_names_gp = gpar(fontsize = size / 15 * 8, fontface = "bold"), # Graphics parameters for column names
 
-      show_heatmap_legend = F,
+      cluster_rows = FALSE,                # Do not cluster rows
+      show_row_names = FALSE,              # Hide row names
+      row_names_side = 'left',             # Position of row names (if shown)
+      show_row_dend = FALSE,               # Hide row dendrogram
+      row_names_gp = gpar(fontsize = size / 15 * 8, fontface = "bold"), # Graphics parameters for row names (if shown)
 
-      cell_fun = cell_fun
-    ) # ;print(p2)
+      show_heatmap_legend = FALSE,         # Hide the heatmap legend (can be drawn separately)
+
+      cell_fun = cell_fun,                  # Custom function to draw on cells
+      ...
+    )
+
+    if (!is.null(col)) {
+      heatmap_args$col <- col # Add the 'col' argument with the specified colors
+    }
+
+    p2 <- do.call(Heatmap, heatmap_args)
 
     # Output
     if(verbose) LuckyVerbose('plotCancerSubtype: All done!')

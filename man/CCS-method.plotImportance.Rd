@@ -7,6 +7,7 @@
 \S4method{plotImportance}{CCS}(
   object,
   type = c("tissue", "cohort", "feature")[1],
+  convertGene = F,
   nTop = 10,
   size = 10,
   ...
@@ -16,6 +17,8 @@
 \item{object}{a \code{\link{CCS-class}} object}
 
 \item{type}{One of \code{"tissue"}, \code{"cohort"}, or \code{"feature"}.}
+
+\item{convertGene}{Whether to convert names like \code{"ENSG00000185811:ENSG00000187189"} to names like \code{"IKZF1:TSPYL4"}.}
 
 \item{size}{The plot size}
 

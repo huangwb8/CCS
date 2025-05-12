@@ -7,6 +7,8 @@
 #' @inheritParams CCSPublicParams
 #' @param cohort_level The level of cohort used in scater+bar plot
 #' @param color_tissue a named vector like \code{c(Brain = "#984EA3",Oral = "#BF5B17")}
+#' @param color_cohort Default is \code{NULL}, which means that all cohort names were colored as black. You can also use a named vector like \code{c('Kim2018_PD-1_gastric' = "#E31A1C")}.
+#' @param color_subtype Default is \code{NULL}, which means that all raw subtype names were colored as \code{scales::hue_pal()(n)}. You can also use a named vector like \code{c('0' = "#E31A1C")}.
 #' @param n_norm_subtype The number of normalized subtypes you want to explore
 #' @param norm_roc_method The method to call ROC AUC. One of \code{'OptimizeRank'} and \code{'Raw'}.
 #' @param norm_rank_marker The marker for normalization rank. Interpretation:
@@ -17,6 +19,9 @@
 #'   \item \code{RR+NRR} Ranked by raw response rate and then by normalized response rate.
 #' }
 #' @param plot_layout_widths \code{layout_widths} for \code{\link[patchwork]{plot_layout}}
+#' @param plot_ROCCutoff The cut-off value for visualization of ROC AUC
+#' @param plot_silence_cohort Whether to silence cohort names in the plot
+#' @param plot_silence_subtype Whether to silence subtype names in the plot
 #' @importFrom tidyr `%>%`
 #' @importFrom dplyr summarize arrange desc filter
 #' @importFrom plyr ddply
@@ -36,6 +41,8 @@ subtypePerformance <- function(
     col_id = "SampleIDs",
     col_tissue = "tissue",
     cohort_level = NULL,
+    color_cohort = NULL,
+    color_subtype = NULL,
     color_tissue = c(
       Brain = "#984EA3",
       Oral = "#BF5B17",
@@ -55,6 +62,8 @@ subtypePerformance <- function(
     norm_rank_marker = c('NRR', 'RR', 'NRR+RR', 'RR+NRR')[1],
     plot_ROCCutoff = 0.8,
     plot_layout_widths = c(9, 1),
+    plot_silence_cohort = F,
+    plot_silence_subtype = F,
     numCores = NULL,
     verbose = TRUE
 ){
@@ -92,11 +101,21 @@ subtypePerformance <- function(
       Skin = "#4DAF4A"
     )
 
+    color_cohort = c(
+      'Kim2018_PD-1_gastric' = "#E31A1C"
+    )
+
+    color_subtype = c(
+      '9' = "#FB8072"
+    )
+
     n_norm_subtype <- 3
     # n_norm_subtype <- 2
     norm_roc_method = c('OptimizeRank', 'Raw')[2]
     norm_rank_marker = c('NRR', 'RR')[2]
     plot_ROCCutoff = 0.8
+    plot_silence_cohort = T
+    plot_silence_subtype = T
 
     numCores = NULL
     verbose = T
@@ -155,7 +174,12 @@ subtypePerformance <- function(
 
   # RR/NRR - scatter plot/box plot
   if(verbose) LuckyVerbose('subtypePerformance: RR/NRR - scatter plot/box plot...')
-  plot_r <- plotSubtypeRate(dat.plot, data_roc, cohort_level, color_tissue, dodge.width = 0.8, plot_ROCCutoff = plot_ROCCutoff,plot_layout_widths = plot_layout_widths) # plot_r$`Normalized response rate`
+  plot_r <- plotSubtypeRate(
+    dat.plot, data_roc, cohort_level,
+    color_tissue, color_cohort, color_subtype,
+    dodge.width = 0.8, plot_ROCCutoff, plot_layout_widths,
+    plot_silence_cohort, plot_silence_subtype
+  ) # plot_r$`Normalized response rate`
 
   # Performance of normalized subtype
   if(verbose) LuckyVerbose('subtypePerformance: Normailized subtype...')
@@ -275,7 +299,13 @@ subtypeROC <- function(df, norm_roc_method){
 #' @import patchwork
 #' @importFrom ggpubr rotate_x_text
 #' @importFrom ggrepel geom_label_repel geom_text_repel
-plotSubtypeRate <- function(dat.plot, data_roc, cohort_level, color_tissue, dodge.width = 0.8, plot_ROCCutoff = 0.8, plot_layout_widths = c(9, 1)){
+#' @importFrom ggtext element_markdown
+plotSubtypeRate <- function(
+    dat.plot, data_roc, cohort_level,
+    color_tissue, color_cohort, color_subtype,
+    dodge.width = 0.8, plot_ROCCutoff = 0.8, plot_layout_widths = c(9, 1),
+    plot_silence_cohort, plot_silence_subtype
+){
 
   # Barplot: Tissue
   if(F){
@@ -323,16 +353,49 @@ plotSubtypeRate <- function(dat.plot, data_roc, cohort_level, color_tissue, dodg
 
   }
 
+  # Config colors
+  if(T){
+    original_labels <- unique(as.character(dat.plot$Cohort))
+    styled_labels <- sapply(original_labels, function(label) {
+      if (label %in% names(color_cohort)) {
+        return(paste0("<span style='color:", as.character(color_cohort[label]) ,";'>", label, "</span>"))
+      } else {
+        return(label)
+      }
+    }, USE.NAMES = FALSE)
+
+    if(!is.null(color_subtype)){
+      subtype_raw <- levels(dat.plot$Subtype)
+      color_subtype_raw <- scales::pal_hue()(length(unique(as.character(dat.plot$Subtype)))); names(color_subtype_raw) <- levels(dat.plot$Subtype)
+      color_subtype_update <- sapply(subtype_raw, function(label) {
+        if (label %in% names(color_subtype)) {
+          return(color_subtype[names(color_subtype) %in% label])
+        } else {
+          return(color_subtype_raw[label])
+        }
+      }, USE.NAMES = FALSE)
+      boxplot_fill_color <- scale_fill_manual(
+        values = as.character(color_subtype_update),
+        breaks = names(color_subtype_update)
+      )
+    } else {
+      boxplot_fill_color <- NULL
+    }
+  }
+
+  # Dodge
   dodge <- position_dodge(width = dodge.width)
 
   # Scatterplot + boxplot: Response rate
   if(T){
+    # Boxplot
     p1 <- ggplot(dat.plot,
                  aes(x=Subtype,
                      y=response_rate,
                      fill = Subtype)) +
       stat_boxplot(geom ='errorbar', width = 0.3,linewidth = 1, position = dodge) +
       geom_boxplot(outlier.shape = NA,width = 0.6,linewidth = 1, color='black', position = dodge) +
+      boxplot_fill_color +
       geom_point(position = position_jitterdodge(jitter.width = 0.3,dodge.width = dodge.width), aes(group = Subtype), alpha = 0.35, size = 1.5) +
       labs(x = NULL,y = 'Response rate') +
       guides(color = "none", fill = "none") +
@@ -345,6 +408,10 @@ plotSubtypeRate <- function(dat.plot, data_roc, cohort_level, color_tissue, dodg
     # Raw response rate - Scatter plot
     p2 <- ggplot(dat.plot, aes(x=Subtype, y=Cohort, colour = response_rate, size = size)) +
       geom_point(alpha = 1) +
+      scale_y_discrete(
+        breaks = original_labels,
+        labels = styled_labels
+      ) +
       geom_text_repel(aes(x=Subtype, y=Cohort, label = size), size = 4, color = 'black', box.padding = unit(0.5, "lines")) +
       labs(y = NULL, title = NULL, colour = 'Response rate') +
       scale_colour_gradientn(
@@ -361,11 +428,22 @@ plotSubtypeRate <- function(dat.plot, data_roc, cohort_level, color_tissue, dodg
       ) +
       theme_bw() +
       theme(
+        axis.text.y = element_markdown(),
         panel.border = element_rect(colour = "black", linewidth=1.5),
         axis.line = element_line(colour = "black", linewidth=0, linetype = 1),
         legend.position = 'bottom'
       ) +
       rotate_x_text(angle = 90)
+
+    # Whether to hide labels of cohorts/subtypes
+    if(plot_silence_cohort){
+      p2 <- p2 + theme(axis.text.y = element_blank(),
+                       axis.ticks.y = element_blank())
+    }
+    if(plot_silence_subtype){
+      p2 <- p2 + theme(axis.text.x = element_blank(),
+                       axis.ticks.x = element_blank())
+    }
 
     # Plot: patchwork grid
     p12 <- (
@@ -393,6 +471,7 @@ plotSubtypeRate <- function(dat.plot, data_roc, cohort_level, color_tissue, dodg
                      y=normalized_response_rate,
                      fill = Subtype)) +
       stat_boxplot(geom ='errorbar', width = 0.3,linewidth = 1, position = dodge) +
+      boxplot_fill_color +
       geom_boxplot(outlier.shape = NA,width = 0.6,linewidth = 1, color='black', position = dodge) +
       geom_point(position = position_jitterdodge(jitter.width = 0.3,dodge.width = dodge.width), aes(group = Subtype), alpha = 0.35, size = 1.5) +
       geom_hline(yintercept = 0, linetype = "dashed") +
@@ -407,6 +486,10 @@ plotSubtypeRate <- function(dat.plot, data_roc, cohort_level, color_tissue, dodg
     # Normalized response rate - Scatter plot
     p4 <- ggplot(dat.plot, aes(x=Subtype, y=Cohort, colour = normalized_response_rate, size = size)) +
       geom_point(alpha = 1) +
+      scale_y_discrete(
+        breaks = original_labels,
+        labels = styled_labels
+      ) +
       geom_text_repel(aes(x=Subtype, y=Cohort, label = size), size = 4, color = 'black', box.padding = unit(0.5, "lines")) +
       labs(y = NULL, title = NULL, colour = 'Normalized response rate') +
       scale_colour_gradient2(
@@ -426,11 +509,22 @@ plotSubtypeRate <- function(dat.plot, data_roc, cohort_level, color_tissue, dodg
       ) +
       theme_bw() +
       theme(
+        axis.text.y = element_markdown(),
         panel.border = element_rect(colour = "black", linewidth=1.5),
         axis.line = element_line(colour = "black", linewidth=0, linetype = 1),
         legend.position = 'bottom'
       ) + rotate_x_text(angle = 90)
 
+
+    # Whether to hide labels of cohorts/subtypes
+    if(plot_silence_cohort){
+      p4 <- p4 + theme(axis.text.y = element_blank(),
+                       axis.ticks.y = element_blank())
+    }
+    if(plot_silence_subtype){
+      p4 <- p4 + theme(axis.text.x = element_blank(),
+                       axis.ticks.x = element_blank())
+    }
 
     # Plot: patchwork grid
     p34 <- (

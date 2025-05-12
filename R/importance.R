@@ -110,6 +110,7 @@ setGeneric("plotImportance", function(object, ...) {
 #' @title CCS method: plotImportance
 #' @description \code{plotImportance} method for \code{CCS} class
 #' @param type One of \code{"tissue"}, \code{"cohort"}, or \code{"feature"}.
+#' @param convertGene Whether to convert names like \code{"ENSG00000185811:ENSG00000187189"} to names like \code{"IKZF1:TSPYL4"}.
 #' @param ... parameters to \code{\link[ggplot2]{geom_bar}}.
 #' @inheritParams CCSPublicParams
 #' @inheritParams ccs
@@ -129,6 +130,7 @@ setMethod(
   function(
     object,
     type = c('tissue','cohort','feature')[1],
+    convertGene = F,
     nTop = 10,
     size = 10,
     ...
@@ -137,12 +139,13 @@ setMethod(
     # Test
     if(F){
       library(luckyBase)
-      np <- c('dplyr','ggplot2'); Plus.library(np)
+      np <- c('plyr','dplyr','ggplot2', 'ggpubr'); Plus.library(np)
       path_resCCS <- 'E:/iProjects/RCheck/GSClassifier/test01/ccs/v20240526/resCCS.rds'
       object <- readRDS(path_resCCS)
-      type = c('tissue','cohort','feature')[1]
+      type = c('tissue','cohort','feature')[3]
       nTop = 10
       size = 10
+      convertGene = T
     }
 
     # Data
@@ -153,17 +156,32 @@ setMethod(
       } else {
         x <- x %>% slice_max(Gain, n = nTop)
       }
+
+      # Gene Symbol
+      if(type %in% 'feature' & convertGene){
+        x$Feature <- sapply(x$Feature, function(x){
+          if(grepl('^ENSG',x)){
+            # Name like "ENSG00000185811:ENSG00000187189"
+            return(Fastextra(x, '[:]') %>% convert(., fromtype = 'ENSEMBL',totype = 'SYMBOL') %>% paste0(.,collapse = ':'))
+          } else {
+            # Keep it as raw
+            return(x)
+          }
+        }, USE.NAMES = F)
+      }
+
+      # Re-factor
       x$Feature <- factor(x$Feature, level = rev(as.character(x$Feature)))
       return(x)
     }) %>%
       ldply(.id = "Target")
 
-
     # Plot
     y.name <- ifelse(type=='tissue','Tissue', ifelse(type=='cohort','Cohort','Feature'))
     p <- ggplot(df, aes(x = Gain, y = Feature)) +
+      # geom_bar(stat = "identity", color = "black") +
       geom_bar(stat = "identity", color = "black", ...) +
-      # theme_minimal() +
+      theme_bw() +
       labs(title = NULL,
            x = "Importance",
            y = y.name) +
@@ -171,7 +189,8 @@ setMethod(
       theme(
         axis.text = element_text(size = size, colour = "black",face = "bold"),
         axis.title = element_text(size = size*1.1, colour = "black",face = "bold"),
-        strip.text = element_text(size = size*1.1, colour = "black",face = "bold")
+        strip.text = element_text(size = size*1.1, colour = "black",face = "bold"),
+        strip.background = element_rect(fill="white")
       ) +
       rotate_x_text(angle = 45)
 
