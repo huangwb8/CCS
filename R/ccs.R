@@ -488,7 +488,7 @@ setGeneric("plotCancerSubtype", function(object, ...) {
 #' @import ComplexHeatmap
 #' @importFrom luckyBase LuckyVerbose
 #' @importFrom grid gpar grid.text
-#' @return a complete\code{\link[ComplexHeatmap]{Heatmap}} class.
+#' @return a complete \code{\link[ComplexHeatmap]{Heatmap}} class.
 #' @exportMethod plotCancerSubtype
 setMethod(
   "plotCancerSubtype",

@@ -653,6 +653,35 @@ forestPlotSubtypeRate <- function(df3){
       c('P Value',"\n",sprintf("%.4f",df3_conf3$binom_P))
     )
 
+    # Dynamic box size
+    # dynamic_boxsize <- function(study_sizes){
+    #
+    #   # Define the desired minimum and maximum box sizes for visual appeal
+    #   min_display_boxsize <- 0.15 # Smallest box size for the smallest study
+    #   max_display_boxsize <- 0.4  # Largest box size for the largest study
+    #
+    #   # Handle cases:
+    #   # 1. All studies have the same size.
+    #   # 2. Studies have different sizes (requires scaling).
+    #   # 3. Only one study (assign an average or max box size).
+    #   if (length(study_sizes) == 1) {
+    #     # If there's only one study/subgroup, assign a medium or max box size
+    #     dynamic_box_sizes <- rep((min_display_boxsize + max_display_boxsize) / 2, length(study_sizes))
+    #     # Or simply: dynamic_box_sizes <- max_display_boxsize
+    #   } else if (min(study_sizes) == max(study_sizes)) {
+    #     # If all studies have the same sample size, use an average box size
+    #     dynamic_box_sizes <- rep((min_display_boxsize + max_display_boxsize) / 2, length(study_sizes))
+    #   } else {
+    #     # Linearly scale sample sizes to the range [min_display_boxsize, max_display_boxsize]
+    #     # Formula: new_value = new_min + (value - old_min) * (new_max - new_min) / (old_max - old_min)
+    #     dynamic_box_sizes <- min_display_boxsize +
+    #       (study_sizes - min(study_sizes)) *
+    #       (max_display_boxsize - min_display_boxsize) /
+    #       (max(study_sizes) - min(study_sizes))
+    #   }
+    #   return(dynamic_box_sizes)
+    # }
+
     # plot
     if(T){
 
@@ -672,7 +701,9 @@ forestPlotSubtypeRate <- function(df3){
         zero = p_all,
         cex = 0.9, lineheight = "auto",
         colgap = unit(8,"mm"),
-        lwd.ci=2, boxsize=0.3*nrow(df3_conf3)/25,
+        lwd.ci=2,
+        # boxsize=0.3*nrow(df3_conf3)/25,
+        boxsize = 0.275,
         ci.vertices=TRUE, ci.vertices.height = 0.25
       )
       # α=0.0; cairo_pdf(paste0(resPath, '/forestplot_response rate across Subtype subtypes.pdf'),width = 10*(1-α), height = 6*(1-α)*nrow(tabletext)/15); print(p_f); dev.off()

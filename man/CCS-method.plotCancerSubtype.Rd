@@ -31,7 +31,7 @@
 \item{...}{Arguments to function\code{\link[ComplexHeatmap]{Heatmap}}.}
 }
 \value{
-a complete\code{\link[ComplexHeatmap]{Heatmap}} class.
+a complete \code{\link[ComplexHeatmap]{Heatmap}} class.
 }
 \description{
 \code{plotCancerSubtype} method for \code{CCS} class. Plot CCS subtype across cancer types.
