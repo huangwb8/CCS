@@ -25,6 +25,7 @@
 #' @importFrom tidyr `%>%`
 #' @importFrom dplyr summarize arrange desc filter
 #' @importFrom plyr ddply
+#' @importFrom ggtext element_markdown
 #' @return A list
 #' \itemize{
 #'   \item \code{Repeat} Data or parameters for repeatability
@@ -72,7 +73,7 @@ subtypePerformance <- function(
   if(F){
 
     library(luckyBase)
-    Plus.library(c('CCS', 'GSClassifier', 'plotly','cowplot','tidyr','ggplot2','ggpubr','purrr','furrr','stringi','digest', 'pROC','ComplexHeatmap','scales','plyr','dplyr','forestplot','ggrepel','writexl','readxl','patchwork','gtable','grid',"reshape2","circlize","parallel","foreach","doParallel","pROC"))
+    Plus.library(c('CCS', 'GSClassifier', 'plotly','cowplot','tidyr','ggplot2','ggpubr','purrr','furrr','stringi','digest', 'pROC','ComplexHeatmap','scales','plyr','dplyr','forestplot','ggrepel','writexl','readxl','patchwork','gtable','grid',"reshape2","circlize","parallel","foreach","doParallel","pROC","ggtext"))
     source('./R/ccs_base.R',encoding = 'utf-8')
 
 
@@ -459,8 +460,38 @@ plotSubtypeRate <- function(
                   heights = c(2, 8)) &
       theme(plot.margin = margin(1, 1, 1, 1))
 
-
-
+    # Rotation of p12
+    if(T){
+      p1_rotated <- p1 + coord_flip()
+      p2.2 <- p2; p2.2$layers[[2]] <- NULL
+      p2_rotated <- p2.2 +
+        labs(x = NULL, y = 'Cohort') +
+        coord_flip() +
+        theme(
+          legend.position = 'bottom',
+          axis.text.y = element_blank(),
+          axis.ticks.y = element_blank()
+          )
+      stacked_bar_rotated <- stacked_bar +
+        coord_flip() +
+        theme(
+          axis.text.x = element_blank(),
+          axis.text.y = element_text()
+        )
+      p12_rotated <- (
+        plot_spacer() + stacked_bar_rotated +
+          p1_rotated + theme(axis.title.x = element_blank()) +
+          p2_rotated
+      ) +
+        plot_layout(
+          ncol = 2,
+          nrow = 2,
+          widths = c(2, 8),
+          heights = rev(plot_layout_widths)
+        ) &
+        theme(plot.margin = margin(1, 1, 1, 1))
+      # print(p12_rotated)
+    }
 
   }
 
@@ -539,6 +570,40 @@ plotSubtypeRate <- function(
                   widths = plot_layout_widths,
                   heights = c(2, 8)) &
       theme(plot.margin = margin(1, 1, 1, 1))
+
+    # Rotation of p34
+    if(T){
+      p3_rotated <- p3 + coord_flip()
+      p4.2 <- p4; p4.2$layers[[2]] <- NULL
+      p4_rotated <- p4.2 +
+        labs(x = NULL, y = 'Cohort') +
+        coord_flip() +
+        theme(
+          legend.position = 'bottom',
+          axis.text.y = element_blank(),
+          axis.ticks.y = element_blank()
+        )
+      stacked_bar_rotated <- stacked_bar +
+        coord_flip() +
+        theme(
+          axis.text.x = element_blank(),
+          axis.text.y = element_text()
+        )
+      p34_rotated <- (
+        plot_spacer() + stacked_bar_rotated +
+          p3_rotated + theme(axis.title.x = element_blank()) +
+          p4_rotated
+      ) +
+        plot_layout(
+          ncol = 2,
+          nrow = 2,
+          widths = c(2, 8),
+          heights = rev(plot_layout_widths)
+        ) &
+        theme(plot.margin = margin(1, 1, 1, 1))
+      # print(p34_rotated)
+    }
+
   }
 
   # Merge
@@ -565,6 +630,23 @@ plotSubtypeRate <- function(
       ) &
       theme(plot.margin = margin(1, 1, 1, 1))
 
+    p1234_rotated <- (
+      plot_spacer() +
+      stacked_bar_rotated +
+      stacked_bar_rotated + theme(axis.text.y = element_blank(), axis.ticks.y = element_blank()) +
+      plot_spacer() +
+      p1_rotated + theme(axis.title.x = element_blank()) +
+      p2_rotated + guides(size = "none") +
+      p4_rotated + guides(size = "none") +
+      p3_rotated + theme(axis.text.y = element_blank(), axis.ticks.y = element_blank(), axis.title.x = element_blank())
+    ) +
+      plot_layout(
+        ncol = 4, nrow = 2,
+        widths = c(1,4,4,1),
+        heights = c(2, 8)
+      ) &
+      theme(plot.margin = margin(1, 1, 1, 1)); # print(p1234_rotated)
+
   }
 
   # https://wilkelab.org/cowplot/reference/plot_grid.html
@@ -586,7 +668,10 @@ plotSubtypeRate <- function(
   return(list(
     'Response rate' = p12,
     'Normalized response rate' = p34,
-    'Merge' = p1234
+    'Merge' = p1234,
+    'Rotated response rate' = p12_rotated,
+    'Rotated normalized response rate' = p34_rotated,
+    'Rotated merge' = p1234_rotated
   ))
 
 }
