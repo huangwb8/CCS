@@ -77,7 +77,8 @@ subtypePerformance <- function(
     source('./R/ccs_base.R',encoding = 'utf-8')
 
 
-    data = read_xlsx('E:/iProjects/RCheck/GSClassifier/routine01/test/DataFrame_CCS+ClinicFeature_PanIMTv20240726+CDSDBv20240726.xlsx')
+    # data = read_xlsx('E:/iProjects/RCheck/GSClassifier/routine01/test/DataFrame_CCS+ClinicFeature_PanIMTv20240726+CDSDBv20240726.xlsx')
+    data = readRDS('E:/iProjects/RCheck/GSClassifier/routine01/test/df2_v20250704.rds')
     col_subtype = "CCS"
     col_cohort = "Cohort"
     col_response = "response"
@@ -256,7 +257,7 @@ subtypeROC <- function(df, norm_roc_method){
       .variables = c('Cohort'),
       .fun = function(sub_df) {
         nSample = nrow(sub_df)
-        if (length(unique(sub_df$response)) < 2) {
+        if (length(unique(sub_df$response)) < 2 | length(unique(sub_df$Subtype)) < 2) {
           sub_df_perf <- data.frame(
             "accuracy" = NA,
             "accuracy_lower"= NA,

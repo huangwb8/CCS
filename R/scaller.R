@@ -67,7 +67,7 @@ setMethod(
         "35" = c("35", "67", "47","41","83","64","22","14","11","12", "69"),
         "70" = c("70", "59")
       )
-      object  <- manualCluster(object , classifier)
+      # object  <- CCS::manualCluster(object , classifier)
       numCores = 6; seed = 456; Prop = 0.8
       verbose = TRUE; cover = TRUE; rm.zero = TRUE
     }
