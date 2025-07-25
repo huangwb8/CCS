@@ -12,6 +12,8 @@
   seed = 456,
   cover = FALSE,
   rm.zero = TRUE,
+  scaller.type = c("xgboost", "dl")[1],
+  net = "v20250706",
   numCores = 6,
   verbose = TRUE,
   ...
@@ -32,6 +34,10 @@
 
 \item{rm.zero}{Whether to remove zero value of CCS subtypes. In the strategy of \code{dbscan}, 0 means uncategorized, so you should set \code{rm.zero = TRUE}(default).}
 
+\item{scaller.type}{One of `xgboost` and `dl`}
+
+\item{net}{Character (such as `'v20250706'`,`'v20250707'`) or any `torch` net you define.}
+
 \item{numCores}{No. of CPU core}
 
 \item{verbose}{whether report messages}
@@ -49,4 +55,7 @@ resCCS <- scaller(resCCS)
 }
 \seealso{
 \code{\link{ccs}};\code{\link[xgboost]{xgboost}};
+}
+\author{
+Weibin Huang<\email{hwb2012@qq.com}>
 }

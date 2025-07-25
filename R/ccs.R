@@ -186,6 +186,16 @@ predict.CCS <- function(
     numCores = 16
     verbose = FALSE
     project.name = "01"
+
+
+    # Test for 04.07.03.PADv20250720_Select01_Subtype normalization.R
+    object = resCCS
+    X = exprAll
+    model.dir = paste0("./ccs/",model_version)
+    work.space = paste0("./ccs/",model_version,'/prediction/PanIMTv20250629+CDSDBv20241213')
+    numCores = 16
+    verbose = T
+
   }
 
   # Model parameters
@@ -196,6 +206,7 @@ predict.CCS <- function(
   geneSet = object@Repeat$geneSet
   geneid = object@Repeat$geneid
   scaller = object@Data$scaller
+  scaller.type = object@Data$scaller.type
   # scaller = readRDS(paste0(model.dir,'/scaller.rds'))
   models = object@Model
   models_filtered_name <- object@Data$filtered.cohort
@@ -322,10 +333,28 @@ predict.CCS <- function(
   # Prediction
   coSample <- intersect(X_CCSprobability$SampleIDs, colnames(X))
   sampleIndex <- match(coSample, X_CCSprobability$SampleIDs)
-  X_CCS_Pred <- predict(scaller, as.matrix(X_CCSprobability[sampleIndex, scaller$feature_names, drop = FALSE]))
+  if(is.null(scaller.type) | scaller.type == 'xgboost'){
+    feature_names <- as.character(scaller$feature_names)
+    X_CCS_Pred <- predict(
+      scaller,
+      as.matrix(X_CCSprobability[sampleIndex, feature_names])
+    )
+  } else if(scaller.type == 'dl'){
+    feature_names <- as.character(scaller@feature_names)
+    X_CCS_Pred <- predict(
+      scaller,
+      as.matrix(X_CCSprobability[sampleIndex, feature_names]),
+      batch_size = 256
+    )
+
+  } else {
+    stop('predict.CCS: (￣△￣；) Please use correct scaller type. It should be one of "xgboost" and "dl".')
+  }
+
   # X_CCS_Pred <- CCS:::adjustXGBoostSubtype(object, X_CCS_Pred, verbose)
   X_CCS_Pred <- convert(X_CCS_Pred, 'adjust', 'raw', cluster_translator) %>% as.integer()
   names(X_CCS_Pred) <- coSample
+
 
   # Output
   l <- list(
@@ -333,7 +362,7 @@ predict.CCS <- function(
     X = X,
     model.dir = model.dir,
     CCS = list(
-      Probability = X_CCSprobability[sampleIndex, c('SampleIDs', scaller$feature_names), drop = FALSE],
+      Probability = X_CCSprobability[sampleIndex, c('SampleIDs', feature_names), drop = FALSE],
       Prediction = X_CCS_Pred
     )
   )

@@ -680,3 +680,21 @@ get_perform_markers_align <- function(
     NULL
   }
 }
+
+#' @description Generate scaller path for Deep Learning model
+#' @importFrom digest digest
+generate_scaller_path <- function(model.dir) {
+
+  # Get time string with millisecond precision
+  time_str <- format(Sys.time(), "%Y-%m-%d %H:%M:%S.%OS3")
+
+  # Calculate and return the MD5 hash
+  time_md5 <- digest::digest(time_str, algo = "md5", serialize = FALSE)
+
+  scaller_path <- paste0(model.dir, '/.scaller/', time_md5)
+
+  return(scaller_path)
+
+}
+
+
