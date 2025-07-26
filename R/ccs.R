@@ -157,6 +157,8 @@ ccs <- function(
 #' @import GSClassifier
 #' @import xgboost
 #' @import tidyr
+#' @importFrom dplyr inner_join
+#' @importFrom luz luz_load
 #' @importFrom luckyBase Fastextra convert
 #' @return predict: A list object with CCS subtype prediction.
 #' @seealso \code{\link{ccs}}.
@@ -168,6 +170,7 @@ predict.CCS <- function(
     object, X,
     model.dir = NULL,
     work.space = paste0(model.dir, '/prediction/', project.name),
+    cover = F,
     verbose = T,
     numCores = 4){
 
@@ -205,9 +208,16 @@ predict.CCS <- function(
   geneAnnotation = object@Repeat$geneAnnotation
   geneSet = object@Repeat$geneSet
   geneid = object@Repeat$geneid
-  scaller = object@Data$scaller
   scaller.type = object@Data$scaller.type
-  # scaller = readRDS(paste0(model.dir,'/scaller.rds'))
+  path_scaller = paste0(model.dir,'/', object@Data[['scaller.path']], collapse = '')
+  if(!is.null(object@Data$scaller) & scaller.type == 'xgboost' &
+     !cover){
+    scaller <- object@Data$scaller
+  } else if(is.null(object@Data$scaller) | cover){
+    scaller <- CCS:::load_model(path_scaller, scaller.type)
+  } else {
+    stop('Please check the scaller model.')
+  }
   models = object@Model
   models_filtered_name <- object@Data$filtered.cohort
   cluster_translator = object@Data[['scaller.parameters']][['cluster_translator']]

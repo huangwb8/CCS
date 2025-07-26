@@ -683,7 +683,7 @@ get_perform_markers_align <- function(
 
 #' @description Generate scaller path for Deep Learning model
 #' @importFrom digest digest
-generate_scaller_path <- function(model.dir) {
+generate_scaller_path <- function() {
 
   # Get time string with millisecond precision
   time_str <- format(Sys.time(), "%Y-%m-%d %H:%M:%S.%OS3")
@@ -691,9 +691,57 @@ generate_scaller_path <- function(model.dir) {
   # Calculate and return the MD5 hash
   time_md5 <- digest::digest(time_str, algo = "md5", serialize = FALSE)
 
-  scaller_path <- paste0(model.dir, '/.scaller/', time_md5)
+  scaller_path_relative <- paste0('.scaller/', time_md5, "/", collapse = '')
 
-  return(scaller_path)
+  return(scaller_path_relative)
+
+}
+
+
+#' @description Fast way for model saving
+#' @importFrom xgboost xgb.save
+#' @importFrom luz luz_save
+save_model <- function(model,
+                       path,
+                       scaller.type = c('xgboost', 'dl')){
+
+  if(scaller.type == 'xgboost'){
+    xgb.save(model, paste0(path, 'xgb.model.json', collapse = ''))
+    model_r <- model[-match(c("handle", "niter", "raw"), names(model))]
+    saveRDS(model_r, paste0(path, 'xgb.model.res.rds', collapse = ''))
+  } else if(scaller.type == 'dl'){
+    luz_save(model@model, paste0(path, 'luz.model.rds', collapse = ''))
+    saveRDS(model@feature_names, paste0(path, 'luz.model.res.rds', collapse = ''))
+  } else {
+    stop('Please use right scaller type: xgboost; dl')
+  }
+
+}
+
+
+#' @description Fast way for model loading
+#' @importFrom xgboost xgb.load
+#' @importFrom luz luz_load
+load_model <- function(path,
+                       scaller.type = c('xgboost', 'dl')){
+
+  if(scaller.type == 'xgboost'){
+    model <- xgb.load(paste0(path, 'xgb.model.json'))
+    model_part <- readRDS(paste0(path, 'xgb.model.res.rds', collapse = ''))
+    for(i in 1:length(model_part)){
+      model[[names(model_part)[i]]] <- model_part[[i]]
+    }
+  } else if(scaller.type == 'dl'){
+    model <- new(
+      'CCSDeepClassifier',
+      model = luz_load(paste0(path, 'luz.model.rds')),
+      feature_names = readRDS(paste0(path, 'luz.model.res.rds', collapse = ''))
+      )
+  } else {
+    stop('Please use right scaller type: xgboost; dl')
+  }
+
+  return(model)
 
 }
 

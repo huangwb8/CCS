@@ -9,6 +9,7 @@
   X,
   model.dir = NULL,
   work.space = paste0(model.dir, "/prediction/", project.name),
+  cover = T,
   verbose = T,
   numCores = 4
 )
@@ -19,6 +20,8 @@
 \item{X}{a numeric RNA expression vector or matrix with gene names}
 
 \item{model.dir}{a character. the path of model series.}
+
+\item{cover}{Whether to cover the existed result}
 
 \item{verbose}{whether report messages}
 

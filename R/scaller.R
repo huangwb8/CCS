@@ -15,6 +15,8 @@ setGeneric("scaller", function(object, ...) {
 #' @inheritParams CCSPublicParams
 #' @inheritParams GSClassifier::modelData
 #' @import xgboost
+#' @import luz
+#' @import torch
 #' @importFrom GSClassifier modelData
 #' @importFrom pROC multiclass.roc roc
 #' @importFrom irr kappa2
@@ -130,30 +132,29 @@ setMethod(
     }
     params$batch_size <- ifelse(is.null(params$batch_size), length(unique(c(y2_train,y2_valid))) * 3, params$batch_size)
 
+
     # Parameters
     params_xg <- params[-match(c('n','sampSize','ptail','nround.mode'), names(params)) %>% .[!is.na(.)]]
     params_xg3 <- params_xg2 <- params_xg[-match(c('nfold','nrounds'), names(params_xg)) %>% .[!is.na(.)]]
     params_xg3[['nthread']] <- numCores
-
-
-    # Model path
+    scaller_path_relative <- object@Data[['scaller.path']]
+    path_scaller <- paste0(model.dir,'/',scaller_path_relative, collapse = '')
     if(is.null(model.dir)){
-      model.dir = object@Repeat$model.dir
+      model.dir <- object@Repeat$model.dir
     }
-    path_scaller <- paste0(model.dir, '/scaller.rds')
 
 
-    # Check old scaller
-    if(!is.null(object@Data[['scaller']]) & !cover){
-      stop('scaller: With scaller object in the CCS object. Ignore! You can set `cover = TRUE` to make `scaller` run and cover the old result.')
-    }
-    if(verbose) LuckyVerbose('scaller: Build subtype caller ...')
+    # Train the model for metaCCS
+    if(scaller.type == 'xgboost'){
 
-
-    # Subtype Caller
-    if((!file.exists(path_scaller)) | cover){
-
-      if(scaller.type == 'xgboost'){
+      if(!is.null(object@Data[['scaller']]) & !cover){
+        if(verbose) LuckyVerbose('scaller: use existed XGBoost subtype caller ...')
+        scaller <- object@Data[['scaller']]
+      } else if(is.null(object@Data[['scaller']]) & !cover){
+        if(verbose) LuckyVerbose('scaller: use existed XGBoost subtype caller ...')
+        scaller <- CCS:::load_model(path_scaller, scaller.type = 'xgboost')
+      } else {
+        if(verbose) LuckyVerbose('scaller: Build XGboost subtype caller ...')
         scaller <- scaller_xgboost(
           x_train = res2_train,
           y_train = y2_train,
@@ -163,7 +164,15 @@ setMethod(
           numCores = numCores,
           verbose = verbose
         )
-      } else if(scaller.type == 'dl'){
+      }
+
+    } else if(scaller.type == 'dl') {
+
+      if(!is.null(scaller_path_relative) & !cover){
+        if(verbose) LuckyVerbose('scaller: Load existed MLP subtype caller ...')
+        scaller <- CCS:::load_model(path_scaller, scaller.type = 'dl')
+      } else {
+        if(verbose) LuckyVerbose('scaller: Build MLP subtype caller ...')
         scaller <- scaller_dl(
           x_train = res2_train,
           y_train = y2_train,
@@ -176,19 +185,23 @@ setMethod(
           learning_rate = params$eta,
           seed = seeds[1]
         )
-
-        # Save luz model
-        path_scaller <- generate_scaller_path(model.dir)
-        luz_save(scaller, path_scaller)
-      } else {
-        stop('Not supported `scaller.type!`. You should choose one of `dl` and `xgboost`.')
       }
+
     } else {
-      if(verbose) LuckyVerbose('scaller: The subtype caller exists. Use it!')
-      scaller <- readRDS(path_scaller)
-      params_xg3 <- object@Data[['scaller.parameters']][['Params']]
+
+      stop('Not supported `scaller.type!`. You should choose one of `dl` and `xgboost`.')
+
     }
-    object@Data[['scaller']] <- scaller
+
+
+    # Save the model
+    if(is.null(scaller_path_relative)){
+      object@Data[['scaller.path']] <- scaller_path_relative <- generate_scaller_path()
+      path_scaller <- paste0(model.dir, '/', scaller_path_relative, collapse = '')
+      dir.create(path_scaller, showWarnings = F, recursive = T)
+    }
+    CCS:::save_model(scaller, path_scaller, scaller.type)
+    # object@Data[['scaller']] <- scaller
 
 
     # Validation
@@ -204,13 +217,6 @@ setMethod(
       params_xg4[['learning_rate']] <- params$eta
       params_xg4[['seed']] <- seeds[1]
       params_xg4[c('nthread','eta','subsample','gamma','alpha','max_depth','colsample_bytree','min_child_weight')] <- NULL
-      # params_xg4 <- list(
-      #   net = net,
-      #   num_epochs = params$nrounds,
-      #   batch_size = params$batch_size,
-      #   learning_rate = params$eta,
-      #   seed = seeds[1]
-      # )
     } else {
       stop('Not supported `scaller.type!`. You should choose one of `dl` and `xgboost`.')
     }
@@ -436,6 +442,7 @@ scaller_dl <- function(
     model = scaller,
     feature_names = feature_names
   )
+  return(l)
 }
 
 
