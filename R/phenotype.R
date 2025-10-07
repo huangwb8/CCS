@@ -205,6 +205,7 @@ subtypePerformance <- function(
     col_subtype = 'Subtype', col_cohort = 'Cohort',
     col_response = 'response', col_id = 'SampleIDs', col_tissue = 'tumor_type'
   )
+  plot_utility <- plotSubtypeEffect(data_utility)
 
   # Output
   l <- list(
@@ -220,7 +221,8 @@ subtypePerformance <- function(
     ),
     Plot = list(
       ScatterBarPlot = plot_r,
-      ForestPlot = plot_f
+      ForestPlot = plot_f,
+      UtilityPlot = plot_utility
     ),
     Data = list(
       ROC = data_roc,
@@ -1135,6 +1137,8 @@ subtypeEffect <- function(
 
 
     # 同种tissue一致性评价
+    # 0为趋势完全不一致，1为趋势完全一致。>0或<1为趋势部分一致。
+    # 只要不是0都可以接受。
     df_consistence_i <- NULL
     tissue_i <- unique(df6.i$tissue)
     for(j in 1:length(tissue_i)){ # j=1
@@ -1143,7 +1147,7 @@ subtypeEffect <- function(
       if(nrow(df6.j) == 1){
         next
       }
-      index_consistence_j <- (max(mean(df6.j$normalized_response_rate > 0), mean(df6.j$normalized_response_rate < 0)) - 0.5) * 2
+      index_consistence_j <- (max(mean(df6.j$normalized_response_rate > 0, na.rm = T), mean(df6.j$normalized_response_rate < 0, na.rm = T)) - 0.5) * 2
       res.j <- data.frame(test=index_consistence_j); colnames(res.j) <- paste0('tissue_consistence_',gsub(' ','',tissue_j))
       if(is.null(df_consistence_i)){
         df_consistence_i <- res.j
@@ -1183,6 +1187,153 @@ subtypeEffect <- function(
   return(df7)
 }
 
+
+#' @title Plot for subtypeEffect
+#' @description Plot for subtypeEffect
+#' @param data Data from \code{\link{subtypeEffect}} function
+#' @importFrom dplyr %>% mutate select all_of distinct
+#' @importFrom tidyr pivot_longer
+#' @importFrom stringr str_remove
+#' @importFrom ggplot2 ggplot aes geom_col geom_text scale_y_continuous labs coord_cartesian theme element_blank element_text element_line geom_hline geom_errorbar geom_point scale_fill_gradientn geom_tile margin
+#' @importFrom patchwork plot_layout
+#' @importFrom scales number rescale squish
+#' @return Combined ggplot object
+#' @author Weibin Huang</email{hwb2012@@qq.com}>
+#' @export
+plotSubtypeEffect <- function(data) {
+  # Dependencies: ggplot2, dplyr, tidyr, stringr, patchwork, scales
+  # suppressPackageStartupMessages({
+  #   library(dplyr)
+  #   library(tidyr)
+  #   library(stringr)
+  #   library(ggplot2)
+  #   library(patchwork)
+  #   library(scales)
+  # })
+
+  # Ensure Subtype is an ordered factor (numeric order if numeric-like, else natural order)
+  df <- data %>%
+    mutate(Subtype = {
+      if (suppressWarnings(all(!is.na(as.numeric(as.character(Subtype)))))) {
+        factor(Subtype, levels = sort(unique(as.numeric(as.character(Subtype)))))
+      } else {
+        factor(Subtype, levels = unique(Subtype))
+      }
+    })
+
+  # Publication-friendly shared theme
+  theme_shared <- theme_minimal(base_size = 12) +
+    theme(
+      panel.grid.minor = element_blank(),
+      panel.grid.major.x = element_blank(),
+      plot.title.position = "plot",
+      plot.title = element_text(face = "bold", size = 12),
+      axis.title.y = element_text(margin = margin(r = 8)),
+      # axis.text.x = element_text(size = 10),
+      axis.text.x = element_blank(),
+      axis.text.y = element_text(size = 10)
+    )
+
+  # Helper: add a top expansion to make space for text labels above bars
+  top_expand <- expansion(mult = c(0.02, 0.10))
+
+  # 1) AppearCohortPercent bar + label AppearCohortNum
+  p1 <- ggplot(df, aes(x = Subtype, y = AppearCohortPercent)) +
+    geom_col(fill = "#2E86AB", width = 0.7) +
+    geom_text(aes(label = AppearCohortNum), vjust = -0.35, size = 3.3) +
+    scale_y_continuous(labels = function(x) paste0(x, "%"), expand = top_expand) +
+    labs(title = "Cohort (%)", y = "Percentage", x = NULL) +
+    coord_cartesian(clip = "off") +
+    theme_shared +
+    theme(plot.margin = margin(t = 8, r = 6, b = 4, l = 6))
+
+  # 2) PatientPercent bar + label PatientNum
+  p2 <- ggplot(df, aes(x = Subtype, y = PatientPercent)) +
+    geom_col(fill = "#F39C12", width = 0.7) +
+    geom_text(aes(label = PatientNum), vjust = -0.35, size = 3.3) +
+    scale_y_continuous(labels = function(x) paste0(x, "%"), expand = top_expand) +
+    labs(title = "Patient (%)", y = "Percentage", x = NULL) +
+    coord_cartesian(clip = "off") +
+    theme_shared +
+    theme(plot.margin = margin(t = 4, r = 6, b = 4, l = 6))
+
+  # 3) RRMean with CI as point + errorbar
+  p3 <- ggplot(df, aes(x = Subtype, y = RRMean)) +
+    geom_hline(yintercept = 0, linetype = "dashed", color = "grey55", linewidth = 0.5) +
+    geom_errorbar(aes(ymin = RRMean_lower, ymax = RRMean_upper),
+                  width = 0.2, color = "#27AE60", linewidth = 0.7) +
+    geom_point(size = 2.6, color = "#27AE60") +
+    labs(title = "RR (Mean [95% CI])", y = "Value", x = NULL) +
+    theme_shared +
+    theme(plot.margin = margin(t = 4, r = 6, b = 4, l = 6))
+
+  # 4) NRRMean with CI as point + errorbar
+  p4 <- ggplot(df, aes(x = Subtype, y = NRRMean)) +
+    geom_hline(yintercept = 0, linetype = "dashed", color = "grey55", linewidth = 0.5) +
+    geom_errorbar(aes(ymin = NRRMean_lower, ymax = NRRMean_upper),
+                  width = 0.2, color = "#E74C3C", linewidth = 0.7) +
+    geom_point(size = 2.6, color = "#E74C3C") +
+    labs(title = "NRR (Mean [95% CI])", y = "Value", x = NULL) +
+    theme_shared +
+    theme(plot.margin = margin(t = 4, r = 6, b = 4, l = 6))
+
+  # 5) H_index bar + label (NEW: add value labels above bars; keep consistent width)
+  p5 <- ggplot(df, aes(x = Subtype, y = H_index)) +
+    geom_col(fill = "#6C5CE7", width = 0.7) +
+    geom_text(
+      aes(label = scales::number(H_index, accuracy = 0.01)), # adjust accuracy as needed
+      vjust = -0.35, size = 3.3, color = "black"
+    ) +
+    scale_y_continuous(expand = top_expand) +
+    labs(title = "H_index", y = "Score", x = NULL) +
+    coord_cartesian(clip = "off") +
+    theme_shared +
+    theme(plot.margin = margin(t = 4, r = 6, b = 4, l = 6))
+
+  # 6) Heatmap for tissue_consistence_* columns (auto-detect)
+  tissue_cols <- grep("^tissue_consistence_", names(df), value = TRUE)
+
+  tissue_long <- df %>%
+    select(Subtype, all_of(tissue_cols)) %>%
+    pivot_longer(cols = -Subtype, names_to = "tissue", values_to = "value") %>%
+    mutate(
+      tissue = stringr::str_remove(tissue, "^tissue_consistence_"),
+      tissue = factor(tissue, levels = sort(unique(tissue)))
+    )
+
+  # Compute a sensible height ratio for the heatmap
+  n_tissues <- tissue_long %>% distinct(tissue) %>% nrow()
+  heatmap_height <- max(2.8, n_tissues * 0.35)
+
+  p6 <- ggplot(tissue_long, aes(x = Subtype, y = tissue, fill = value)) +
+    geom_tile(color = "white", linewidth = 0.2) +
+    scale_fill_gradientn(
+      colors = c("#FFFFFF", "#FFE6DC" ,"#FFAD95", "#FF4D40", "#FE0000"),
+      values = scales::rescale(c(0, 0.25, 0.5, 0.75, 1)),
+      limits = c(0, 1),
+      oob = squish,
+      na.value = "grey",
+      name = NULL
+      # name = "Consistency"
+    ) +
+    labs(title = "Tissue consistency", x = NULL, y = "Tissue") +
+    theme_shared +
+    theme(
+      panel.grid = element_blank(),
+      plot.margin = margin(t = 4, r = 6, b = 6, l = 6),
+      axis.text.x = element_text(size = 15, face = "bold")
+    )
+
+  # Stack all plots vertically using patchwork
+  layout_heights <- c(2.2, 2.2, 1.8, 1.8, 1.8, heatmap_height)
+
+  # Collect guides and place legend at bottom to keep panel widths consistent
+  combined <- (p1 / p2 / p3 / p4 / p5 / p6) +
+    plot_layout(heights = layout_heights, guides = "collect") &
+    theme(legend.position = "bottom")
+
+  return(combined)
+}
 
 
 #' @title Get new normalized subtypes based on a record from \code{subtypePerformance}

@@ -9,7 +9,7 @@
   X,
   model.dir = NULL,
   work.space = paste0(model.dir, "/prediction/", project.name),
-  cover = T,
+  cover = F,
   verbose = T,
   numCores = 4
 )
