@@ -23,6 +23,8 @@
 #' @param plot_silence_cohort Whether to silence cohort names in the plot
 #' @param plot_silence_subtype Whether to silence subtype names in the plot
 #' @param meta_method Random-effects estimator for the meta-analysis. One of \code{'DL'}, \code{'REML'}, \code{'ML'}, \code{'PM'} (Paule-Mandel), \code{'SJ'} (Sidik-Jonkman), \code{'HE'} (Hedges), \code{'EB'} (Empirical Bayes), or \code{'HK'} (Hartung-Knapp using REML + Knapp-Hartung adjustment).
+#' @param meta_cohort_font_size Text size (in points) for cohort labels on the meta-analysis plot. Defaults to 15\% larger than the previous styling.
+#' @param meta_subtitle_font_size Text size (in points) for the overall summary subtitle (I^2, p, confidence interval) in each meta-analysis panel.
 #' @importFrom tidyr `%>%`
 #' @importFrom dplyr summarize arrange desc filter
 #' @importFrom plyr ddply
@@ -67,6 +69,8 @@ subtypePerformance <- function(
     plot_silence_cohort = F,
     plot_silence_subtype = F,
     meta_method = c('DL','REML','ML','PM','SJ','HE','EB','HK'),
+    meta_cohort_font_size = 11.5,
+    meta_subtitle_font_size = 10,
     numCores = NULL,
     verbose = TRUE
 ){
@@ -128,8 +132,6 @@ subtypePerformance <- function(
 
   }
 
-  meta_method <- match.arg(meta_method, choices = c('DL','REML','ML','PM','SJ','HE','EB','HK'))
-
   # Data
   if(T){
 
@@ -180,12 +182,24 @@ subtypePerformance <- function(
 
   # Meta analysis
   if(verbose) LuckyVerbose('subtypePerformance: Meta analysis...')
+  valid_meta_methods <- c('DL','REML','ML','PM','SJ','HE','EB','HK')
+  if(length(meta_method) == 0 || is.null(meta_method)){
+    meta_method <- valid_meta_methods[1]
+  } else {
+    meta_method <- toupper(trimws(meta_method[1]))
+  }
+  if(!meta_method %in% valid_meta_methods){
+    stop(sprintf(
+      "subtypePerformance: meta_method must be one of %s.",
+      paste(valid_meta_methods, collapse = ", ")
+    ))
+  }
   meta_res <- metaSubtypeRate(
     data = df3,
-    method = meta_method
+    method = meta_method,
+    cohort_font_size = meta_cohort_font_size,
+    summary_font_size = meta_subtitle_font_size
   )
-  data_meta <- meta_res$Data
-  plot_m <- meta_res$Plot
 
   # RR/NRR - scatter plot/box plot
   if(verbose) LuckyVerbose('subtypePerformance: RR/NRR - scatter plot/box plot...')
@@ -235,13 +249,13 @@ subtypePerformance <- function(
     Plot = list(
       ScatterBarPlot = plot_r,
       ForestPlot = plot_f,
-      MetaPlot = plot_m,
+      MetaPlot = meta_res$Plot,
       UtilityPlot = plot_utility
     ),
     Data = list(
       ROC = data_roc,
       Normalization = data_norm,
-      MetaAnalysis = data_meta,
+      MetaAnalysis = meta_res$Data,
       ClinicUtility = data_utility
     )
   )
@@ -1384,6 +1398,8 @@ newSubtype <- function(x, record){
 #' @param conf.level Confidence level for study-wise and pooled intervals.
 #' @param summary_label Label used for the pooled row in the forest-style plot.
 #' @param min_studies Minimum number of cohorts required to report heterogeneity statistics.
+#' @param cohort_font_size Text size (in points) for cohort labels on the plot.
+#' @param summary_font_size Text size (in points) for the subtitle (overall CI/I^2/p info).
 #' @importFrom stats binom.test pchisq qnorm
 #' @return A list with \code{Data} (data.frame) and \code{Plot} (ggplot).
 metaSubtypeRate <- function(
@@ -1391,10 +1407,29 @@ metaSubtypeRate <- function(
     method = c('DL','REML','ML','PM','SJ','HE','EB','HK'),
     conf.level = 0.95,
     summary_label = "Overall",
-    min_studies = 1
+    min_studies = 1,
+    cohort_font_size = 11.5,
+    summary_font_size = 10
 ){
 
-  method <- match.arg(method, choices = c('DL','REML','ML','PM','SJ','HE','EB','HK'))
+  valid_methods <- c('DL','REML','ML','PM','SJ','HE','EB','HK')
+  if(length(method) == 0 || is.null(method)){
+    method <- valid_methods[1]
+  } else {
+    method <- toupper(trimws(method[1]))
+  }
+  if(!method %in% valid_methods){
+    stop(sprintf(
+      "metaSubtypeRate: method must be one of %s.",
+      paste(valid_methods, collapse = ", ")
+    ))
+  }
+  if(!is.numeric(cohort_font_size) || length(cohort_font_size) == 0 || !is.finite(cohort_font_size)){
+    cohort_font_size <- 11.5
+  }
+  if(!is.numeric(summary_font_size) || length(summary_font_size) == 0 || !is.finite(summary_font_size)){
+    summary_font_size <- 10
+  }
   required_cols <- c("Cohort", "Subtype", "nResponse", "size")
   if(!all(required_cols %in% colnames(data))){
     stop("metaSubtypeRate: data must contain Cohort, Subtype, nResponse, and size columns.")
@@ -1615,7 +1650,7 @@ metaSubtypeRate <- function(
     summary_text <- NULL
     if(nrow(df_summary) > 0){
       df_summary$label <- sprintf(
-        "Overall %.1f%% [%.1f%%, %.1f%%]\nI^2 = %s, p = %s",
+        "%.1f%% [%.1f%%, %.1f%%]\nI^2 = %s\np = %s",
         df_summary$response_rate * 100,
         df_summary$ci_lower * 100,
         df_summary$ci_upper * 100,
@@ -1626,7 +1661,7 @@ metaSubtypeRate <- function(
     }
 
     axis_labels <- if(show_axis_labels) cohort_label_values else rep("", length(cohort_levels))
-    axis_text <- if(show_axis_labels) element_text(size = 10, color = "#333333") else element_blank()
+    axis_text <- if(show_axis_labels) element_text(size = cohort_font_size, color = "#333333") else element_blank()
     axis_ticks <- if(show_axis_labels) element_line(color = "#D0D0D0", linewidth = 0.3) else element_blank()
 
     g <- ggplot(
@@ -1668,7 +1703,7 @@ metaSubtypeRate <- function(
       labs(
         title = subtype_label,
         subtitle = summary_text,
-        x = "Response rate",
+        x = NULL,
         y = NULL,
         color = NULL,
         shape = NULL,
@@ -1681,8 +1716,9 @@ metaSubtypeRate <- function(
         panel.grid.minor = element_blank(),
         axis.text.y = axis_text,
         axis.ticks.y = axis_ticks,
+        axis.title.x = element_blank(),
         plot.title = element_text(face = "bold", hjust = 0.5),
-        plot.subtitle = element_text(face = "bold", hjust = 0.5, size = 10, margin = margin(b = 6)),
+        plot.subtitle = element_text(face = "bold", hjust = 0.5, size = summary_font_size, margin = margin(b = 6)),
         plot.margin = margin(t = 25, r = 20, b = 25, l = if(show_axis_labels) 10 else 5)
       ) +
       coord_cartesian(clip = "off")
@@ -1712,9 +1748,27 @@ metaSubtypeRate <- function(
     )
   })
 
-  plot_m <- patchwork::wrap_plots(panel_list, nrow = 1, guides = "collect")
-  plot_m <- plot_m &
+  combined_panels <- patchwork::wrap_plots(panel_list, nrow = 1, guides = "collect")
+  combined_panels <- combined_panels &
     theme(legend.position = "bottom")
+
+  x_label_plot <- ggplot() +
+    annotate(
+      geom = "text",
+      x = 0.5,
+      y = 0.5,
+      label = "Response rate",
+      fontface = "bold",
+      size = 6,
+      color = "#333333"
+    ) +
+    coord_cartesian(xlim = c(0, 1), ylim = c(0, 1)) +
+    theme_void() +
+    theme(plot.margin = margin(t = -5, r = 0, b = 10, l = 0))
+
+  plot_m <- combined_panels / x_label_plot
+  plot_m <- plot_m +
+    patchwork::plot_layout(heights = c(1, 0.08))
   plot_m <- plot_m +
     patchwork::plot_annotation(
       title = "Meta-analysis of subtype response rates",

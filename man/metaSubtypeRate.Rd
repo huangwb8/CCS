@@ -9,7 +9,9 @@ metaSubtypeRate(
   method = c("DL", "REML", "ML", "PM", "SJ", "HE", "EB", "HK"),
   conf.level = 0.95,
   summary_label = "Overall",
-  min_studies = 1
+  min_studies = 1,
+  cohort_font_size = 11.5,
+  summary_font_size = 10
 )
 }
 \arguments{
@@ -22,6 +24,10 @@ metaSubtypeRate(
 \item{summary_label}{Label used for the pooled row in the forest-style plot.}
 
 \item{min_studies}{Minimum number of cohorts required to report heterogeneity statistics.}
+
+\item{cohort_font_size}{Text size (in points) for cohort labels on the plot.}
+
+\item{summary_font_size}{Text size (in points) for the subtitle (overall CI/I^2/p info).}
 }
 \value{
 A list with \code{Data} (data.frame) and \code{Plot} (ggplot).

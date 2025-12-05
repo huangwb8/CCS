@@ -26,6 +26,8 @@ subtypePerformance(
   plot_silence_cohort = F,
   plot_silence_subtype = F,
   meta_method = c("DL", "REML", "ML", "PM", "SJ", "HE", "EB", "HK"),
+  meta_cohort_font_size = 11.5,
+  meta_subtitle_font_size = 10,
   numCores = NULL,
   verbose = TRUE
 )
@@ -72,6 +74,10 @@ subtypePerformance(
 \item{plot_silence_subtype}{Whether to silence subtype names in the plot}
 
 \item{meta_method}{Random-effects estimator for the meta-analysis. One of \code{'DL'}, \code{'REML'}, \code{'ML'}, \code{'PM'} (Paule-Mandel), \code{'SJ'} (Sidik-Jonkman), \code{'HE'} (Hedges), \code{'EB'} (Empirical Bayes), or \code{'HK'} (Hartung-Knapp using REML + Knapp-Hartung adjustment).}
+
+\item{meta_cohort_font_size}{Text size (in points) for cohort labels on the meta-analysis plot. Defaults to 15\% larger than the previous styling.}
+
+\item{meta_subtitle_font_size}{Text size (in points) for the overall summary subtitle (I^2, p, confidence interval) in each meta-analysis panel.}
 
 \item{numCores}{No. of CPU core}
 
