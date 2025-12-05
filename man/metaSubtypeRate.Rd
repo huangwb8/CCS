@@ -11,7 +11,8 @@ metaSubtypeRate(
   summary_label = "Overall",
   min_studies = 1,
   cohort_font_size = 11.5,
-  summary_font_size = 10
+  summary_font_size = 10,
+  cohort_levels = NULL
 )
 }
 \arguments{
@@ -28,6 +29,8 @@ metaSubtypeRate(
 \item{cohort_font_size}{Text size (in points) for cohort labels on the plot.}
 
 \item{summary_font_size}{Text size (in points) for the subtitle (overall CI/I^2/p info).}
+
+\item{cohort_levels}{Optional character vector specifying the display order of cohorts (top to bottom, excluding the summary row).}
 }
 \value{
 A list with \code{Data} (data.frame) and \code{Plot} (ggplot).

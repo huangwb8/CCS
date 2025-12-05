@@ -142,7 +142,10 @@ subtypePerformance <- function(
     if(is.null(cohort_level)){
       cohort_level = as.character(unique(df$Cohort))
     } else {
-      cohort_level = intersect(cohort_level, as.character(unique(df$Cohort)))
+      cohort_level = cohort_level[cohort_level %in% as.character(unique(df$Cohort))]
+    }
+    if(is.null(cohort_level) || length(cohort_level) == 0){
+      cohort_level = as.character(unique(df$Cohort))
     }
     df <- df %>% filter(Cohort %in% cohort_level)
 
@@ -198,7 +201,8 @@ subtypePerformance <- function(
     data = df3,
     method = meta_method,
     cohort_font_size = meta_cohort_font_size,
-    summary_font_size = meta_subtitle_font_size
+    summary_font_size = meta_subtitle_font_size,
+    cohort_levels = cohort_level
   )
 
   # RR/NRR - scatter plot/box plot
@@ -1400,6 +1404,7 @@ newSubtype <- function(x, record){
 #' @param min_studies Minimum number of cohorts required to report heterogeneity statistics.
 #' @param cohort_font_size Text size (in points) for cohort labels on the plot.
 #' @param summary_font_size Text size (in points) for the subtitle (overall CI/I^2/p info).
+#' @param cohort_levels Optional character vector specifying the display order of cohorts (top to bottom, excluding the summary row).
 #' @importFrom stats binom.test pchisq qnorm
 #' @return A list with \code{Data} (data.frame) and \code{Plot} (ggplot).
 metaSubtypeRate <- function(
@@ -1409,7 +1414,8 @@ metaSubtypeRate <- function(
     summary_label = "Overall",
     min_studies = 1,
     cohort_font_size = 11.5,
-    summary_font_size = 10
+    summary_font_size = 10,
+    cohort_levels = NULL
 ){
 
   valid_methods <- c('DL','REML','ML','PM','SJ','HE','EB','HK')
@@ -1429,6 +1435,9 @@ metaSubtypeRate <- function(
   }
   if(!is.numeric(summary_font_size) || length(summary_font_size) == 0 || !is.finite(summary_font_size)){
     summary_font_size <- 10
+  }
+  if(!is.null(cohort_levels)){
+    cohort_levels <- as.character(cohort_levels)
   }
   required_cols <- c("Cohort", "Subtype", "nResponse", "size")
   if(!all(required_cols %in% colnames(data))){
@@ -1624,8 +1633,17 @@ metaSubtypeRate <- function(
   }
   data_meta$Subtype <- factor(data_meta$Subtype, levels = subtype_levels)
 
-  cohort_levels_base <- c(summary_label, sort(unique(df$Cohort)))
-  cohort_levels <- rev(cohort_levels_base)
+  cohorts_present <- unique(df$Cohort)
+  if(!is.null(cohort_levels)){
+    cohort_order <- cohort_levels[cohort_levels %in% cohorts_present]
+  } else {
+    cohort_order <- cohorts_present
+  }
+  if(length(cohort_order) == 0){
+    cohort_order <- cohorts_present
+  }
+  cohort_levels_base <- c(summary_label, cohort_order)
+  cohort_levels_plot <- rev(cohort_levels_base)
 
   data_meta$effect_type <- factor(data_meta$effect_type, levels = c('Cohort','Summary'))
   data_meta$Cohort_display <- ifelse(
@@ -1633,8 +1651,8 @@ metaSubtypeRate <- function(
     summary_label,
     data_meta$Cohort
   )
-  data_meta$Cohort_display <- factor(data_meta$Cohort_display, levels = cohort_levels)
-  cohort_label_values <- setNames(rev(cohort_levels_base), cohort_levels)
+  data_meta$Cohort_display <- factor(data_meta$Cohort_display, levels = cohort_levels_plot)
+  cohort_label_values <- setNames(rev(cohort_levels_base), cohort_levels_plot)
 
   color_palette <- c(Cohort = "#1F77B4", Summary = "#D62728")
   size_palette <- c(Cohort = 2.5, Summary = 3.5)
@@ -1645,7 +1663,7 @@ metaSubtypeRate <- function(
   }
 
   build_panel <- function(df_sub, subtype_label, show_legend = FALSE, show_axis_labels = FALSE){
-    df_sub$Cohort_display <- factor(df_sub$Cohort_display, levels = cohort_levels)
+    df_sub$Cohort_display <- factor(df_sub$Cohort_display, levels = cohort_levels_plot)
     df_summary <- subset(df_sub, effect_type == "Summary")
     summary_text <- NULL
     if(nrow(df_summary) > 0){
@@ -1660,7 +1678,7 @@ metaSubtypeRate <- function(
       summary_text <- df_summary$label[1]
     }
 
-    axis_labels <- if(show_axis_labels) cohort_label_values else rep("", length(cohort_levels))
+    axis_labels <- if(show_axis_labels) cohort_label_values else rep("", length(cohort_levels_plot))
     axis_text <- if(show_axis_labels) element_text(size = cohort_font_size, color = "#333333") else element_blank()
     axis_ticks <- if(show_axis_labels) element_line(color = "#D0D0D0", linewidth = 0.3) else element_blank()
 
@@ -1697,7 +1715,7 @@ metaSubtypeRate <- function(
         expand = expansion(mult = c(0, 0.2))
       ) +
       scale_y_discrete(
-        limits = cohort_levels,
+        limits = cohort_levels_plot,
         labels = axis_labels
       ) +
       labs(
