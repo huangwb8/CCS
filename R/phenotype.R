@@ -22,6 +22,8 @@
 #' @param plot_ROCCutoff The cut-off value for visualization of ROC AUC
 #' @param plot_silence_cohort Whether to silence cohort names in the plot
 #' @param plot_silence_subtype Whether to silence subtype names in the plot
+#' @param meta_method Estimator for the random-effects meta-analysis. One of \code{'DL'} (DerSimonian-Laird) or \code{'REML'}.
+#' @param meta_conf_level Confidence level used for the pooled effect interval and study-wise binomial intervals.
 #' @importFrom tidyr `%>%`
 #' @importFrom dplyr summarize arrange desc filter
 #' @importFrom plyr ddply
@@ -65,6 +67,8 @@ subtypePerformance <- function(
     plot_layout_widths = c(9, 1),
     plot_silence_cohort = F,
     plot_silence_subtype = F,
+    meta_method = c('DL','REML')[1],
+    meta_conf_level = 0.95,
     numCores = NULL,
     verbose = TRUE
 ){
@@ -174,6 +178,16 @@ subtypePerformance <- function(
   if(verbose) LuckyVerbose('subtypePerformance: Forest plot...')
   plot_f <- forestPlotSubtypeRate(df3)
 
+  # Meta analysis
+  if(verbose) LuckyVerbose('subtypePerformance: Meta analysis...')
+  meta_res <- metaSubtypeRate(
+    data = df3,
+    method = meta_method,
+    conf.level = meta_conf_level
+  )
+  data_meta <- meta_res$Data
+  plot_m <- meta_res$Plot
+
   # RR/NRR - scatter plot/box plot
   if(verbose) LuckyVerbose('subtypePerformance: RR/NRR - scatter plot/box plot...')
   plot_r <- plotSubtypeRate(
@@ -222,11 +236,13 @@ subtypePerformance <- function(
     Plot = list(
       ScatterBarPlot = plot_r,
       ForestPlot = plot_f,
+      MetaPlot = plot_m,
       UtilityPlot = plot_utility
     ),
     Data = list(
       ROC = data_roc,
       Normalization = data_norm,
+      MetaAnalysis = data_meta,
       ClinicUtility = data_utility
     )
   )
@@ -1361,6 +1377,302 @@ newSubtype <- function(x, record){
   return(x2)
 }
 
+
+#' @title Meta-analysis of subtype response rates
+#' @description Perform a random-effects meta-analysis across cohorts for every subtype and prepare publication-ready data and plots.
+#' @param data A data.frame with columns \code{Cohort}, \code{Subtype}, \code{size}, \code{nResponse}, and optionally \code{response_rate} and \code{tumor_type}.
+#' @param method Random-effects estimator; one of \code{'DL'} (DerSimonian-Laird) or \code{'REML'}.
+#' @param conf.level Confidence level for study-wise and pooled intervals.
+#' @param summary_label Label used for the pooled row in the forest-style plot.
+#' @param min_studies Minimum number of cohorts required to report heterogeneity statistics.
+#' @importFrom stats binom.test pchisq qnorm
+#' @return A list with \code{Data} (data.frame) and \code{Plot} (ggplot).
+metaSubtypeRate <- function(
+    data,
+    method = c('DL','REML')[1],
+    conf.level = 0.95,
+    summary_label = "Overall",
+    min_studies = 1
+){
+
+  method <- match.arg(method)
+  required_cols <- c("Cohort", "Subtype", "nResponse", "size")
+  if(!all(required_cols %in% colnames(data))){
+    stop("metaSubtypeRate: data must contain Cohort, Subtype, nResponse, and size columns.")
+  }
+
+  df <- data
+  if(!"tumor_type" %in% colnames(df)){
+    df$tumor_type <- NA_character_
+  }
+  if(!"response_rate" %in% colnames(df)){
+    df$response_rate <- with(df, ifelse(size > 0, nResponse/size, NA))
+  } else {
+    idx_fill <- which(is.na(df$response_rate) & df$size > 0)
+    df$response_rate[idx_fill] <- df$nResponse[idx_fill]/df$size[idx_fill]
+  }
+
+  df <- df[is.finite(df$size) & df$size > 0, , drop = FALSE]
+  if(nrow(df) == 0){
+    return(list(Data = NULL, Plot = NULL))
+  }
+
+  df$Subtype <- as.character(df$Subtype)
+  df$Cohort <- as.character(df$Cohort)
+  df$response_rate <- pmax(pmin(df$response_rate, 1 - 1e-6), 1e-6)
+
+  inv_logit <- function(x){
+    exp(x)/(1 + exp(x))
+  }
+
+  estimate_tau2 <- function(yi, vi, method){
+    k <- length(yi)
+    if(k <= 1){
+      return(0)
+    }
+    wi <- 1/vi
+    mu_fixed <- sum(wi * yi)/sum(wi)
+    Q <- sum(wi * (yi - mu_fixed)^2)
+    C <- sum(wi) - sum(wi^2)/sum(wi)
+    if(method == "DL"){
+      tau2 <- max(0, (Q - (k - 1))/C)
+      return(tau2)
+    } else {
+      objective <- function(tau2){
+        wi_star <- 1/(vi + tau2)
+        mu <- sum(wi_star * yi)/sum(wi_star)
+        0.5 * (sum(log(vi + tau2)) + log(sum(wi_star)) + sum(wi_star * (yi - mu)^2))
+      }
+      upper <- max(1, var(yi), mean(vi) * 10)
+      res <- stats::optimize(objective, interval = c(0, upper))
+      return(max(res$minimum, 0))
+    }
+  }
+
+  format_p <- function(x){
+    if(is.na(x)){
+      return("NA")
+    }
+    if(x < 1e-3){
+      return("<0.001")
+    }
+    sprintf("%.3f", x)
+  }
+
+  split_df <- split(df, df$Subtype)
+  data_meta <- lapply(names(split_df), function(subtype_key){
+    df_sub <- split_df[[subtype_key]]
+    df_sub <- df_sub[order(df_sub$Cohort), , drop = FALSE]
+    events <- df_sub$nResponse
+    totals <- df_sub$size
+    prop_adj <- (events + 0.5)/(totals + 1)
+    yi <- log(prop_adj/(1 - prop_adj))
+    vi <- 1/(totals * prop_adj * (1 - prop_adj))
+    ci_bounds <- t(vapply(
+      seq_len(nrow(df_sub)),
+      function(i){
+        bt <- stats::binom.test(events[i], totals[i], conf.level = conf.level)
+        c(bt$conf.int[1], bt$conf.int[2])
+      },
+      FUN.VALUE = numeric(2)
+    ))
+    df_sub$ci_lower <- ci_bounds[, 1]
+    df_sub$ci_upper <- ci_bounds[, 2]
+    df_sub$meta_y <- yi
+    df_sub$meta_v <- vi
+
+    tau2 <- estimate_tau2(yi, vi, method)
+    w_star <- 1/(vi + tau2)
+    weights_norm <- w_star/sum(w_star)
+    df_sub$weight <- weights_norm
+    df_sub$effect_type <- 'Cohort'
+    df_sub$method <- method
+    df_sub$tau2 <- NA_real_
+    df_sub$I2 <- NA_real_
+    df_sub$p_heterogeneity <- NA_real_
+    df_sub$nStudy <- nrow(df_sub)
+
+    k <- nrow(df_sub)
+    wi_fixed <- 1/vi
+    mu_fixed <- sum(wi_fixed * yi)/sum(wi_fixed)
+    Q <- if(k > 1) sum(wi_fixed * (yi - mu_fixed)^2) else 0
+    z_value <- stats::qnorm(0.5 + conf.level/2)
+    mu_hat <- sum(w_star * yi)/sum(w_star)
+    se_mu <- sqrt(1/sum(w_star))
+    summary_rate <- inv_logit(mu_hat)
+    summary_lower <- inv_logit(mu_hat - z_value * se_mu)
+    summary_upper <- inv_logit(mu_hat + z_value * se_mu)
+    I2 <- 0
+    p_het <- NA_real_
+    if(k >= max(min_studies, 2)){
+      if(Q > 0){
+        I2 <- max(0, (Q - (k - 1))/Q) * 100
+      }
+      p_het <- stats::pchisq(Q, df = k - 1, lower.tail = FALSE)
+    }
+
+    summary_row <- df_sub[1, , drop = FALSE]
+    summary_row$Cohort <- summary_label
+    summary_row$tumor_type <- NA_character_
+    summary_row$size <- sum(totals, na.rm = TRUE)
+    summary_row$nResponse <- sum(events, na.rm = TRUE)
+    summary_row$response_rate <- summary_rate
+    summary_row$ci_lower <- summary_lower
+    summary_row$ci_upper <- summary_upper
+    summary_row$meta_y <- mu_hat
+    summary_row$meta_v <- se_mu^2
+    summary_row$weight <- 1
+    summary_row$effect_type <- 'Summary'
+    summary_row$tau2 <- tau2
+    summary_row$I2 <- I2
+    summary_row$p_heterogeneity <- p_het
+    summary_row$nStudy <- k
+
+    rbind(df_sub, summary_row)
+  })
+
+  data_meta <- do.call(rbind, data_meta)
+  if(is.null(data_meta) || nrow(data_meta) == 0){
+    return(list(Data = NULL, Plot = NULL))
+  }
+
+  subtype_levels <- unique(data_meta$Subtype)
+  suppressWarnings(subtype_numeric <- as.numeric(subtype_levels))
+  if(all(!is.na(subtype_numeric))){
+    subtype_levels <- subtype_levels[order(subtype_numeric)]
+  }
+  data_meta$Subtype <- factor(data_meta$Subtype, levels = subtype_levels)
+
+  cohort_levels <- unique(c(sort(unique(df$Cohort)), summary_label))
+  data_meta$effect_type <- factor(data_meta$effect_type, levels = c('Cohort','Summary'))
+  data_meta$Cohort_display <- ifelse(
+    data_meta$effect_type == "Summary",
+    summary_label,
+    data_meta$Cohort
+  )
+  data_meta$Cohort_display <- factor(data_meta$Cohort_display, levels = cohort_levels)
+
+  color_palette <- c(Cohort = "#1F77B4", Summary = "#D62728")
+  size_palette <- c(Cohort = 2.5, Summary = 3.5)
+  shape_palette <- c(Cohort = 21, Summary = 23)
+
+  axis_label <- function(x){
+    paste0(round(x * 100), "%")
+  }
+
+  n_subtypes <- length(levels(data_meta$Subtype))
+  facet_cols <- max(1, min(4, n_subtypes))
+  first_subtype <- levels(data_meta$Subtype)[1]
+  left_labels <- subset(data_meta, Subtype == first_subtype)
+  left_labels <- left_labels[!duplicated(left_labels$Cohort_display), c("Cohort_display","effect_type")]
+  left_labels$label <- as.character(left_labels$Cohort_display)
+  left_labels$x_label <- 0
+
+  summary_labels <- subset(data_meta, effect_type == "Summary")
+  if(nrow(summary_labels) > 0){
+    summary_labels$label <- sprintf(
+      "Overall %.1f%% [%.1f%%, %.1f%%]\nI^2 = %s, p = %s",
+      summary_labels$response_rate * 100,
+      summary_labels$ci_lower * 100,
+      summary_labels$ci_upper * 100,
+      ifelse(is.na(summary_labels$I2), "NA", sprintf("%.1f%%", summary_labels$I2)),
+      vapply(summary_labels$p_heterogeneity, format_p, character(1))
+    )
+    summary_labels$x_label <- pmin(summary_labels$ci_upper + 0.08, 0.98)
+  }
+
+  plot_m <- ggplot(
+    data_meta,
+    aes(x = response_rate, y = Cohort_display)
+  ) +
+    geom_errorbarh(
+      aes(
+        xmin = ci_lower,
+        xmax = ci_upper,
+        color = effect_type
+      ),
+      height = 0.2,
+      linewidth = 0.7,
+      alpha = 0.9
+    ) +
+    geom_point(
+      aes(
+        color = effect_type,
+        fill = effect_type,
+        shape = effect_type,
+        size = effect_type
+      ),
+      stroke = 0.4
+    ) +
+    facet_wrap(~Subtype, ncol = facet_cols, scales = "free_y") +
+    scale_color_manual(values = color_palette) +
+    scale_fill_manual(values = color_palette) +
+    scale_shape_manual(values = shape_palette) +
+    scale_size_manual(values = size_palette) +
+    scale_x_continuous(
+      labels = axis_label,
+      limits = c(0, 1),
+      expand = expansion(mult = c(0.12, 0.15))
+    ) +
+    labs(
+      title = "Meta-analysis of subtype response rates",
+      subtitle = paste0("Random-effects (", method, ")"),
+      x = "Response rate",
+      y = NULL,
+      color = NULL,
+      shape = NULL,
+      fill = NULL,
+      size = NULL
+    ) +
+    theme_minimal(base_size = 12) +
+    theme(
+      panel.grid.major.y = element_blank(),
+      panel.grid.minor = element_blank(),
+      strip.text = element_text(face = "bold"),
+      legend.position = "bottom",
+      axis.text.y = element_blank(),
+      axis.ticks.y = element_blank(),
+      plot.margin = margin(t = 10, r = 30, b = 10, l = 10)
+    ) +
+    coord_cartesian(clip = "off")
+
+  if(nrow(left_labels) > 0){
+    plot_m <- plot_m +
+      geom_text(
+        data = left_labels,
+        aes(
+          x = x_label,
+          y = Cohort_display,
+          label = label
+        ),
+        inherit.aes = FALSE,
+        hjust = 1.05,
+        size = 3.2,
+        color = "#333333"
+      )
+  }
+
+  if(nrow(summary_labels) > 0){
+    plot_m <- plot_m +
+      geom_text(
+        data = summary_labels,
+        aes(
+          x = x_label,
+          y = Cohort_display,
+          label = label
+        ),
+        hjust = 0,
+        size = 3,
+        color = "#333333",
+        inherit.aes = FALSE
+      )
+  }
+
+  return(list(
+    Data = data_meta,
+    Plot = plot_m
+  ))
+}
 
 
 ####%%%%%%%%%%%%% Assistant functions %%%%%%%%%%%%%%%%%%%%####
