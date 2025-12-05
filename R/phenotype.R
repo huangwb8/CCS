@@ -1543,7 +1543,9 @@ metaSubtypeRate <- function(
   }
   data_meta$Subtype <- factor(data_meta$Subtype, levels = subtype_levels)
 
-  cohort_levels <- unique(c(sort(unique(df$Cohort)), summary_label))
+  cohort_levels_base <- c(summary_label, sort(unique(df$Cohort)))
+  cohort_levels <- rev(cohort_levels_base)
+
   data_meta$effect_type <- factor(data_meta$effect_type, levels = c('Cohort','Summary'))
   data_meta$Cohort_display <- ifelse(
     data_meta$effect_type == "Summary",
@@ -1560,113 +1562,137 @@ metaSubtypeRate <- function(
     paste0(round(x * 100), "%")
   }
 
-  n_subtypes <- length(levels(data_meta$Subtype))
-  facet_cols <- max(1, min(4, n_subtypes))
-  first_subtype <- levels(data_meta$Subtype)[1]
-  left_labels <- subset(data_meta, Subtype == first_subtype)
-  left_labels <- left_labels[!duplicated(left_labels$Cohort_display), c("Cohort_display","effect_type")]
-  left_labels$label <- as.character(left_labels$Cohort_display)
-  left_labels$x_label <- 0
-
-  summary_labels <- subset(data_meta, effect_type == "Summary")
-  if(nrow(summary_labels) > 0){
-    summary_labels$label <- sprintf(
-      "Overall %.1f%% [%.1f%%, %.1f%%]\nI^2 = %s, p = %s",
-      summary_labels$response_rate * 100,
-      summary_labels$ci_lower * 100,
-      summary_labels$ci_upper * 100,
-      ifelse(is.na(summary_labels$I2), "NA", sprintf("%.1f%%", summary_labels$I2)),
-      vapply(summary_labels$p_heterogeneity, format_p, character(1))
-    )
-    summary_labels$x_label <- pmin(summary_labels$ci_upper + 0.08, 0.98)
-  }
-
-  plot_m <- ggplot(
-    data_meta,
-    aes(x = response_rate, y = Cohort_display)
-  ) +
-    geom_errorbarh(
-      aes(
-        xmin = ci_lower,
-        xmax = ci_upper,
-        color = effect_type
-      ),
-      height = 0.2,
-      linewidth = 0.7,
-      alpha = 0.9
-    ) +
-    geom_point(
-      aes(
-        color = effect_type,
-        fill = effect_type,
-        shape = effect_type,
-        size = effect_type
-      ),
-      stroke = 0.4
-    ) +
-    facet_wrap(~Subtype, ncol = facet_cols, scales = "free_y") +
-    scale_color_manual(values = color_palette) +
-    scale_fill_manual(values = color_palette) +
-    scale_shape_manual(values = shape_palette) +
-    scale_size_manual(values = size_palette) +
-    scale_x_continuous(
-      labels = axis_label,
-      limits = c(0, 1),
-      expand = expansion(mult = c(0.12, 0.15))
-    ) +
-    labs(
-      title = "Meta-analysis of subtype response rates",
-      subtitle = paste0("Random-effects (", method, ")"),
-      x = "Response rate",
-      y = NULL,
-      color = NULL,
-      shape = NULL,
-      fill = NULL,
-      size = NULL
-    ) +
-    theme_minimal(base_size = 12) +
+  left_labels <- data.frame(
+    Cohort_display = factor(cohort_levels, levels = cohort_levels),
+    label = rev(cohort_levels_base)
+  )
+  left_plot <- ggplot(left_labels, aes(x = 0, y = Cohort_display, label = label)) +
+    geom_text(hjust = 1, size = 3.4, color = "#333333") +
+    scale_y_discrete(limits = cohort_levels) +
+    scale_x_continuous(limits = c(-0.1, 0.1)) +
+    coord_cartesian(clip = "off") +
+    theme_void(base_size = 12) +
     theme(
-      panel.grid.major.y = element_blank(),
-      panel.grid.minor = element_blank(),
-      strip.text = element_text(face = "bold"),
-      legend.position = "bottom",
-      axis.text.y = element_blank(),
-      axis.ticks.y = element_blank(),
-      plot.margin = margin(t = 10, r = 30, b = 10, l = 10)
+      plot.margin = margin(t = 30, r = 2, b = 25, l = 10)
+    )
+
+  build_panel <- function(df_sub, subtype_label, show_legend = FALSE){
+    df_sub$Cohort_display <- factor(df_sub$Cohort_display, levels = cohort_levels)
+    df_summary <- subset(df_sub, effect_type == "Summary")
+    if(nrow(df_summary) > 0){
+      df_summary$label <- sprintf(
+        "Overall %.1f%% [%.1f%%, %.1f%%]\nI^2 = %s, p = %s",
+        df_summary$response_rate * 100,
+        df_summary$ci_lower * 100,
+        df_summary$ci_upper * 100,
+        ifelse(is.na(df_summary$I2), "NA", sprintf("%.1f%%", df_summary$I2)),
+        vapply(df_summary$p_heterogeneity, format_p, character(1))
+      )
+      df_summary$x_label <- pmin(df_summary$ci_upper + 0.08, 0.98)
+    }
+
+    g <- ggplot(
+      df_sub,
+      aes(x = response_rate, y = Cohort_display)
     ) +
-    coord_cartesian(clip = "off")
-
-  if(nrow(left_labels) > 0){
-    plot_m <- plot_m +
-      geom_text(
-        data = left_labels,
+      geom_errorbarh(
         aes(
-          x = x_label,
-          y = Cohort_display,
-          label = label
+          xmin = ci_lower,
+          xmax = ci_upper,
+          color = effect_type
         ),
-        inherit.aes = FALSE,
-        hjust = 1.05,
-        size = 3.2,
-        color = "#333333"
-      )
+        height = 0.2,
+        linewidth = 0.7,
+        alpha = 0.9
+      ) +
+      geom_point(
+        aes(
+          color = effect_type,
+          fill = effect_type,
+          shape = effect_type,
+          size = effect_type
+        ),
+        stroke = 0.4
+      ) +
+      scale_color_manual(values = color_palette) +
+      scale_fill_manual(values = color_palette) +
+      scale_shape_manual(values = shape_palette) +
+      scale_size_manual(values = size_palette) +
+      scale_x_continuous(
+        labels = axis_label,
+        limits = c(0, 1),
+        expand = expansion(mult = c(0, 0.2))
+      ) +
+      scale_y_discrete(
+        limits = cohort_levels,
+        labels = rep("", length(cohort_levels))
+      ) +
+      labs(
+        title = subtype_label,
+        x = "Response rate",
+        y = NULL,
+        color = NULL,
+        shape = NULL,
+        fill = NULL,
+        size = NULL
+      ) +
+      theme_minimal(base_size = 12) +
+      theme(
+        panel.grid.major.y = element_blank(),
+        panel.grid.minor = element_blank(),
+        axis.text.y = element_blank(),
+        axis.ticks.y = element_blank(),
+        plot.title = element_text(face = "bold", hjust = 0.5),
+        plot.margin = margin(t = 25, r = 20, b = 25, l = 5)
+      ) +
+      coord_cartesian(clip = "off")
+
+    if(nrow(df_summary) > 0){
+      g <- g +
+        geom_text(
+          data = df_summary,
+          aes(
+            x = x_label,
+            y = Cohort_display,
+            label = label
+          ),
+          hjust = 0,
+          size = 3,
+          color = "#333333",
+          inherit.aes = FALSE
+        )
+    }
+
+    if(!show_legend){
+      g <- g +
+        guides(
+          color = "none",
+          fill = "none",
+          shape = "none",
+          size = "none"
+        )
+    }
+
+    return(g)
   }
 
-  if(nrow(summary_labels) > 0){
-    plot_m <- plot_m +
-      geom_text(
-        data = summary_labels,
-        aes(
-          x = x_label,
-          y = Cohort_display,
-          label = label
-        ),
-        hjust = 0,
-        size = 3,
-        color = "#333333",
-        inherit.aes = FALSE
-      )
-  }
+  subtype_order <- levels(data_meta$Subtype)
+  panel_list <- lapply(seq_along(subtype_order), function(i){
+    subtype_i <- subtype_order[i]
+    df_sub <- subset(data_meta, Subtype == subtype_i)
+    build_panel(df_sub, subtype_label = subtype_i, show_legend = (i == 1))
+  })
+
+  combined_panels <- patchwork::wrap_plots(panel_list, nrow = 1, guides = "collect")
+  plot_m <- left_plot | combined_panels
+  plot_m <- plot_m +
+    patchwork::plot_layout(widths = c(0.9, length(panel_list))) &
+    theme(legend.position = "bottom")
+  plot_m <- plot_m +
+    patchwork::plot_annotation(
+      title = "Meta-analysis of subtype response rates",
+      subtitle = paste0("Random-effects (", method, ")")
+    )
 
   return(list(
     Data = data_meta,
