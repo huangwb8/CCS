@@ -1553,6 +1553,7 @@ metaSubtypeRate <- function(
     data_meta$Cohort
   )
   data_meta$Cohort_display <- factor(data_meta$Cohort_display, levels = cohort_levels)
+  cohort_label_values <- setNames(rev(cohort_levels_base), cohort_levels)
 
   color_palette <- c(Cohort = "#1F77B4", Summary = "#D62728")
   size_palette <- c(Cohort = 2.5, Summary = 3.5)
@@ -1562,21 +1563,7 @@ metaSubtypeRate <- function(
     paste0(round(x * 100), "%")
   }
 
-  left_labels <- data.frame(
-    Cohort_display = factor(cohort_levels, levels = cohort_levels),
-    label = rev(cohort_levels_base)
-  )
-  left_plot <- ggplot(left_labels, aes(x = 0, y = Cohort_display, label = label)) +
-    geom_text(hjust = 1, size = 3.4, color = "#333333") +
-    scale_y_discrete(limits = cohort_levels) +
-    scale_x_continuous(limits = c(-0.1, 0.1)) +
-    coord_cartesian(clip = "off") +
-    theme_void(base_size = 12) +
-    theme(
-      plot.margin = margin(t = 30, r = 2, b = 25, l = 10)
-    )
-
-  build_panel <- function(df_sub, subtype_label, show_legend = FALSE){
+  build_panel <- function(df_sub, subtype_label, show_legend = FALSE, show_axis_labels = FALSE){
     df_sub$Cohort_display <- factor(df_sub$Cohort_display, levels = cohort_levels)
     df_summary <- subset(df_sub, effect_type == "Summary")
     if(nrow(df_summary) > 0){
@@ -1590,6 +1577,10 @@ metaSubtypeRate <- function(
       )
       df_summary$x_label <- pmin(df_summary$ci_upper + 0.08, 0.98)
     }
+
+    axis_labels <- if(show_axis_labels) cohort_label_values else rep("", length(cohort_levels))
+    axis_text <- if(show_axis_labels) element_text(size = 10, color = "#333333") else element_blank()
+    axis_ticks <- if(show_axis_labels) element_line(color = "#D0D0D0", linewidth = 0.3) else element_blank()
 
     g <- ggplot(
       df_sub,
@@ -1625,7 +1616,7 @@ metaSubtypeRate <- function(
       ) +
       scale_y_discrete(
         limits = cohort_levels,
-        labels = rep("", length(cohort_levels))
+        labels = axis_labels
       ) +
       labs(
         title = subtype_label,
@@ -1640,10 +1631,10 @@ metaSubtypeRate <- function(
       theme(
         panel.grid.major.y = element_blank(),
         panel.grid.minor = element_blank(),
-        axis.text.y = element_blank(),
-        axis.ticks.y = element_blank(),
+        axis.text.y = axis_text,
+        axis.ticks.y = axis_ticks,
         plot.title = element_text(face = "bold", hjust = 0.5),
-        plot.margin = margin(t = 25, r = 20, b = 25, l = 5)
+        plot.margin = margin(t = 25, r = 20, b = 25, l = if(show_axis_labels) 10 else 5)
       ) +
       coord_cartesian(clip = "off")
 
@@ -1680,13 +1671,16 @@ metaSubtypeRate <- function(
   panel_list <- lapply(seq_along(subtype_order), function(i){
     subtype_i <- subtype_order[i]
     df_sub <- subset(data_meta, Subtype == subtype_i)
-    build_panel(df_sub, subtype_label = subtype_i, show_legend = (i == 1))
+    build_panel(
+      df_sub,
+      subtype_label = subtype_i,
+      show_legend = (i == 1),
+      show_axis_labels = (i == 1)
+    )
   })
 
-  combined_panels <- patchwork::wrap_plots(panel_list, nrow = 1, guides = "collect")
-  plot_m <- left_plot | combined_panels
-  plot_m <- plot_m +
-    patchwork::plot_layout(widths = c(0.9, length(panel_list))) &
+  plot_m <- patchwork::wrap_plots(panel_list, nrow = 1, guides = "collect")
+  plot_m <- plot_m &
     theme(legend.position = "bottom")
   plot_m <- plot_m +
     patchwork::plot_annotation(
