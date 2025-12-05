@@ -22,8 +22,7 @@
 #' @param plot_ROCCutoff The cut-off value for visualization of ROC AUC
 #' @param plot_silence_cohort Whether to silence cohort names in the plot
 #' @param plot_silence_subtype Whether to silence subtype names in the plot
-#' @param meta_method Estimator for the random-effects meta-analysis. One of \code{'DL'} (DerSimonian-Laird) or \code{'REML'}.
-#' @param meta_conf_level Confidence level used for the pooled effect interval and study-wise binomial intervals.
+#' @param meta_method Random-effects estimator for the meta-analysis. One of \code{'DL'}, \code{'REML'}, \code{'ML'}, \code{'PM'} (Paule-Mandel), \code{'SJ'} (Sidik-Jonkman), \code{'HE'} (Hedges), \code{'EB'} (Empirical Bayes), or \code{'HK'} (Hartung-Knapp using REML + Knapp-Hartung adjustment).
 #' @importFrom tidyr `%>%`
 #' @importFrom dplyr summarize arrange desc filter
 #' @importFrom plyr ddply
@@ -67,8 +66,7 @@ subtypePerformance <- function(
     plot_layout_widths = c(9, 1),
     plot_silence_cohort = F,
     plot_silence_subtype = F,
-    meta_method = c('DL','REML')[1],
-    meta_conf_level = 0.95,
+    meta_method = c('DL','REML','ML','PM','SJ','HE','EB','HK'),
     numCores = NULL,
     verbose = TRUE
 ){
@@ -130,6 +128,8 @@ subtypePerformance <- function(
 
   }
 
+  meta_method <- match.arg(meta_method, choices = c('DL','REML','ML','PM','SJ','HE','EB','HK'))
+
   # Data
   if(T){
 
@@ -182,8 +182,7 @@ subtypePerformance <- function(
   if(verbose) LuckyVerbose('subtypePerformance: Meta analysis...')
   meta_res <- metaSubtypeRate(
     data = df3,
-    method = meta_method,
-    conf.level = meta_conf_level
+    method = meta_method
   )
   data_meta <- meta_res$Data
   plot_m <- meta_res$Plot
@@ -1381,7 +1380,7 @@ newSubtype <- function(x, record){
 #' @title Meta-analysis of subtype response rates
 #' @description Perform a random-effects meta-analysis across cohorts for every subtype and prepare publication-ready data and plots.
 #' @param data A data.frame with columns \code{Cohort}, \code{Subtype}, \code{size}, \code{nResponse}, and optionally \code{response_rate} and \code{tumor_type}.
-#' @param method Random-effects estimator; one of \code{'DL'} (DerSimonian-Laird) or \code{'REML'}.
+#' @param method Random-effects estimator code. One of \code{'DL'}, \code{'REML'}, \code{'ML'}, \code{'PM'} (Paule-Mandel), \code{'SJ'} (Sidik-Jonkman), \code{'HE'} (Hedges), \code{'EB'} (Empirical Bayes), or \code{'HK'} (Hartung-Knapp using REML with Knapp-Hartung adjustment).
 #' @param conf.level Confidence level for study-wise and pooled intervals.
 #' @param summary_label Label used for the pooled row in the forest-style plot.
 #' @param min_studies Minimum number of cohorts required to report heterogeneity statistics.
@@ -1389,13 +1388,13 @@ newSubtype <- function(x, record){
 #' @return A list with \code{Data} (data.frame) and \code{Plot} (ggplot).
 metaSubtypeRate <- function(
     data,
-    method = c('DL','REML')[1],
+    method = c('DL','REML','ML','PM','SJ','HE','EB','HK'),
     conf.level = 0.95,
     summary_label = "Overall",
     min_studies = 1
 ){
 
-  method <- match.arg(method)
+  method <- match.arg(method, choices = c('DL','REML','ML','PM','SJ','HE','EB','HK'))
   required_cols <- c("Cohort", "Subtype", "nResponse", "size")
   if(!all(required_cols %in% colnames(data))){
     stop("metaSubtypeRate: data must contain Cohort, Subtype, nResponse, and size columns.")
@@ -1425,7 +1424,11 @@ metaSubtypeRate <- function(
     exp(x)/(1 + exp(x))
   }
 
-  estimate_tau2 <- function(yi, vi, method){
+  use_hk <- identical(method, "HK")
+  rma_method <- if(use_hk) "REML" else method
+  method_label <- if(use_hk) "REML+HK" else method
+
+  estimate_tau2_dl <- function(yi, vi){
     k <- length(yi)
     if(k <= 1){
       return(0)
@@ -1434,19 +1437,10 @@ metaSubtypeRate <- function(
     mu_fixed <- sum(wi * yi)/sum(wi)
     Q <- sum(wi * (yi - mu_fixed)^2)
     C <- sum(wi) - sum(wi^2)/sum(wi)
-    if(method == "DL"){
-      tau2 <- max(0, (Q - (k - 1))/C)
-      return(tau2)
-    } else {
-      objective <- function(tau2){
-        wi_star <- 1/(vi + tau2)
-        mu <- sum(wi_star * yi)/sum(wi_star)
-        0.5 * (sum(log(vi + tau2)) + log(sum(wi_star)) + sum(wi_star * (yi - mu)^2))
-      }
-      upper <- max(1, var(yi), mean(vi) * 10)
-      res <- stats::optimize(objective, interval = c(0, upper))
-      return(max(res$minimum, 0))
+    if(C <= 0){
+      return(0)
     }
+    max(0, (Q - (k - 1))/C)
   }
 
   format_p <- function(x){
@@ -1480,35 +1474,87 @@ metaSubtypeRate <- function(
     df_sub$ci_upper <- ci_bounds[, 2]
     df_sub$meta_y <- yi
     df_sub$meta_v <- vi
+    df_sub$method <- method_label
 
-    tau2 <- estimate_tau2(yi, vi, method)
+    k <- nrow(df_sub)
+    hetero_valid <- k >= max(min_studies, 2)
+    se_mu <- NA_real_
+    mu_hat <- NA_real_
+    ci_lower_mu <- NA_real_
+    ci_upper_mu <- NA_real_
+    tau2 <- 0
+    I2 <- 0
+    p_het <- NA_real_
+    level_pct <- conf.level * 100
+
+    if(k == 1){
+      tau2 <- 0
+      se_mu <- sqrt(vi)
+      mu_hat <- yi
+      z_value <- stats::qnorm(0.5 + conf.level/2)
+      ci_lower_mu <- mu_hat - z_value * se_mu
+      ci_upper_mu <- mu_hat + z_value * se_mu
+    } else {
+      meta_fit <- tryCatch(
+        metafor::rma.uni(
+          yi = yi,
+          vi = vi,
+          method = rma_method,
+          test = if(use_hk) "knha" else "z",
+          level = level_pct
+        ),
+        error = function(e) NULL
+      )
+
+      if(!is.null(meta_fit)){
+        mu_hat <- as.numeric(meta_fit$b)
+        se_mu <- as.numeric(meta_fit$se)
+        ci_lower_mu <- meta_fit$ci.lb
+        ci_upper_mu <- meta_fit$ci.ub
+        tau2 <- ifelse(is.na(meta_fit$tau2), 0, meta_fit$tau2)
+        if(hetero_valid){
+          I2 <- ifelse(is.null(meta_fit$I2), NA_real_, meta_fit$I2)
+          p_het <- meta_fit$QEp
+        }
+      } else {
+        tau2 <- estimate_tau2_dl(yi, vi)
+        w_star_tmp <- 1/(vi + tau2)
+        mu_hat <- sum(w_star_tmp * yi)/sum(w_star_tmp)
+        se_mu <- sqrt(1/sum(w_star_tmp))
+        z_value <- stats::qnorm(0.5 + conf.level/2)
+        ci_lower_mu <- mu_hat - z_value * se_mu
+        ci_upper_mu <- mu_hat + z_value * se_mu
+        if(hetero_valid){
+          wi_fixed <- 1/vi
+          mu_fixed <- sum(wi_fixed * yi)/sum(wi_fixed)
+          Q <- sum(wi_fixed * (yi - mu_fixed)^2)
+          if(Q > 0){
+            I2 <- max(0, (Q - (k - 1))/Q) * 100
+            p_het <- stats::pchisq(Q, df = k - 1, lower.tail = FALSE)
+          } else {
+            I2 <- 0
+            p_het <- NA_real_
+          }
+        }
+      }
+    }
+
+    tau2 <- max(tau2, 0)
     w_star <- 1/(vi + tau2)
     weights_norm <- w_star/sum(w_star)
     df_sub$weight <- weights_norm
     df_sub$effect_type <- 'Cohort'
-    df_sub$method <- method
     df_sub$tau2 <- NA_real_
     df_sub$I2 <- NA_real_
     df_sub$p_heterogeneity <- NA_real_
     df_sub$nStudy <- nrow(df_sub)
 
-    k <- nrow(df_sub)
-    wi_fixed <- 1/vi
-    mu_fixed <- sum(wi_fixed * yi)/sum(wi_fixed)
-    Q <- if(k > 1) sum(wi_fixed * (yi - mu_fixed)^2) else 0
-    z_value <- stats::qnorm(0.5 + conf.level/2)
-    mu_hat <- sum(w_star * yi)/sum(w_star)
-    se_mu <- sqrt(1/sum(w_star))
     summary_rate <- inv_logit(mu_hat)
-    summary_lower <- inv_logit(mu_hat - z_value * se_mu)
-    summary_upper <- inv_logit(mu_hat + z_value * se_mu)
-    I2 <- 0
-    p_het <- NA_real_
-    if(k >= max(min_studies, 2)){
-      if(Q > 0){
-        I2 <- max(0, (Q - (k - 1))/Q) * 100
-      }
-      p_het <- stats::pchisq(Q, df = k - 1, lower.tail = FALSE)
+    summary_lower <- inv_logit(ci_lower_mu)
+    summary_upper <- inv_logit(ci_upper_mu)
+    if(!hetero_valid){
+      I2 <- 0
+      p_het <- NA_real_
     }
 
     summary_row <- df_sub[1, , drop = FALSE]
@@ -1566,6 +1612,7 @@ metaSubtypeRate <- function(
   build_panel <- function(df_sub, subtype_label, show_legend = FALSE, show_axis_labels = FALSE){
     df_sub$Cohort_display <- factor(df_sub$Cohort_display, levels = cohort_levels)
     df_summary <- subset(df_sub, effect_type == "Summary")
+    summary_text <- NULL
     if(nrow(df_summary) > 0){
       df_summary$label <- sprintf(
         "Overall %.1f%% [%.1f%%, %.1f%%]\nI^2 = %s, p = %s",
@@ -1575,7 +1622,7 @@ metaSubtypeRate <- function(
         ifelse(is.na(df_summary$I2), "NA", sprintf("%.1f%%", df_summary$I2)),
         vapply(df_summary$p_heterogeneity, format_p, character(1))
       )
-      df_summary$x_label <- pmin(df_summary$ci_upper + 0.08, 0.98)
+      summary_text <- df_summary$label[1]
     }
 
     axis_labels <- if(show_axis_labels) cohort_label_values else rep("", length(cohort_levels))
@@ -1620,6 +1667,7 @@ metaSubtypeRate <- function(
       ) +
       labs(
         title = subtype_label,
+        subtitle = summary_text,
         x = "Response rate",
         y = NULL,
         color = NULL,
@@ -1634,25 +1682,10 @@ metaSubtypeRate <- function(
         axis.text.y = axis_text,
         axis.ticks.y = axis_ticks,
         plot.title = element_text(face = "bold", hjust = 0.5),
+        plot.subtitle = element_text(face = "bold", hjust = 0.5, size = 10, margin = margin(b = 6)),
         plot.margin = margin(t = 25, r = 20, b = 25, l = if(show_axis_labels) 10 else 5)
       ) +
       coord_cartesian(clip = "off")
-
-    if(nrow(df_summary) > 0){
-      g <- g +
-        geom_text(
-          data = df_summary,
-          aes(
-            x = x_label,
-            y = Cohort_display,
-            label = label
-          ),
-          hjust = 0,
-          size = 3,
-          color = "#333333",
-          inherit.aes = FALSE
-        )
-    }
 
     if(!show_legend){
       g <- g +
@@ -1685,7 +1718,7 @@ metaSubtypeRate <- function(
   plot_m <- plot_m +
     patchwork::plot_annotation(
       title = "Meta-analysis of subtype response rates",
-      subtitle = paste0("Random-effects (", method, ")")
+      subtitle = paste0("Random-effects (", method_label, ")")
     )
 
   return(list(

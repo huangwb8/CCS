@@ -25,8 +25,7 @@ subtypePerformance(
   plot_layout_widths = c(9, 1),
   plot_silence_cohort = F,
   plot_silence_subtype = F,
-  meta_method = c("DL", "REML")[1],
-  meta_conf_level = 0.95,
+  meta_method = c("DL", "REML", "ML", "PM", "SJ", "HE", "EB", "HK"),
   numCores = NULL,
   verbose = TRUE
 )
@@ -72,9 +71,7 @@ subtypePerformance(
 
 \item{plot_silence_subtype}{Whether to silence subtype names in the plot}
 
-\item{meta_method}{Estimator for the random-effects meta-analysis. One of \code{'DL'} (DerSimonian-Laird) or \code{'REML'}.}
-
-\item{meta_conf_level}{Confidence level used for the pooled effect interval and study-wise binomial intervals.}
+\item{meta_method}{Random-effects estimator for the meta-analysis. One of \code{'DL'}, \code{'REML'}, \code{'ML'}, \code{'PM'} (Paule-Mandel), \code{'SJ'} (Sidik-Jonkman), \code{'HE'} (Hedges), \code{'EB'} (Empirical Bayes), or \code{'HK'} (Hartung-Knapp using REML + Knapp-Hartung adjustment).}
 
 \item{numCores}{No. of CPU core}
 

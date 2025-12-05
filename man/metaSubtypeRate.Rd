@@ -6,7 +6,7 @@
 \usage{
 metaSubtypeRate(
   data,
-  method = c("DL", "REML")[1],
+  method = c("DL", "REML", "ML", "PM", "SJ", "HE", "EB", "HK"),
   conf.level = 0.95,
   summary_label = "Overall",
   min_studies = 1
@@ -15,7 +15,7 @@ metaSubtypeRate(
 \arguments{
 \item{data}{A data.frame with columns \code{Cohort}, \code{Subtype}, \code{size}, \code{nResponse}, and optionally \code{response_rate} and \code{tumor_type}.}
 
-\item{method}{Random-effects estimator; one of \code{'DL'} (DerSimonian-Laird) or \code{'REML'}.}
+\item{method}{Random-effects estimator code. One of \code{'DL'}, \code{'REML'}, \code{'ML'}, \code{'PM'} (Paule-Mandel), \code{'SJ'} (Sidik-Jonkman), \code{'HE'} (Hedges), \code{'EB'} (Empirical Bayes), or \code{'HK'} (Hartung-Knapp using REML with Knapp-Hartung adjustment).}
 
 \item{conf.level}{Confidence level for study-wise and pooled intervals.}
 
