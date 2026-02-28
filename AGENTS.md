@@ -1,19 +1,248 @@
-# Repository Guidelines
+# CCS - Cohort Congress System - 项目指令
+
+你正在 `/Volumes/2T01/winE/RCloud/RFactory/ccs` 中工作：该目录用于 A Computational Framwork for Personalized Pan-cancer Genomic Classification.。
+
+## 项目目标
+
+A Computational Framwork for Personalized Pan-cancer Genomic Classification.
+
+本工作区的核心目标是 A Computational Framwork for Personalized Pan-cancer Genomic Classification.。
+
+## 核心工作流
+
+当用户提出 数据科学项目 相关需求时，按以下流程执行：
+
+### 1. 任务理解
+
+- 理解用户的真实需求和意图
+- 确认任务范围和预期输出
+- 识别可能的依赖和约束
+
+### 2. 执行流程
+
+数据获取 → 探索分析 → 模型训练 → 验证评估
+
+### 3. 输出规范
+
+- 代码变更应遵循项目现有风格
+- 文档更新应保持一致性
+- 测试覆盖应符合项目标准
+
+## 工程原则
+
+本项目遵循以下工程原则：
+
+| 原则 | 核心思想 | 在本项目中的体现 |
+|------|----------|------------------|
+| **KISS** | Keep It Simple, Stupid | 追求极致简洁，避免过度设计；文档标题不使用序号前缀（用 `##` 而非 `## 1)`） |
+| **YAGNI** | You Aren't Gonna Need It | 只实现当前需要的功能 |
+| **DRY** | Don't Repeat Yourself | 相似逻辑应抽象复用 |
+| **SOLID** | 面向对象设计五大原则 | 单一职责、开闭原则等 |
+| **关注点分离** | Separation of Concerns | 不同层次逻辑应分离 |
+| **奥卡姆剃刀** | 如无必要，勿增实体 | 优先选择最简单的解决方案；Markdown 本身有层级结构，序号是冗余的形式化标记 |
+| **最小惊讶原则** | Principle of Least Astonishment | API 行为应符合用户直觉 |
+| **早期返回原则** | Early Return | 尽早返回，减少嵌套 |
+
+**原则冲突时的决策优先级**：
+1. **正确性 > 一切**
+2. **简洁性 > 灵活性**
+3. **清晰性 > 性能**
+4. **扩展性 > 紧凑性**
+
+## 默认语言
+
+除非用户明确要求其他语言，始终使用 简体中文 与用户对话与撰写文档/说明。
+
+## 联网与搜索
+
+默认优先使用项目内文件与本地上下文；确需联网获取信息时，优先使用本地搜索工具。仅当本地工具不足以满足需求时再使用其它联网手段，并说明原因与保留关键链接。
+
+## Codex CLI 特定说明
+
+### 文件引用规范
+
+在 Codex CLI 中引用文件时：
+- 使用内联代码使文件路径可点击：`src/main.py`
+- 每个引用应有独立路径，即使是同一文件
+- 包含相关的起始行号：`src/main.py:42`
+- 不要输出你刚写的大文件内容，只引用路径
+
+### 代码编辑规范
+
+- 高效、连贯的编辑：读取足够上下文后再修改文件，将逻辑相关的编辑批量处理
+- 保持类型安全：变更应始终通过构建检查
+- 无效输入早返回：遵循仓库中的日志/通知模式
+
+### 输出格式
+
+- 对于简单确认，跳过繁重格式
+- 不要输出刚写的大文件，只引用路径
+- 提供简短的逻辑后续步骤（测试、提交、构建）
+
+## 变更边界
+
+- 仅修改与当前任务直接相关的文件
+- 不主动添加用户未要求的功能
+- 保持现有代码风格和结构
+
+## 变更记录规范
+
+**重要原则**：凡是项目的更新，都要统一在 `CHANGELOG.md` 文件里记录。
+
+### 记录范围
+
+每次修改以下内容时，必须更新 CHANGELOG.md：
+- **项目指令文件**：CLAUDE.md、AGENTS.md 的任何修改
+- **项目结构变更**：新增/删除/重命名目录或关键文件
+- **工作流变更**：核心工作流程的调整
+- **工程原则变更**：新增、修改或删除工程原则
+- **重要配置变更**：影响项目行为的配置文件修改
+
+### 记录格式
+
+遵循 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.1.0/) 格式：
+
+```markdown
+## [版本号] - YYYY-MM-DD
+
+### Added（新增）
+- 新增了 XXX 功能/章节：用途是 YYY
+
+### Changed（变更）
+- 修改了 XXX 章节：原因是 YYY，具体变更内容是 ZZZ
+
+### Fixed（修复）
+- 修复了 XXX 问题：表现是 YYY，修复方式是 ZZZ
+```
+
+### 记录时机
+
+- **修改前**：先在 CHANGELOG.md 的 `[Unreleased]` 部分草拟变更内容
+- **修改后**：完善变更描述，添加具体细节和影响范围
+- **发布时**：将 `[Unreleased]` 内容移至具体版本号下
+
+## 版本号管理规范
+
+**核心原则**：项目的版本号统一通过配置文件管理（Single Source of Truth），确保版本信息的一致性和可追溯性。
+
+### 配置文件结构
+
+如果项目需要版本管理，应在根目录的配置文件中包含版本信息：
+
+```yaml
+# 项目基本信息
+project_info:
+  name: CCS - Cohort Congress System
+  version: 1.0.0        # 遵循语义化版本规范
+  description: "A Computational Framwork for Personalized Pan-cancer Genomic Classification."
+```
+
+### 版本号命名规则
+
+遵循 [语义化版本](https://semver.org/lang/zh-CN/) 规范：
+
+| 版本类型 | 格式 | 使用场景 |
+|---------|------|----------|
+| **稳定版** | `v1.0.0` 及以上 | 项目已稳定可用 |
+| **开发中** | `v0.x.x` | 功能开发中，可能有较大变更 |
+| **实验性** | `v0.0.x` | 早期实验阶段，API 不稳定 |
+
+版本号格式：`主版本号.次版本号.修订号`
+- **主版本号**：不兼容的 API 修改
+- **次版本号**：向下兼容的功能性新增
+- **修订号**：向下兼容的问题修正
+
+### 版本同步机制
+
+版本号必须按照以下顺序同步：
+
+1. **配置文件**（Single Source of Truth）
+   - 所有版本号变更首先在此文件更新
+   - 作为其他文件版本信息的唯一来源
+
+2. **项目文档**
+   - 在 README.md 或其他文档中引用配置文件的版本号
+
+3. **CHANGELOG.md**
+   - 每次版本变更时，添加新的版本条目
+   - 记录该版本的变更内容
+
+### 版本号更新时机
+
+| 变更类型 | 版本更新示例 | 说明 |
+|---------|-------------|------|
+| Bug 修复 | `1.0.0` → `1.0.1` | 修复问题，不改变功能 |
+| 新增功能 | `1.0.0` → `1.1.0` | 向下兼容的新功能 |
+| 破坏性变更 | `1.0.0` → `2.0.0` | 不兼容的 API 变更 |
+
+**实践要点**：
+- 每次更新项目时，首先评估变更类型
+- 根据变更类型更新配置文件中的版本号
+- 立即在 CHANGELOG.md 中记录变更内容
+
+### 版本号检查命令
+
+快速检查项目版本号：
+
+```bash
+# 查看配置文件中的版本号
+grep -A 3 "project_info:" config.yaml | grep "version"
+```
 
 ## Project Structure & Module Organization
+
 Core package code lives in `R/`, with `ccs*.R` owning S4 classes, `hyperTuningGS.R` and `importance.R` for modeling, and utilities such as `normalize.R`, `phenotype.R`, and `simulatePA.R` for preprocessing. Generated Rd files remain in `man/`, while the exploratory scripts, saved models, and fixtures under `test/` mirror real workflows (see `test/ccs/project_01/`). Keep prompts, licensing, and README material at the repo root, and add any new auxiliary data next to the script that consumes it.
 
 ## Build, Test, and Development Commands
+
 Refresh documentation before committing with `Rscript -e "devtools::document()"`. Package locally with `R CMD build .` followed by `R CMD check ccs_0.7.0.tar.gz` to catch lint, dependency, and vignette issues. During interactive work `Rscript -e "devtools::load_all()"` mirrors `library(CCS)` without reinstalling. Scenario tests run via plain scripts; e.g., `Rscript test/03.test.Classes.R` validates the class definitions and `Rscript test/test.classifier_performance.R` exercises the classifier benchmarks.
 
 ## Coding Style & Naming Conventions
+
 Match the existing tidy R style: two-space indent, `<-` for assignment, and `snake_case` for functions and variables while keeping S4 classes and exported methods in `CamelCase`. Keep roxygen headers complete (`@description`, `@param`, `@return`, `@examples`) so `man/` stays in sync after `devtools::document()`. Reuse verbs from the packages declared in `DESCRIPTION`, and update that file before relying on new imports.
 
 ## Testing Guidelines
+
 Each script in `test/` targets a reproducible scenario; follow the numbering scheme (`01.test.*`, `02.test.*`, etc.) to signal execution order. Scripts must be runnable through `Rscript` without interactive prompts and should cleanly write their `.rds` artifacts into dedicated subdirectories (e.g., `test/ccs/project_<id>/`). Favor `stopifnot` or lightweight `testthat` expectations to make failures obvious and add sample data snapshots when a change impacts probability outputs or subtype plots.
 
 ## Commit & Pull Request Guidelines
+
 Git history favors concise imperative summaries with optional release tags (`v0.7.0`, `Routine update`). Use the same style, referencing issue IDs when relevant. Pull requests should include: purpose, datasets or parameters touched, confirmation that `R CMD check` and the relevant `test/*.R` scripts succeeded, and screenshots or metrics for any plotting/statistics change. Mention large artifacts deliberately excluded from git and coordinate with reviewers before force-pushing rebases.
 
 ## Security & Data Handling
+
 Handle genomic `.rds` files as sensitive. Keep PHI and proprietary data out of the repo, scrub metadata in sample fixtures, and document any secure storage requirements in the PR description. Gate remote downloads behind explicit arguments and never embed credentials or tokens in tracked files.
+
+## 有机更新原则
+
+当需要更新本文档时：
+
+### 1. 理解意图
+
+首先理解用户需求背后的意图和在工作流中的本质作用
+
+### 2. 定位生态位
+
+每条规则/要求都应找到其在整个文档结构中的"生态位"——它与其他内容的关系、它服务的目标、它影响的其他部分
+
+### 3. 协调生长
+
+更新一个部分时，检查并同步更新相关部分：
+- 更新工作流步骤时，同步更新示例和验证清单
+- 更新输出规范时，同步更新引用该规范的其他章节
+- 更新术语定义时，全局统一替换
+- **更新本文档时，必须同步更新 CHANGELOG.md**
+- **更新本文档后，确保 CLAUDE.md 的核心内容保持一致**
+- 保持文档格式规范：层级标题不使用序号前缀（用 `##` 而非 `## 1)`），因为 Markdown 本身有层级结构
+
+### 4. 保持呼吸感
+
+文档应该像生物体一样有"呼吸感"——章节之间有逻辑流动，而非割裂的清单
+
+### 5. 定期修剪整合
+
+当某个章节变得过于臃肿时，主动重构
+
+---
+
+**提示**：修改本文档后，请立即在 `CHANGELOG.md` 中记录变更，并确保 `CLAUDE.md` 的核心内容保持一致。这是项目管理的强制性要求，不是可选项。
