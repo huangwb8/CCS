@@ -6,6 +6,10 @@
 
 ## [Unreleased]
 
+### Changed（变更）
+
+- 修改了 AGENTS.md 中的"版本号管理规范"章节：将版本号来源从 config.yaml 改为 R 包的 DESCRIPTION 文件，新增 Git Tag 命名规范（`v{Version}` 格式）
+
 ## [1.0.0] - 2026-03-01
 
 ### Added（新增）

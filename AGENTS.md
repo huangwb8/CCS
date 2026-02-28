@@ -123,19 +123,29 @@ A Computational Framwork for Personalized Pan-cancer Genomic Classification.
 
 ## 版本号管理规范
 
-**核心原则**：项目的版本号统一通过配置文件管理（Single Source of Truth），确保版本信息的一致性和可追溯性。
+**核心原则**：项目的版本号统一通过 DESCRIPTION 文件管理（Single Source of Truth），确保版本信息的一致性和可追溯性。
 
-### 配置文件结构
+### 版本号来源
 
-如果项目需要版本管理，应在根目录的配置文件中包含版本信息：
+本项目的版本号定义在 `DESCRIPTION` 文件中：
 
-```yaml
-# 项目基本信息
-project_info:
-  name: CCS - Cohort Congress System
-  version: 1.0.0        # 遵循语义化版本规范
-  description: "A Computational Framwork for Personalized Pan-cancer Genomic Classification."
 ```
+Version: 0.7.2
+```
+
+### Git Tag 命名规范
+
+**格式**：`v{Version}`（v + DESCRIPTION 中的 Version 值）
+
+| DESCRIPTION Version | Git Tag |
+|---------------------|---------|
+| 0.7.2 | v0.7.2 |
+| 1.0.0 | v1.0.0 |
+
+**创建 Tag 流程**：
+1. 确认 DESCRIPTION 中的 Version 已更新
+2. 创建对应 tag：`git tag v0.7.2`
+3. 推送 tag：`git push origin v0.7.2`
 
 ### 版本号命名规则
 
@@ -185,8 +195,11 @@ project_info:
 快速检查项目版本号：
 
 ```bash
-# 查看配置文件中的版本号
-grep -A 3 "project_info:" config.yaml | grep "version"
+# 查看 DESCRIPTION 文件中的版本号
+grep "^Version:" DESCRIPTION
+
+# 查看最近的 git tags
+git tag | tail -5
 ```
 
 ## Project Structure & Module Organization
