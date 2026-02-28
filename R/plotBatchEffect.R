@@ -52,25 +52,39 @@ setMethod(
 
     # Plot
     p <- plot_grid(
-      mt_l_plot[[1]][["Tissue"]] + labs(title = "Tissue-level") + theme(axis.title = element_blank(), plot.title = element_text(hjust = 0.5)),
-      mt_l_plot[[1]][["Cohort"]] + labs(title = "Cohort-level") + theme(axis.title = element_blank(), plot.title = element_text(hjust = 0.5)),
+      mt_l_plot[[1]][["Tissue"]] + labs(title = "Tissue-level") + theme(axis.title = element_blank()),
+      mt_l_plot[[1]][["Cohort"]] + labs(title = "Cohort-level") + theme(axis.title = element_blank()),
       mt_l_plot[[2]][["Tissue"]] + theme(axis.title = element_blank()),
       mt_l_plot[[2]][["Cohort"]] + theme(axis.title = element_blank()),
       align = "h", ncol = 2, rel_widths = c(0.5, 0.5), rel_heights = c(0.5, 0.5)
     )
-    # 添加坐标轴标题（使用 ggplot + theme_void 更稳健）
-    x_axis_title <- ggplot() +
-      annotate("text", x = 0.5, y = 0.5, label = "Sample", size = 4) +
-      theme_void()
-    y_axis_title <- ggplot() +
-      annotate("text", x = 0.5, y = 0.5, label = "Expression", angle = 90, size = 4) +
-      theme_void()
+    # 添加坐标轴标题（Nature 级别样式）
+    # 使用 cowplot::ggdraw + draw_label 实现更精确的控制
+    base_font_size <- 11
 
-    # 组合图形：先绑定 x 轴标题，再绑定 y 轴标题
+    x_axis_title <- ggdraw() +
+      draw_label(
+        "Sample",
+        fontface = "bold",
+        size = base_font_size,
+        hjust = 0.5,
+        vjust = 0.5
+      )
+    y_axis_title <- ggdraw() +
+      draw_label(
+        "Expression",
+        fontface = "bold",
+        size = base_font_size,
+        angle = 90,
+        hjust = 0.5,
+        vjust = 0.5
+      )
+
+    # 组合图形：使用更协调的比例
     p2 <- plot_grid(
       y_axis_title,
-      plot_grid(p, x_axis_title, ncol = 1, rel_heights = c(0.95, 0.05)),
-      ncol = 2, rel_widths = c(0.02, 0.98)
+      plot_grid(p, x_axis_title, ncol = 1, rel_heights = c(0.92, 0.08)),
+      ncol = 2, rel_widths = c(0.03, 0.97)
     )
     # tiff(file.path(root_path, '/iProjects/RCheck/GSClassifier/routine01/test/PADv20240810_plotBatchEffect_test01.tif'), width = 40, height = 22, res = 300, units = "cm"); print(p2); dev.off()
     return(p2)
@@ -170,9 +184,18 @@ plotOneBatchEffect <- function(object, data, mt) {
       guides(color = "none", fill = "none") +
       theme_bw() +
       theme(
-        panel.border = element_rect(colour = "black", linewidth = 1.5),
-        axis.line = element_line(colour = "black", linewidth = 0, linetype = 1),
-        axis.title = element_text(size = 10),
+        # Nature 级别样式
+        text = element_text(family = "sans", colour = "black"),
+        axis.text = element_text(size = 9, colour = "black"),
+        axis.title = element_text(size = 11, face = "bold"),
+        plot.title = element_text(size = 12, face = "bold", hjust = 0.5),
+        # 边框与网格
+        panel.border = element_rect(colour = "black", linewidth = 0.5),
+        panel.grid.major = element_blank(),
+        panel.grid.minor = element_blank(),
+        axis.line = element_line(colour = "black", linewidth = 0.5),
+        axis.ticks = element_line(colour = "black", linewidth = 0.5),
+        # 隐藏 x 轴刻度（样本过多）
         axis.text.x = element_blank(),
         axis.ticks.x = element_blank()
       )
@@ -193,9 +216,18 @@ plotOneBatchEffect <- function(object, data, mt) {
       guides(color = "none", fill = "none") +
       theme_bw() +
       theme(
-        panel.border = element_rect(colour = "black", linewidth = 1.5),
-        axis.line = element_line(colour = "black", linewidth = 0, linetype = 1),
-        axis.title = element_text(size = 10),
+        # Nature 级别样式
+        text = element_text(family = "sans", colour = "black"),
+        axis.text = element_text(size = 9, colour = "black"),
+        axis.title = element_text(size = 11, face = "bold"),
+        plot.title = element_text(size = 12, face = "bold", hjust = 0.5),
+        # 边框与网格
+        panel.border = element_rect(colour = "black", linewidth = 0.5),
+        panel.grid.major = element_blank(),
+        panel.grid.minor = element_blank(),
+        axis.line = element_line(colour = "black", linewidth = 0.5),
+        axis.ticks = element_line(colour = "black", linewidth = 0.5),
+        # 隐藏 x 轴刻度（样本过多）
         axis.text.x = element_blank(),
         axis.ticks.x = element_blank()
       )
