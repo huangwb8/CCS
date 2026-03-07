@@ -55,59 +55,9 @@ R CMD check ccs_0.7.3.tar.gz
 Rscript -e "devtools::load_all()"
 ```
 
-## Quick Start
+## Usage
 
-### Basic Workflow
-
-```r
-library(CCS)
-
-# Prepare your data
-# data: a list of expression matrices (samples × genes)
-# geneSet: a list of gene sets for classification
-# geneAnnotation: gene annotation data frame
-
-# Run CCS analysis
-result <- ccs(
-  data = your_expression_data,
-  geneSet = your_gene_sets,
-  geneAnnotation = your_gene_annotation,
-  method = 'GSClassifier',
-  geneid = "ensembl",
-  parallel.method = 'ensemble',
-  params = list(
-    nfold = 5,
-    nrounds = 100,
-    nthread = 2,
-    eta = 0.5,
-    max_depth = 10,
-    subsample = 0.7
-  ),
-  seed = 489,
-  model.dir = './ccs_output',
-  verbose = TRUE,
-  numCores = 4
-)
-
-# Access results
-subtypes <- result@Data$CCS
-probabilities <- result@Data$Probability
-models <- result@Model
-```
-
-### Visualization
-
-```r
-# Plot batch effects (Nature-quality style)
-plotBatchEffect(
-  data = your_data,
-  batch = batch_labels,
-  method = "umap"
-)
-
-# Visualize subtype distributions
-# (Additional plotting functions available in the package)
-```
+Detailed usage documentation will be provided in future releases.
 
 ## Project Structure
 
@@ -232,6 +182,8 @@ If you use CCS in your research, please cite:
   url = {https://github.com/yourusername/ccs}
 }
 ```
+
+*Note: This software is currently under development. Publication information will be added upon acceptance.*
 
 ## License
 
