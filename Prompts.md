@@ -1,3 +1,11 @@
+# 日常
+
+目前，CCS包有一个专门的github仓库 https://github.com/huangwb8/ccs.principle 提供教学功能；因此， CCS仓库的README要：
+
+- 引用这个仓库
+- 重点突出的同时尽量简洁；重点参考： https://github.com/huangwb8/GSClassifier 和 https://github.com/huangwb8/GSClassifier.principle
+- CCS的论文正在投稿中。推荐引用文献应该留空，提示`Under审稿`之类的。 
+
 # p1
 
 
