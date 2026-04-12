@@ -8,6 +8,8 @@
 
 ### Changed（变更）
 
+- 调整了 README.md 中教程开放状态的英文措辞：将 “the full tutorial” 细化为“完整且完全可用的形式”，使含义更准确
+- 更新了 README.md 中的教程说明：补充论文正式发表前教程不会完全公开的状态说明，避免读者对开放范围产生误解
 - 修改了 AGENTS.md 中的"版本号管理规范"章节：将版本号来源从 config.yaml 改为 R 包的 DESCRIPTION 文件，新增 Git Tag 命名规范（`v{Version}` 格式）
 - 完善了 README.md：从简单占位符升级为完整的国际化项目文档，包含安装指南、快速开始、API 文档、开发指南、算法概述、引用格式等章节
 - 重写了 README.md：首页改为简洁项目入口，突出 `ccs.principle` 教学仓库与 `GSClassifier` 生态链接，并将推荐引用调整为 `Under review` 占位说明
