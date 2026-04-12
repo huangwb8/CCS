@@ -10,7 +10,7 @@
 
 ## Tutorial
 
-For teaching materials and step-by-step workflow explanations, please visit [Online Tutorial](https://github.com/huangwb8/ccs.principle).
+For teaching materials and step-by-step workflow explanations, please visit [Online Tutorial](https://huangwb8.github.io/ccs.principle/).
 
 ## Installation
 
