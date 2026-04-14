@@ -12,26 +12,6 @@
 
 For teaching materials and step-by-step workflow explanations, please visit [Online Tutorial](https://huangwb8.github.io/ccs.principle/). Please note that the tutorial will be made publicly available in its full, fully usable form only after the manuscript is formally published.
 
-## Installation
-
-```r
-if (!requireNamespace("devtools", quietly = TRUE)) {
-  install.packages("devtools")
-}
-
-devtools::install_github("huangwb8/luckyBase")
-devtools::install_github("huangwb8/GSClassifier")
-devtools::install_github("huangwb8/CCS")
-```
-
-For local development:
-
-```bash
-Rscript -e "devtools::document()"
-Rscript -e "devtools::load_all()"
-R CMD build .
-```
-
 ## Citation
 
 The `CCS` manuscript is currently under review.
