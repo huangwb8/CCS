@@ -2,6 +2,10 @@
 
 ---
 
+基于 E:\iProjects\RCheck\GSClassifier\routine02\docs\plans\2026-08-01-ccs可新增消融实验计划.md 、 docs\plans\2026-08-01-metaccs-end-to-end-ablation.md 这2个计划，优化ccs包的 R\ablation.R ，进一步完善消融实验。
+
+---
+
 我准备在CCS包里添加一个新的`ablation.R`脚本（暂时放在E:\RCloud\RFactory\ccs\test\ablation里，等我测试完毕后，我再手动放在 ccs 的正式R脚本文件夹内），它里面设计一个新的函数`ablation`，它基于`CCS`这个Class进行设计（类似ccs包里的很多其它关键函数），专门用来落实 E:\iProjects\Manuscripts\CCS\paper\docs\plans\2026-07-27-ccs框架分层消融实验计划.md 里的消融实验。我希望，当用户运行函数`ablation`时，对于给定的CCS对象（以及必要的其它数据），该函数可以自动、准确、可重复地完成消融实验。这是我的大致想法：
 
 - 本轮任务的工作目录是： E:\RCloud\RFactory\ccs\test\ablation，你可以在它及其子文件夹里生成、编辑文件。在此之外的文件，都是只读以保证安全。
