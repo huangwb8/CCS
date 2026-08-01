@@ -33,6 +33,7 @@ ablation <- function(
     seed = 20260727,
     verbose = TRUE
 ) {
+  # Step 1: Validate the public inputs and merge user overrides into reproducible defaults.
   if (!methods::is(object, "CCS")) {
     stop("ablation: object must be a CCS object.", call. = FALSE)
   }
@@ -42,6 +43,7 @@ ablation <- function(
   config <- .ablation_merge_lists(.ablation_default_params(seed), params)
   .ablation_validate_config(config)
 
+  # Keep each run isolated and never overwrite existing results unless cover is explicit.
   if (dir.exists(output.dir) && length(list.files(output.dir)) > 0 && !config$cover) {
     stop(
       "ablation: output.dir is not empty. Use a new directory or set params$cover = TRUE.",
@@ -50,6 +52,7 @@ ablation <- function(
   }
   dir.create(output.dir, recursive = TRUE, showWarnings = FALSE)
 
+  # Step 2: Align frozen d1, RNA/TSP features, and sample annotations, then freeze the manifest.
   if (verbose) {
     luckyBase::LuckyVerbose("ablation: Prepare frozen CCS inputs...")
   }
@@ -67,8 +70,8 @@ ablation <- function(
   experiments <- list()
   audit_parts <- list()
 
-  # Scaling depends on the cohort-representation gate, so experiment one is
-  # executed automatically when scaling is requested on its own.
+  # Step 3: Run the requested experiments. Scaling depends on Gate 1, so a
+  # scaling-only request still runs the cohort experiment first.
   if ("cohort" %in% experiment || "scaling" %in% experiment) {
     if (verbose) {
       luckyBase::LuckyVerbose("ablation: Experiment 1 - cohort representation...")
@@ -85,6 +88,7 @@ ablation <- function(
   }
 
   if ("scaling" %in% experiment) {
+    # Gate 1 prevents interpreting scaling before the cohort representation beats its baselines.
     gate <- .ablation_gate_one(experiments$cohort, config$gate1)
     if (gate$pass || !config$gate1$enforce) {
       if (verbose) {
@@ -135,6 +139,7 @@ ablation <- function(
   }
 
   audit <- .ablation_rbind(audit_parts)
+  # Step 4: Combine experiments and audit fields, then save machine- and reviewer-friendly outputs.
   result <- structure(
     list(
       call = match.call(),
@@ -156,8 +161,11 @@ ablation <- function(
 }
 
 
+# Centralize defaults shared by all experiments. Independent seed ranges let
+# each random control or reduction repeat be reproduced in isolation.
 .ablation_default_params <- function(seed = 20260727) {
   list(
+    # Experiment 1: common rank, neighborhood, validation, and geometry settings.
     rank = 50L,
     rank_sensitivity = c(25L, 50L, 100L),
     k = 30L,
@@ -172,15 +180,18 @@ ablation <- function(
     probe_label = "tissue",
     probe_nrounds = 50L,
     numCores = 1L,
+    # Repeat random projection and within-cohort module permutation separately.
     rp_density = 1 / 3,
     rp_seeds = seed + seq_len(20),
     permutation_seeds = seed + 1000L + seq_len(20),
+    # Experiment 2: nested module-count sequences and downstream embedding repeats.
     scaling_counts = c(10L, 25L, 50L, 75L, 100L, 125L, 150L),
     scaling_sequences = 100L,
     scaling_embedding_counts = c(25L, 50L, 100L, 150L),
     scaling_embedding_sequences = 10L,
     scaling_embedding_seeds = seed + 2000L + seq_len(10),
     scaling_subsample_fraction = 0.8,
+    # Experiment 3: paired sampling and reduction settings shared by both arms.
     tissue_seeds = seed + 3000L + seq_len(20),
     tissue_subsample_fraction = 0.8,
     fidelity_samples = 2000L,
@@ -193,6 +204,7 @@ ablation <- function(
       set_op_mix_ratio = 1
     ),
     cluster = list(eps = 0.02, minPts = 20L),
+    # Gate 1 checks the primary effect, biological purity, and cohort mixing together.
     gate1 = list(
       enforce = TRUE,
       primary_metric = "balanced_accuracy",
@@ -205,6 +217,7 @@ ablation <- function(
 }
 
 
+# Recursively merge nested settings so callers only specify leaves that differ.
 .ablation_merge_lists <- function(default, override) {
   if (length(override) == 0) {
     return(default)
@@ -220,6 +233,7 @@ ablation <- function(
 }
 
 
+# Validate the minimum settings that could invalidate an experiment before costly work starts.
 .ablation_validate_config <- function(config) {
   if (length(config$rank) != 1 || config$rank < 1) {
     stop("ablation: params$rank must be a positive integer.", call. = FALSE)
@@ -234,6 +248,8 @@ ablation <- function(
 }
 
 
+# Recover tissue|cohort module boundaries from d1 column names. Each block remains
+# intact during permutation and scaling so one frozen cohort model is never split.
 .ablation_module_manifest <- function(object) {
   d1 <- object@Data$Probability$d1
   if (!is.matrix(d1) && !is.data.frame(d1)) {
@@ -264,6 +280,8 @@ ablation <- function(
 }
 
 
+# Read only the TSP features used by frozen models; never retrain or modify CCS.
+# Prefer object@Model and fall back to the recorded model directory when needed.
 .ablation_extract_tsp_features <- function(object, module_manifest) {
   models <- object@Model
   use_embedded <- length(models) > 0 && !identical(models, list(NA))
@@ -292,6 +310,7 @@ ablation <- function(
 }
 
 
+# Collect gene pairs used across all repeats and class-specific frozen models.
 .ablation_model_features <- function(model) {
   if (is.null(model) || is.null(model$Model)) {
     stop("ablation: malformed frozen cohort model.", call. = FALSE)
@@ -304,6 +323,7 @@ ablation <- function(
 }
 
 
+# Map on-disk modelFit.rds files to tissue|cohort keys for objects without embedded models.
 .ablation_model_path_map <- function(object) {
   paths <- list.files(
     object@Repeat$model.dir,
@@ -322,6 +342,7 @@ ablation <- function(
 }
 
 
+# Align CCS, RNA expression, and metadata to one sample set and build the shared TSP matrix.
 .ablation_prepare_input <- function(
     object,
     data,
@@ -329,12 +350,14 @@ ablation <- function(
     max_samples = Inf,
     seed = 20260727
 ) {
+  # Derive the feature universe from frozen models before organizing expression and metadata.
   module_manifest <- .ablation_module_manifest(object)
   tsp_features <- .ablation_extract_tsp_features(object, module_manifest)
   flattened <- .ablation_flatten_expression(data)
   metadata <- .ablation_prepare_metadata(metadata, flattened$metadata, object)
 
   d1 <- as.matrix(object@Data$Probability$d1)
+  # Duplicate sample IDs cannot be aligned uniquely; exclude the entire duplicate set and audit it.
   excluded_duplicate_samples <- intersect(
     flattened$excluded_duplicate_samples,
     rownames(d1)
@@ -348,6 +371,7 @@ ablation <- function(
   }
   metadata <- metadata[match(sample_ids, metadata$sample_id), , drop = FALSE]
 
+  # For capped runs, sample round-robin across tissue x cohort strata to limit dominance.
   if (is.finite(max_samples) && length(sample_ids) > max_samples) {
     keep <- .ablation_stratified_sample(
       metadata,
@@ -360,6 +384,7 @@ ablation <- function(
 
   expr <- flattened$expr[, sample_ids, drop = FALSE]
   pair_genes <- unique(unlist(strsplit(tsp_features, ":", fixed = TRUE)))
+  # Reuse the CCS geneMatch rule only when raw row names do not cover model genes.
   if (!all(pair_genes %in% rownames(expr))) {
     matched <- GSClassifier::geneMatch(
       X = expr,
@@ -394,6 +419,7 @@ ablation <- function(
 }
 
 
+# Normalize either one expression matrix or a tissue/cohort nested list to a common structure.
 .ablation_flatten_expression <- function(data) {
   if (is.matrix(data) || is.data.frame(data)) {
     expr <- as.matrix(data)
@@ -440,6 +466,7 @@ ablation <- function(
   }
   metadata <- do.call(rbind, annotations)
   duplicate_ids <- unique(metadata$sample_id[duplicated(metadata$sample_id)])
+  # Intersect genes across cohorts before binding so every sample shares one feature space.
   genes <- Reduce(intersect, lapply(matrices, rownames))
   expr <- do.call(cbind, lapply(matrices, function(x) x[genes, , drop = FALSE]))
   keep <- !metadata$sample_id %in% duplicate_ids
@@ -451,6 +478,7 @@ ablation <- function(
 }
 
 
+# Normalize common metadata aliases and derive tissue/biology from CCS when possible.
 .ablation_prepare_metadata <- function(metadata, derived, object) {
   if (is.null(metadata)) {
     if (is.null(derived)) {
@@ -460,6 +488,7 @@ ablation <- function(
   }
   metadata <- as.data.frame(metadata, stringsAsFactors = FALSE)
   names_lower <- tolower(colnames(metadata))
+  # Keep the closure's name cache synchronized while selecting the first alias for each field.
   rename_one <- function(target, candidates) {
     hit <- match(tolower(candidates), names_lower, nomatch = 0)
     hit <- hit[hit > 0]
@@ -488,6 +517,7 @@ ablation <- function(
 }
 
 
+# Sample round-robin across tissue x cohort strata; a fixed seed reproduces the selected rows.
 .ablation_stratified_sample <- function(metadata, size, seed) {
   set.seed(seed)
   groups <- split(seq_len(nrow(metadata)), interaction(
@@ -509,6 +539,7 @@ ablation <- function(
 }
 
 
+# Encode each geneA:geneB pair as a binary TSP, with geneA >= geneB mapped to 1.
 .ablation_tsp_matrix <- function(expr, features) {
   pairs <- strsplit(features, ":", fixed = TRUE)
   tsp <- vapply(pairs, function(pair) {
@@ -520,6 +551,7 @@ ablation <- function(
 }
 
 
+# Record input sizes, versions, settings, and sample/feature hashes for audit and comparison.
 .ablation_build_manifest <- function(object, prepared, config, seed) {
   sample_hash <- digest::digest(sort(prepared$metadata$sample_id), algo = "md5")
   feature_hash <- digest::digest(
@@ -550,6 +582,8 @@ ablation <- function(
 }
 
 
+# Use whole cohorts as validation units and greedily balance sample counts across folds.
+# A cohort never appears in both training and test data, preventing cohort leakage.
 .ablation_grouped_folds <- function(cohort, n_folds = Inf, seed = 20260727) {
   sizes <- sort(table(cohort), decreasing = TRUE)
   n_groups <- length(sizes)
@@ -573,6 +607,8 @@ ablation <- function(
 }
 
 
+# Null-Perm independently shuffles each module within each cohort while moving all
+# block columns together. This preserves block and cohort marginals but breaks cross-block pairing.
 .ablation_permute_blocks <- function(d1, blocks, cohort, seed) {
   set.seed(seed)
   result <- d1
@@ -587,6 +623,7 @@ ablation <- function(
 }
 
 
+# Estimate scaling parameters on training data and apply them unchanged to prevent test leakage.
 .ablation_scale_train_apply <- function(train, test) {
   center <- colMeans(train)
   scale <- apply(train, 2, stats::sd)
@@ -600,6 +637,7 @@ ablation <- function(
 }
 
 
+# Fit fixed-rank PCA on training data and project test data; dimensions cap the achievable rank.
 .ablation_fit_pca <- function(train, test, rank_q) {
   scaled <- .ablation_scale_train_apply(train, test)
   rank_q <- min(as.integer(rank_q), ncol(train), nrow(train) - 1L)
@@ -622,6 +660,7 @@ ablation <- function(
 }
 
 
+# Generate a sparse Achlioptas matrix for an equal-rank Null-RP without cohort learning.
 .ablation_projection_matrix <- function(n_features, rank_q, seed, density = 1 / 3) {
   set.seed(seed)
   values <- sample(
@@ -634,6 +673,7 @@ ablation <- function(
 }
 
 
+# Apply a fixed-seed random projection after optional scaling for auxiliary comparisons.
 .ablation_random_projection <- function(
     data,
     rank_q,
@@ -652,6 +692,7 @@ ablation <- function(
 }
 
 
+# Linear CKA measures global geometric agreement; values closer to 1 indicate greater similarity.
 .ablation_linear_cka <- function(x, y) {
   x <- scale(as.matrix(x), center = TRUE, scale = FALSE)
   y <- scale(as.matrix(y), center = TRUE, scale = FALSE)
@@ -664,6 +705,7 @@ ablation <- function(
 }
 
 
+# Return row indices of each sample's k nearest neighbors, capping k at n - 1.
 .ablation_knn <- function(data, k) {
   data <- as.matrix(data)
   k <- min(as.integer(k), nrow(data) - 1L)
@@ -674,6 +716,7 @@ ablation <- function(
 }
 
 
+# Compare neighborhood sets per sample; higher mean Jaccard indicates better local agreement.
 .ablation_knn_jaccard <- function(x, y, k) {
   x_nn <- .ablation_knn(x, k)
   y_nn <- .ablation_knn(y, k)
@@ -684,6 +727,7 @@ ablation <- function(
 }
 
 
+# Define effective rank as the exponential entropy of singular-value energy.
 .ablation_effective_rank <- function(data) {
   x <- scale(as.matrix(data), center = TRUE, scale = FALSE)
   singular <- svd(x, nu = 0, nv = 0)$d
@@ -693,6 +737,7 @@ ablation <- function(
 }
 
 
+# Sample row pairs and correlate Euclidean-distance ranks to avoid a full distance matrix.
 .ablation_distance_spearman <- function(x, y, n_pairs, seed) {
   n <- nrow(x)
   total <- n * (n - 1) / 2
@@ -711,6 +756,8 @@ ablation <- function(
 }
 
 
+# Measure cross-cohort mixing within biology and global biological neighborhood purity.
+# Higher values indicate stronger cohort removal and biological preservation, respectively.
 .ablation_mixing_purity <- function(data, metadata, k) {
   nn <- .ablation_knn(data, k)
   biology <- as.character(metadata$biology)
@@ -720,6 +767,7 @@ ablation <- function(
   }, numeric(1))
 
   mixing <- rep(NA_real_, nrow(nn))
+  # Condition mixing on biology so tissue differences are not mistaken for cohort separation.
   for (label in unique(biology)) {
     rows <- which(biology == label)
     if (length(rows) < 2) {
@@ -744,6 +792,8 @@ ablation <- function(
 }
 
 
+# Use a lightweight linear XGBoost probe to test decodable biological information.
+# Fit only on training rows and evaluate only test classes observed during training.
 .ablation_probe <- function(train, test, train_label, test_label, seed, config) {
   train_label <- as.character(train_label)
   test_label <- as.character(test_label)
@@ -790,6 +840,7 @@ ablation <- function(
 }
 
 
+# Keep labels spanning at least two cohorts so the probe cannot infer them from cohort identity.
 .ablation_eligible_probe_labels <- function(metadata, label_column) {
   label <- as.character(metadata[[label_column]])
   cohort <- as.character(metadata$cohort)
@@ -805,6 +856,7 @@ ablation <- function(
 }
 
 
+# Compute binary AUC from rank sums; return NA when either class is absent.
 .ablation_binary_auc <- function(label, score) {
   positive <- sum(label == 1)
   negative <- sum(label == 0)
@@ -816,6 +868,8 @@ ablation <- function(
 }
 
 
+# Compare Direct and candidate distance-rank changes along original TSP neighbor edges,
+# separating biology-discordant edges from biology-matched, cross-cohort edges.
 .ablation_selective_reconstruction <- function(
     tsp,
     direct,
@@ -838,6 +892,7 @@ ablation <- function(
   candidate_distance <- as.matrix(stats::dist(candidate))
   direct_rank <- t(apply(direct_distance, 1, rank, ties.method = "average")) - 1
   candidate_rank <- t(apply(candidate_distance, 1, rank, ties.method = "average")) - 1
+  # delta > 0 means the TSP neighbor ranks farther away in the candidate than in Direct.
   anchor <- rep(seq_len(nrow(edges)), each = ncol(edges))
   neighbor <- as.vector(t(edges))
   delta <- candidate_rank[cbind(anchor, neighbor)] - direct_rank[cbind(anchor, neighbor)]
@@ -853,6 +908,7 @@ ablation <- function(
 }
 
 
+# Collect all metrics for one Experiment 1 group x fold x seed and attach random settings.
 .ablation_metric_rows <- function(
     direct_scores,
     candidate_scores,
@@ -869,6 +925,7 @@ ablation <- function(
     seed
 ) {
   local_k <- min(config$k, nrow(candidate_scores) - 1L)
+  # Compute geometry, mixing, probe, and mechanism metrics on the same test sample set.
   mixing <- .ablation_mixing_purity(candidate_scores, metadata_test, local_k)
   mechanism <- .ablation_selective_reconstruction(
     tsp = tsp_test,
@@ -930,12 +987,15 @@ ablation <- function(
 }
 
 
+# Experiment 1 compares Direct, frozen Cohort, and two null representations to test
+# whether the cohort layer adds biological information beyond compression or randomness.
 .ablation_experiment_cohort <- function(prepared, config, manifest, seed, verbose) {
   folds <- .ablation_grouped_folds(
     prepared$metadata$cohort,
     n_folds = config$n_folds,
     seed = seed
   )
+  # Generate each permutation once and reuse it across ranks and folds for strict pairing.
   permuted <- lapply(config$permutation_seeds, function(seed_i) {
     .ablation_permute_blocks(
       prepared$d1,
@@ -956,6 +1016,7 @@ ablation <- function(
     ncol(prepared$d1),
     minimum_train_size - 1L
   )
+  # Truncate all requested ranks to the largest common rank estimable in every fold.
   rank_targets <- unique(pmin(
     as.integer(c(config$rank, config$rank_sensitivity)),
     maximum_rank
@@ -976,6 +1037,7 @@ ablation <- function(
   sensitivity_parts <- metrics_by_rank[names(metrics_by_rank) != as.character(main_rank)]
   sensitivity_metrics <- .ablation_rbind(sensitivity_parts)
 
+  # Use the main rank for Gate 1 and the remaining ranks only for sensitivity analysis.
   geometry <- .ablation_dimension_free_geometry(prepared, config, seed)
   summary <- .ablation_metric_summary(metrics, config$bootstrap, seed)
   contrasts <- .ablation_paired_contrasts(metrics, config$bootstrap, seed)
@@ -1005,6 +1067,8 @@ ablation <- function(
 }
 
 
+# Run the full leave-cohort-out comparison at rank_q. All groups share folds and test
+# samples, while Null-RP/Null-Perm seeds remain within-fold stochastic repeats.
 .ablation_cohort_rank_metrics <- function(
     prepared,
     config,
@@ -1038,6 +1102,7 @@ ablation <- function(
     metadata_test <- prepared$metadata[test_rows, , drop = FALSE]
     tsp_test <- prepared$tsp[test_rows, , drop = FALSE]
 
+    # Direct is equal-rank PCA of raw TSPs; Cohort is equal-rank PCA of frozen d1.
     metrics[[index]] <- .ablation_metric_rows(
       direct$test, direct$test, tsp_test, metadata_test, metadata_train,
       direct$train, "Direct", fold, NA_character_, NA_integer_, direct$rank,
@@ -1055,6 +1120,7 @@ ablation <- function(
       prepared$tsp[train_rows, , drop = FALSE],
       prepared$tsp[test_rows, , drop = FALSE]
     )
+    # Null-RP tests whether equal-rank random compression alone improves the metrics.
     for (seed_i in config$rp_seeds) {
       projection <- .ablation_projection_matrix(
         ncol(prepared$tsp),
@@ -1072,6 +1138,7 @@ ablation <- function(
       index <- index + 1L
     }
 
+    # Null-Perm preserves within-cohort block structure but breaks cross-block sample pairing.
     for (seed_i in config$permutation_seeds) {
       perm_fit <- .ablation_fit_pca(
         permuted[[as.character(seed_i)]][train_rows, , drop = FALSE],
@@ -1090,6 +1157,7 @@ ablation <- function(
 }
 
 
+# Compare raw TSP and d1 with dimension-free geometry metrics as evidence beyond PCA.
 .ablation_dimension_free_geometry <- function(prepared, config, seed) {
   rows <- seq_len(nrow(prepared$d1))
   if (length(rows) > config$geometry_samples) {
@@ -1115,6 +1183,8 @@ ablation <- function(
 }
 
 
+# Average stochastic repeats within each fold, then bootstrap folds for a 95% CI.
+# This keeps cohorts as statistical units instead of treating seeds as independent samples.
 .ablation_metric_summary <- function(metrics, bootstrap, seed) {
   keys <- interaction(metrics$group_id, metrics$metric_name, drop = TRUE)
   parts <- split(metrics, keys)
@@ -1158,6 +1228,8 @@ ablation <- function(
 }
 
 
+# Bootstrap Cohort-minus-baseline differences on matched folds to preserve pairing.
+# Positive values therefore indicate a higher metric for Cohort.
 .ablation_paired_contrasts <- function(metrics, bootstrap, seed) {
   data <- metrics[is.finite(metrics$metric_value), , drop = FALSE]
   data <- stats::aggregate(
@@ -1219,6 +1291,7 @@ ablation <- function(
 }
 
 
+# General paired-fold contrast reused for Two-stage minus One-stage in Experiment 3.
 .ablation_two_group_contrasts <- function(
     metrics,
     first_group,
@@ -1282,6 +1355,7 @@ ablation <- function(
 }
 
 
+# Attach input hashes and random seeds to each long-format metric row for a uniform audit table.
 .ablation_add_audit_hashes <- function(metrics, manifest) {
   cbind(
     metrics[, c(
@@ -1301,6 +1375,8 @@ ablation <- function(
 }
 
 
+# Gate 1 requires Cohort to beat Direct and both nulls on the primary metric without
+# materially degrading biological purity or cohort mixing.
 .ablation_gate_one <- function(cohort_result, gate) {
   summary <- cohort_result$summary
   contrasts <- cohort_result$contrasts
@@ -1333,6 +1409,7 @@ ablation <- function(
     get_contrast("Cohort-Null-RP", primary),
     get_contrast("Cohort-Null-Perm", primary)
   )
+  # If the probe is undefined in small or sparse classes, fall back to biological purity.
   if (!all(is.finite(primary_gains)) && primary == "balanced_accuracy") {
     primary <- "biology_purity"
     cohort_primary <- get_value("Cohort", primary)
@@ -1372,6 +1449,7 @@ ablation <- function(
 }
 
 
+# Bind audit tables by their union of columns and fill unavailable fields explicitly with NA.
 .ablation_rbind <- function(parts) {
   parts <- parts[vapply(parts, nrow, integer(1)) > 0]
   if (length(parts) == 0) {
@@ -1387,8 +1465,8 @@ ablation <- function(
 }
 
 
-# Experiment-two implementation is kept independent so new module-count
-# ablations can be added without changing the public function.
+# Experiment 2 follows tissue-stratified nested sequences while adding cohort modules.
+# Keeping it independent makes future module-count ablations easy to extend.
 .ablation_experiment_scaling <- function(prepared, config, manifest, seed, verbose) {
   sequences <- .ablation_nested_module_sequences(
     prepared$module_manifest$modules,
@@ -1400,6 +1478,7 @@ ablation <- function(
   metrics <- list()
   index <- 1L
 
+  # Larger counts strictly contain smaller counts within a sequence, enabling paired increments.
   for (sequence_id in seq_along(sequences)) {
     order <- sequences[[sequence_id]]
     for (module_count in counts) {
@@ -1420,6 +1499,7 @@ ablation <- function(
           candidate[test_rows, , drop = FALSE],
           rank_q
         )
+        # Use the same rank_q for full and subset fits so dimension does not drive geometry.
         metadata_test <- prepared$metadata[test_rows, , drop = FALSE]
         metadata_train <- prepared$metadata[train_rows, , drop = FALSE]
         local_k <- min(config$k, sum(test_rows) - 1L)
@@ -1485,6 +1565,7 @@ ablation <- function(
     umap_seed = NA_real_,
     stringsAsFactors = FALSE
   )
+  # Beyond the d1 curve, test whether downstream d3 and clustering stabilize at representative counts.
   embedding <- .ablation_scaling_embedding(
     prepared = prepared,
     sequences = sequences,
@@ -1505,6 +1586,8 @@ ablation <- function(
 }
 
 
+# Generate a tissue-stratified interleaved order for each repeat. Prefixes cover tissues
+# broadly while randomizing the entry order of cohorts within each tissue.
 .ablation_nested_module_sequences <- function(modules, n_sequences, seed) {
   lapply(seq_len(as.integer(n_sequences)), function(i) {
     set.seed(seed + i)
@@ -1520,6 +1603,7 @@ ablation <- function(
 }
 
 
+# Summarize the mean scaling curve and adjacent count increments within matched sequence x fold.
 .ablation_scaling_summary <- function(metrics, bootstrap, seed) {
   base <- stats::aggregate(
     metric_value ~ group_id + module_count + cumulative_dimension + metric_name,
@@ -1537,6 +1621,7 @@ ablation <- function(
     )
     counts <- sort(unique(data$module_count))
     if (length(counts) < 2) return(NULL)
+    # Adjacent differences preserve nested pairing, so the CI reflects marginal module gain.
     do.call(rbind, lapply(seq_len(length(counts) - 1L), function(i) {
       from <- counts[i]
       to <- counts[i + 1L]
@@ -1584,6 +1669,8 @@ ablation <- function(
 }
 
 
+# Fit S(m) = S_inf - a * exp(-m / tau), where smaller tau indicates earlier saturation.
+# Grid-search tau and solve S_inf/a linearly to avoid unstable nonlinear optimization.
 .ablation_saturation_fit <- function(curve) {
   result <- lapply(split(curve, curve$metric_name), function(data) {
     data <- data[is.finite(data$metric_value), , drop = FALSE]
@@ -1625,6 +1712,8 @@ ablation <- function(
 }
 
 
+# Repeat full Two-stage reduction and clustering at representative module counts to test
+# whether d1 scaling extends downstream. The same seed reuses one stratified sample subset.
 .ablation_scaling_embedding <- function(
     prepared,
     sequences,
@@ -1646,6 +1735,7 @@ ablation <- function(
   embeddings <- list()
   index <- 1L
 
+  # sequence x module_count x seed is the repeat unit; retain embeddings for paired stability.
   for (sequence_id in seq_along(selected_sequences)) {
     order <- selected_sequences[[sequence_id]]
     for (module_count in counts) {
@@ -1723,6 +1813,7 @@ ablation <- function(
 }
 
 
+# Compare d3 neighborhoods and clusters across seed pairs at the same sequence and module count.
 .ablation_scaling_embedding_stability <- function(embeddings, k) {
   keys <- names(embeddings)
   groups <- split(keys, sub("\\|[^|]+$", "", keys))
@@ -1763,14 +1854,15 @@ ablation <- function(
 }
 
 
-# Experiment three reuses the current CCS DR implementation so the ablation
-# changes only the tissue-first layer.
+# Experiment 3 reuses CCS reduction and ablates only the tissue-first layer: Two-stage
+# reduces each tissue to d2 before d3, whereas One-stage maps full d1 directly to d3.
 .ablation_experiment_tissue_first <- function(prepared, config, manifest, seed, verbose) {
   seeds <- config$tissue_seeds
   results <- list()
   metrics <- list()
   stratified <- list()
   index <- 1L
+  # Both arms share the same sample subset and seed within each repeat for strict pairing.
   for (i in seq_along(seeds)) {
     seed_i <- seeds[i]
     rows <- .ablation_tissue_subsample(
@@ -1829,6 +1921,7 @@ ablation <- function(
     0.25,
     names = FALSE
   )
+  # Flag bottom-quartile tissues to test whether tissue-first benefits only large tissues.
   stratified$small_tissue <- stratified$sample_count <= quartile
   stability <- .ablation_embedding_stability(results, config$k)
   summary <- .ablation_metric_summary(metrics, config$bootstrap, seed)
@@ -1853,6 +1946,7 @@ ablation <- function(
 }
 
 
+# Draw the requested fraction across tissue x cohort strata; retain all rows when fraction >= 1.
 .ablation_tissue_subsample <- function(metadata, fraction, seed) {
   if (fraction >= 1) {
     return(seq_len(nrow(metadata)))
@@ -1862,6 +1956,7 @@ ablation <- function(
 }
 
 
+# Generate paired Two-stage and One-stage embeddings from the same d1 and seed.
 .ablation_tissue_embeddings <- function(d1, dr_config, seed) {
   list(
     `Two-stage` = .ablation_two_stage_embedding(d1, dr_config, seed),
@@ -1870,6 +1965,8 @@ ablation <- function(
 }
 
 
+# Two-stage first reduces each tissue block independently, then maps the combined d2
+# to the final dimensions; both stages reuse the existing CCS reduction logic.
 .ablation_two_stage_embedding <- function(d1, dr_config, seed) {
   dr_fun <- getFromNamespace("drCCSProbability", "CCS")
   reference <- vapply(
@@ -1899,6 +1996,8 @@ ablation <- function(
 }
 
 
+# Apply CCS preprocessing and CORE_DR per reference block (tissue here), then repair
+# deduplicated samples. Each block gets a derived seed and returns in original row order.
 .ablation_reduce_by_reference <- function(
     data,
     method,
@@ -1923,6 +2022,7 @@ ablation <- function(
     block <- data[, reference == reference_i, drop = FALSE]
     prepared <- data_for_dr(block, rm.dup.col = FALSE, verbose = FALSE)
     cleaned <- prepared$cleaned$data
+    # Reduce target dimensions for small/low-rank blocks and cap UMAP neighbors accordingly.
     available_dims <- min(ncol(cleaned), nrow(cleaned) - 2L)
     dims_i <- min(as.integer(dims), available_dims)
     if (dims_i < 1) {
@@ -1951,6 +2051,7 @@ ablation <- function(
 }
 
 
+# One-stage control: skip tissue blocks and reduce the complete d1 directly to final dimensions.
 .ablation_one_stage_embedding <- function(d1, dr_config, seed) {
   dr_fun <- getFromNamespace("drCCSProbability", "CCS")
   dr_args <- dr_config[setdiff(names(dr_config), c("method", "dimension"))]
@@ -1965,6 +2066,7 @@ ablation <- function(
 }
 
 
+# Run DBSCAN on column-standardized d3; label 0 denotes noise by dbscan convention.
 .ablation_dbscan <- function(d3, cluster_config) {
   fit <- do.call(
     dbscan::dbscan,
@@ -1974,6 +2076,7 @@ ablation <- function(
 }
 
 
+# Evaluate high/low-dimensional fidelity, within-tissue retention, cohort/biology, and clusters.
 .ablation_embedding_metrics <- function(high, low, metadata, clusters, config, seed) {
   rows <- seq_len(nrow(high))
   if (length(rows) > config$fidelity_samples) {
@@ -2000,6 +2103,7 @@ ablation <- function(
 }
 
 
+# Compute Shannon entropy of non-noise cluster sizes; at fixed cluster count, higher is more balanced.
 .ablation_cluster_size_entropy <- function(clusters) {
   sizes <- table(clusters[clusters != 0])
   if (length(sizes) == 0) {
@@ -2010,6 +2114,7 @@ ablation <- function(
 }
 
 
+# Compute retention, mixing, and purity per tissue so global means do not mask small-tissue loss.
 .ablation_tissue_stratified_metrics <- function(
     high,
     low,
@@ -2050,6 +2155,8 @@ ablation <- function(
 }
 
 
+# Compute classical trustworthiness and continuity. The former penalizes false low-dimensional
+# neighbors, the latter missing high-dimensional neighbors; values closer to 1 are better.
 .ablation_trust_continuity <- function(high, low, k) {
   high_distance <- as.matrix(stats::dist(scale(high)))
   low_distance <- as.matrix(stats::dist(scale(low)))
@@ -2060,6 +2167,7 @@ ablation <- function(
   high_nn <- t(apply(high_distance, 1, function(x) order(x)[seq_len(k)]))
   low_nn <- t(apply(low_distance, 1, function(x) order(x)[seq_len(k)]))
   n <- nrow(high)
+  # Penalize intruders by high-dimensional ranks and missing neighbors by low-dimensional ranks.
   penalty_t <- sum(vapply(seq_len(n), function(i) {
     intruders <- setdiff(low_nn[i, ], high_nn[i, ])
     sum(high_rank[i, intruders] - k)
@@ -2076,6 +2184,7 @@ ablation <- function(
 }
 
 
+# Compare high- and low-dimensional kNN overlap within each tissue, then average over samples.
 .ablation_tissue_knn_retention <- function(high, low, tissue, k) {
   values <- unlist(lapply(split(seq_len(nrow(high)), tissue), function(rows) {
     if (length(rows) < 2) return(NA_real_)
@@ -2090,6 +2199,8 @@ ablation <- function(
 }
 
 
+# Compare seed pairs within each arm after aligning common samples, using neighborhood
+# Jaccard, ARI, and cluster-set Jaccard.
 .ablation_embedding_stability <- function(results, k) {
   groups <- split(names(results), sub("\\|.*$", "", names(results)))
   do.call(rbind, lapply(names(groups), function(group) {
@@ -2125,6 +2236,7 @@ ablation <- function(
 }
 
 
+# Compute adjusted Rand index directly from a contingency table, correcting chance agreement.
 .ablation_ari <- function(x, y) {
   table_xy <- table(x, y)
   choose2 <- function(z) z * (z - 1) / 2
@@ -2138,6 +2250,8 @@ ablation <- function(
 }
 
 
+# Match every non-noise cluster to its best Jaccard counterpart and average both directions,
+# reducing sensitivity to arbitrary labels and asymmetric containment.
 .ablation_cluster_jaccard <- function(x, y) {
   one_way <- function(a, b) {
     clusters <- setdiff(unique(a), 0)
