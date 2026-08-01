@@ -2,7 +2,7 @@
 
 [![License](https://img.shields.io/badge/License-Apache%202.0-blue.svg)](https://opensource.org/licenses/Apache-2.0)
 [![R Version](https://img.shields.io/badge/R-%E2%89%A5%203.6.0-blue.svg)](https://www.r-project.org/)
-[![Version](https://img.shields.io/badge/version-0.7.3-brightgreen.svg)](https://github.com/huangwb8/CCS)
+[![Version](https://img.shields.io/badge/version-0.8.2-brightgreen.svg)](https://github.com/huangwb8/CCS)
 
 ### A computational framework for personalized pan-cancer genomic classification
 
@@ -15,6 +15,14 @@ For teaching materials and step-by-step workflow explanations, please visit [Onl
 ## Citation
 
 The `CCS` manuscript is currently under review.
+
+## AI-Assisted Development
+
+Project-wide AI instructions live in [`AGENTS.md`](AGENTS.md); [`CLAUDE.md`](CLAUDE.md) is the Claude Code adapter. Human, AI, and tool contributions are recorded with [bensz-auto-contribution](https://github.com/huangwb8/bensz-auto-contribution) in [`docs/contribution.bac`](docs/contribution.bac). The ledger requires Python 3.10+ and can be verified with:
+
+```bash
+python -m bac --root . --bac-file docs/contribution.bac verify --json
+```
 
 ## Authors
 

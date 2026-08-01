@@ -1,14 +1,14 @@
 Package: CCS
 Type: Package
 Title: Cohort Congress System
-Version: 0.8.0
+Version: 0.8.2
 Authors@R:
     person(given = "Weibin",
            family = "Huang",
            role = c("aut", "cre"),
            email = "hwb2012@qq.com",
            comment = c(ORCID = "0000-0003-0159-435X"))
-Description: A Computational Framwork for Personalized Pan-cancer Genomic Classification.
+Description: A Computational Framework for Personalized Pan-cancer Genomic Classification.
 License: Apache-2.0
 Encoding: UTF-8
 LazyData: true

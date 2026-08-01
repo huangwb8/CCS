@@ -2,11 +2,12 @@
 
 ## 设计目标
 
-`ablation()` 是挂接在现有 CCS 体系旁边的实验入口。它不重新训练 cohort submodels，也不修改 `CCS` 对象，而是读取冻结的 TSP 特征、完整 d1 和样本注释，自动执行《CCS 框架分层消融实验计划》中的三个核心实验：
+`ablation()` 是挂接在现有 CCS 体系旁边的实验入口。它不重新训练 cohort submodels，也不修改 `CCS` 对象，而是读取冻结的 TSP 特征、完整 d1 和样本注释，自动执行 CCS 分层与端到端消融计划中的四个核心实验：
 
 - cohort representation 是否有必要；
 - cohort module 数量是否存在 scaling；
-- tissue-first 两步降维是否有必要。
+- tissue-first 两步降维是否有必要；
+- cohort transformation 能否穿过 two-stage UWOT 和 DBSCAN，形成更好的 raw metaCCS solution。
 
 之所以采用“冻结模型后的评估器”，而不是新建一套训练管线，是因为本轮需要隔离的是 CCS 各层的作用。若在每个消融组中重新训练模型，组间差异会同时混入训练随机性、模型容量和调参机会，很难再归因于被删除的层。冻结已有 150 个 cohort modules 后，实验只改变表示路径、模块子集或降维层，其余条件可以保持一致。
 
@@ -28,13 +29,18 @@ ablation()
 │  ├─ Direct / Cohort / Null-RP / Null-Perm
 │  ├─ paired fold summaries and contrasts
 │  └─ Gate 1
-├─ Experiment 2: cohort-axis scaling       [requires Gate 1 by default]
+├─ Experiment 2: cohort-axis scaling       [records Gate 1; enforcement is optional]
 │  ├─ nested module sequences
 │  ├─ d1 scaling curves and saturation fit
 │  └─ representative d3/cluster stability
 ├─ Experiment 3: tissue-first              [independent of Gate 1]
 │  ├─ Two-stage embedding
 │  └─ One-stage embedding
+├─ Experiment 4: end-to-end metaCCS        [independent of Gate 1]
+│  ├─ tissue-model-union Direct-TSP / Cohort-d1
+│  ├─ paired two-stage reduction and DBSCAN
+│  ├─ fixed parameters / shared parameter grid
+│  └─ assignments, stability and cross-arm agreement
 └─ combine audit rows and save CCSAblation
 ```
 
@@ -53,13 +59,13 @@ ablation()
 | `object` | 提供冻结 d1、module 信息和模型位置的 `CCS` 对象 | 复用 CCS 当前数据结构，不再定义平行对象体系 |
 | `data` | 原始 RNA 表达量或 tissue/cohort 嵌套列表 | 实验一必须从真实表达量重建模型使用的 TSP，才能建立 Direct 对照 |
 | `metadata` | 可选样本注释 | 嵌套数据可自行派生注释；单矩阵输入则必须显式提供 |
-| `experiment` | 选择 `cohort`、`scaling`、`tissue_first` | 允许分阶段运行，避免每次都执行全部高成本实验 |
+| `experiment` | 选择 `cohort`、`scaling`、`tissue_first`、`metaccs` | 允许分阶段运行，避免每次都执行全部高成本实验 |
 | `output.dir` | 独立输出目录 | 避免覆盖现有 CCS 产物，并让一次运行的所有文件集中归档 |
-| `params` | 覆盖默认设置的嵌套列表 | 避免把数十个技术参数全部暴露为主函数参数 |
+| `params` | 递归覆盖 `.ablation_default_params()` 指定叶节点的命名嵌套列表 | 可只修改某个实验或 Gate cutoff，而不必复制整套配置 |
 | `seed` | 主随机种子 | 从一个入口派生所有随机过程，保证整次实验可复现 |
 | `verbose` | 控制进度信息 | 兼容交互运行和脚本批处理 |
 
-`.ablation_merge_lists()` 对 `params` 做递归合并。因此用户可以只覆盖一个叶节点，例如 `list(gate1 = list(enforce = FALSE))`，不必重复提供整套 Gate 配置。这种接口比不断给主函数增加参数更容易维护，也能让以后新增实验参数时保持向后兼容。
+`.ablation_merge_lists()` 对 `params` 做递归合并。因此用户可以只覆盖一个叶节点，例如 `list(gate1 = list(enforce = TRUE, min_gain = 0.02))`，不必重复提供整套 Gate 配置。这种接口比不断给主函数增加参数更容易维护，也能让以后新增实验参数时保持向后兼容。Gate cutoff 的具体含义与使用建议见下文“Gate 1”。
 
 ## 主函数的执行顺序
 
@@ -69,7 +75,7 @@ ablation()
 2. 检查输出目录。目录非空时默认停止，只有 `params$cover = TRUE` 才允许覆盖同名结果。
 3. 调用 `.ablation_prepare_input()` 对齐 d1、RNA/TSP 和 metadata。
 4. 在任何耗时实验前保存 `manifest.rds` 和 `config.rds`。
-5. 按依赖关系运行实验。`scaling` 会自动先运行实验一；`tissue_first` 独立运行。
+5. 按依赖关系运行实验。`scaling` 会自动先运行实验一并计算 Gate 1；默认继续探索，只有显式设置 `params$gate1$enforce = TRUE` 且 Gate 未通过时才停止。`tissue_first` 与 `metaccs` 独立运行。
 6. 合并各实验审计表，构造 `CCSAblation` 对象，并保存 CSV/RDS 结果。
 
 先保存 manifest 和配置，是为了即使长时间计算中途失败，也能知道该次运行使用了什么样本、特征、模块和参数。实验结果分别保存，而不是只在最后保存一个大对象，也降低了单个阶段失败后排查问题的难度。
@@ -109,12 +115,14 @@ block 必须保持完整，因为一个 cohort model 的多列输出共同表示
 
 ## 配置与随机性
 
-`.ablation_default_params()` 集中管理三个实验的默认参数。不同随机过程使用显式命名、带偏移的 seed 集合：
+`.ablation_default_params()` 集中管理四个实验的默认参数。不同随机过程使用显式命名、带偏移的 seed 集合：
 
 - `rp_seeds`：Null-RP；
 - `permutation_seeds`：Null-Perm；
 - `scaling_embedding_seeds`：实验二的下游嵌入；
-- `tissue_seeds`：实验三的抽样、降维和聚类重复。
+- `tissue_seeds`：实验三的抽样、降维和聚类重复；
+- `metaccs$resample_seeds`：实验四的 tissue × cohort 分层样本构成重复；
+- `metaccs$umap_seeds`：固定样本集上的算法重复。
 
 这种显式拆分不是统计要求，而是审计设计。看到一个异常结果时，可以直接定位是哪类随机过程和哪个 seed；新增随机操作时也可以为其分配新的派生规则，避免无意改变已有实验。
 
@@ -175,7 +183,11 @@ Direct、Cohort 和 Null 使用共同目标秩 `rank_q`。实际秩会根据特�
 
 ### Gate 1
 
-实验二默认必须通过 `.ablation_gate_one()` 才会运行。默认主要指标是 `balanced_accuracy`。Gate 使用三个配对差值 95% CI 的下界，而不是只看点估计：
+Gate 1 是实验一与实验二之间的证据判定规则，不是新的消融组或性能指标。它回答的是：在研究“增加多少 cohort modules 才足够”之前，完整 cohort representation 是否已经显示出相对 Direct 和零模型的可信增益，同时没有明显破坏生物结构或 cohort 混合。
+
+设计 Gate 1 的原因是实验二只衡量不同 module 子集对完整 d1 的逼近、饱和与下游稳定性，不能证明完整 d1 本身有用。即使 d1 没有生物学价值，增加 modules 也可能产生平滑的饱和曲线。Gate 因此用于防止把“更好地重建一个无效表示”误解为 cohort bank 具有可扩展的生物学收益；启用强制模式时，它也可以避免在前置证据不足时继续投入高成本计算。
+
+`.ablation_gate_one()` 默认以 `balanced_accuracy` 为 `primary_metric`，使用以下三个配对差值 95% CI 的下界，而不是只看点估计：
 
 ```text
 Cohort - Direct
@@ -183,9 +195,35 @@ Cohort - Null-RP
 Cohort - Null-Perm
 ```
 
-三个下界都必须不低于 `min_gain`；同时，`biology_purity` 和 `cohort_mixing` 的 `Cohort - Direct` 下界不能低于各自容忍阈值的负值。若小样本或类别不足导致 balanced accuracy 无法估计，当前实现回退到 `biology_purity`。
+三个下界都必须不低于 `min_gain`。同时，`biology_purity` 和 `cohort_mixing` 的 `Cohort - Direct` 下界必须分别不低于 `-purity_tolerance` 和 `-mixing_tolerance`。若小样本或类别不足导致 `balanced_accuracy` 无法估计，当前实现回退到 `biology_purity`。
 
-使用 CI 下界是为了让 scaling 的启动条件体现不确定性，避免一个偶然的正点估计触发高成本实验。`params$gate1$enforce = FALSE` 主要用于开发和流程测试；绕过 Gate 后得到的 scaling 结果不应被表述为实验一已经获得支持。
+默认 `gate1$enforce = FALSE`：Gate 仍会计算并保存在 scaling 结果中，但无论通过与否都会继续实验二。这一默认值适合方法开发、敏感性分析和失败诊断，可以保留更丰富的探索性结果。探索性 scaling 结果必须与 Gate 状态一起报告；Gate 未通过时，不能把饱和曲线表述为实验一已经支持 cohort representation。
+
+建议仅在以下场景设置 `gate1$enforce = TRUE`：
+
+- 确认性分析中，需要把实验一作为预注册的 go/no-go 条件；
+- scaling 或下游 embedding 计算成本很高，需要在前置证据不足时提前停止；
+- 多批数据使用同一冻结决策规则，且 cutoff 已在查看本批结果前确定。
+
+cutoff 应按指标原始尺度解释：
+
+- `min_gain` 是三个主要对比共同要求的最小 CI 下界。`0` 表示要求 Cohort 的增益在当前置信水平下不低于零；正值（如 `0.02`）表示要求至少两个百分点的最小可信增益。
+- `purity_tolerance` 和 `mixing_tolerance` 是允许的最大退化量。`0` 表示不接受可信退化；`0.01` 表示相应指标的 `Cohort - Direct` CI 下界最低可到 `-0.01`，即容忍最多一个百分点的下降。
+- cutoff 应依据领域中的最小重要差异、历史重复实验的自然波动或独立 pilot 数据预先确定，不能在查看当前结果后为了通过 Gate 而调整。
+
+例如，下面的配置要求主要指标至少有 0.02 的可信增益，同时允许 biology purity 和 cohort mixing 各下降最多 0.01：
+
+```r
+params = list(
+  gate1 = list(
+    enforce = TRUE,
+    primary_metric = "balanced_accuracy",
+    min_gain = 0.02,
+    purity_tolerance = 0.01,
+    mixing_tolerance = 0.01
+  )
+)
+```
 
 ## 实验二：cohort-axis scaling
 
@@ -256,9 +294,66 @@ DBSCAN 在逐维标准化的 d3 上运行，标签 0 作为噪声。`.ablation_e
 
 `.ablation_embedding_stability()` 在 Two-stage 和 One-stage 内分别两两比较 seeds。它先对齐共同样本，再计算 d3 近邻 Jaccard、adjusted Rand index 和双向 cluster Jaccard。最终 `.ablation_two_group_contrasts()` 在相同 seed 上计算 `Two-stage - One-stage` 的配对 CI。
 
+## 实验四：端到端 raw metaCCS
+
+### 公平的 Direct-TSP 对照
+
+实验四比较两条共享 tissue-first 架构的路径：
+
+```text
+Direct-TSP:
+各 tissue 冻结模型实际使用过的 TSP 并集
+→ tissue-specific d2
+→ global d3
+→ column scaling
+→ DBSCAN
+
+Cohort-d1:
+冻结 cohort model d1，按 tissue 分块
+→ tissue-specific d2
+→ global d3
+→ column scaling
+→ DBSCAN
+```
+
+`.ablation_frozen_feature_manifest()` 同时恢复 module-to-feature 和 tissue-to-feature 映射。Direct-TSP 只读取 TSP 与该映射，不读取 d1 数值或 biology 标签；同一个 TSP 可因被多个 tissue banks 使用而进入多个 tissue blocks，这种重复会记录在 tissue feature manifest 与 hash 中。
+
+两组每个 tissue 的第一阶段维数、`n_neighbors`、tissue 顺序和派生 seed 联合确定。若任一组因列数、有效秩或去重后样本数无法实现目标预算，两组共同使用较小值。全局第二阶段采用相同规则。共同降档写入 `parameter_audit`，因此不会出现一组在低秩数据上获得更多维度或邻域预算的情况。
+
+### 固定参数与共同 grid
+
+`params$metaccs$parameter_mode = "fixed"` 使用 `params$dr` 和 `params$cluster` 的当前 CCS 配置，回答现有流程下的端到端差异。`"grid"` 模式用 `dr_grid` 与 `cluster_grid` 覆盖同一套基础参数，两组评估完全相同的笛卡尔积。
+
+每个 DR 和 DBSCAN 参数集根据完整配置生成稳定 ID。相同 `resample × UMAP seed × DR set` 的 d3 只计算一次，再复用于对应的 DBSCAN grid；`dr_cache_key` 记录这一复用边界。函数不根据结果自动挑选参数，也不生成未经预注册的综合 winner 分数。
+
+### 指标、配对与统计单位
+
+实验四复用 trustworthiness、continuity、tissue kNN retention、cohort mixing、biology purity、cluster count、cluster-size entropy 和 noise fraction，并增加非噪声样本上的 label-invariant 指标：
+
+- cluster 与独立 biology 标签的 ARI；
+- normalized mutual information；
+- 按 cluster 大小加权的 purity；
+- non-noise coverage。
+
+`metrics` 和 `stratified` 保留逐 arm、resample、UMAP seed 与参数集结果。`summary` 与 `contrasts` 先在同一 resample 内平均 UMAP seeds，再以 resample 为单位计算 `Cohort-d1 - Direct-TSP`。当 `subsample_fraction = 1` 时，即使提供多个 resample seeds，也只能标为 `algorithm_variation_only`，不能解释成生物抽样置信区间。
+
+`stability` 在同一 arm 与参数组合内比较不同运行，报告共同样本上的近邻 Jaccard、ARI 和 cluster Jaccard；`stability_contrasts` 再计算两组配对差值。`cross_arm_agreement` 只描述同一运行中两条路径改变了多少，不把高一致性或低一致性自动解释为性能优劣。
+
+### raw cluster 与 `record` 的边界
+
+`assignments` 保存逐样本 raw DBSCAN cluster 与 noise 标记。现有 `record` 依赖某一次 Cohort solution 的原始 cluster ID，不会应用到 Direct-TSP、其它 seed 或 grid 参数。Experiment 4 因此是 raw metaCCS clustering comparison，不等价于四类 normalized metaCCS 的最终比较。
+
+若后续需要比较最终四类标签，必须在独立 tuning data 上冻结 arm-neutral 的 normalization 或 reference-transfer 规则，再原样应用到两组 evaluation data。
+
+## 与外部泛化计划的衔接
+
+新增消融计划中的 d1 单样本确定性、filtered cohorts 外部泛化、小样本 learning curve、原始表达扰动和 model-bank 删除，需要从原始 RNA 重新执行冻结 model bank，并管理预测缓存与模型子集版本。当前 `ablation()` 只接收已冻结 d1，不会用占位结果假装完成这些实验。
+
+本轮已把可由现有输入直接支持的样本构成敏感性纳入 `metaccs$resample_seeds`、逐样本 assignments 与跨运行 stability。外部样本重编码等实验应在明确冻结预测合同、cache key 和 filtered cohort 训练边界后另行接入。
+
 ## 输出与审计
 
-每次运行都会生成 manifest、config、audit 和总结果；三个实验文件则只在请求相应实验时生成：
+每次运行都会生成 manifest、config、audit 和总结果；四个实验文件则只在请求相应实验时生成：
 
 | 文件 | 内容 |
 |---|---|
@@ -267,6 +362,7 @@ DBSCAN 在逐维标准化的 d3 上运行，标签 0 作为噪声。`.ablation_e
 | `experiment-01-cohort.rds` | 实验一指标、汇总、配对差值和 Gate 所需信息 |
 | `experiment-02-scaling.rds` | 实验二曲线、饱和拟合和下游 embedding 结果 |
 | `experiment-03-tissue-first.rds` | 实验三整体、分 tissue 和稳定性结果 |
+| `experiment-04-metaccs.rds` | 实验四指标、配对差值、参数审计、稳定性和逐样本 raw cluster |
 | `audit.csv` | 可人工查看的逐指标审计长表 |
 | `ablation-result.rds` | 完整 `CCSAblation` 返回对象 |
 
@@ -283,6 +379,8 @@ DBSCAN 在逐维标准化的 d3 上运行，标签 0 作为噪声。`.ablation_e
 | 实验一 | `.ablation_experiment_cohort()`、`.ablation_cohort_rank_metrics()`、`.ablation_gate_one()` | cohort representation 与启动门槛 |
 | 实验二 | `.ablation_experiment_scaling()`、`.ablation_scaling_summary()`、`.ablation_scaling_embedding()` | module scaling 与下游稳定性 |
 | 实验三 | `.ablation_experiment_tissue_first()`、`.ablation_tissue_embeddings()` | Two-stage/One-stage 对照 |
+| 实验四 | `.ablation_experiment_metaccs()`、`.ablation_paired_two_stage_embeddings()` | Direct-TSP/Cohort-d1 端到端公平对照 |
+| 实验四参数 | `.ablation_metaccs_parameter_manifest()`、`.ablation_parameter_sets()` | fixed/grid 等预算参数与稳定 ID |
 | 稳定性 | `.ablation_trust_continuity()`、`.ablation_embedding_stability()`、`.ablation_ari()` | 降维和聚类复现性 |
 | 审计 | `.ablation_build_manifest()`、`.ablation_add_audit_hashes()`、`.ablation_rbind()` | 跨实验追溯与表结构统一 |
 
@@ -299,7 +397,7 @@ DBSCAN 在逐维标准化的 d3 上运行，标签 0 作为噪声。`.ablation_e
 5. 在 `ablation()` 中增加一个短分支和独立结果文件；
 6. 在合成测试中验证结构、随机性和边界，再用真实数据做最小运行验证。
 
-显式注册需要改动少量主函数代码，但调用顺序、依赖和输出文件一目了然。对于只有三个到少量实验的脚本，这比引入复杂插件注册器更符合 KISS；当实验数量明显增多时，再考虑用实验注册表替代分支。
+显式注册需要改动少量主函数代码，但调用顺序、依赖和输出文件一目了然。对于只有四个到少量实验的脚本，这比引入复杂插件注册器更符合 KISS；当实验数量明显增多时，再考虑用实验注册表替代分支。
 
 ## 当前实现的边界
 
@@ -311,8 +409,12 @@ DBSCAN 在逐维标准化的 d3 上运行，标签 0 作为噪声。`.ablation_e
 - module sequence 当前只按 tissue 分层，没有进一步按平台或训练样本量平衡；manifest 记录 block 宽度和累计维数，但不包含这些扩展属性。
 - grouped folds 和样本集合在各组间一致，但部分逐组距离抽样和 probe 使用派生 seed，并不保证每一组使用完全相同的随机样本对或优化轨迹。正式主分析若要求最严格的随机配对，应进一步锁定并共享这些索引。
 - 当前统计输出以 bootstrap CI 为主，没有实现计划中次要指标的 P 值或 FDR 校正。
-- Gate 默认 `min_gain = 0`，尚未编码项目特异的最小重要差异。正式运行前应根据完整模型的自然波动预注册该阈值，而不是看完结果后调整。
+- Gate 默认会计算但不强制阻断（`enforce = FALSE`），且 `min_gain = 0` 尚未编码项目特异的最小重要差异。确认性运行若启用 `enforce = TRUE`，应根据完整模型的自然波动或独立 pilot 数据预注册 cutoff，而不是看完结果后调整。
 - tissue-first 通过 CCS 的非导出内部函数保持实现一致，因此比复制代码更忠实，但也会对 CCS 内部函数签名变化更敏感。
+- metaccs 同样复用 CCS 的 `data_for_dr`、`CORE_DR` 和 `repairCCS`；共同降档保证组间公平，但内部函数签名变化仍需定向回归测试。
+- Experiment 4 的 UMAP 与 DBSCAN 是 transductive 流程，输出是当前参与样本集合上的 raw clustering；不能写成未见样本的归纳分类性能。
+- fixed 参数来自当前 Cohort 流程，可能偏向 Cohort-d1；共同 grid 是必要敏感性分析，但函数不会事后自动选取最有利参数。
+- 当前没有 arm-neutral 的四类 cluster normalization，`record` 只可作为现有 Cohort reference solution 的版本化注释。
 
 这些边界不妨碍脚本用于当前测试和方法开发，但它们决定了最终论文中可以使用多强的因果或泛化表述。
 
@@ -322,8 +424,8 @@ DBSCAN 在逐维标准化的 d3 上运行，标签 0 作为噪声。`.ablation_e
 
 | 测试 | 主要覆盖 |
 |---|---|
-| `test-ablation.R` | 合成 CCS 对象、module manifest、TSP 提取、grouped folds、Null 可复现性、几何指标和三个实验的返回结构 |
+| `test-ablation.R` | 合成 CCS 对象、module manifest、TSP 提取、grouped folds、Null 可复现性、四个实验的返回结构、Direct 隔离、共同预算、cluster 标签置换不变性和 grid 合同 |
 | `test-ablation-real-data.R` | 真实 150 modules、496 TSP 特征、固定 400 样本以及实验一重复运行一致性 |
-| `test-ablation-real-layered.R` | 真实数据上的 scaling embedding 和 Two-stage/One-stage 路径 |
+| `test-ablation-real-layered.R` | 真实数据上的 scaling embedding、Two-stage/One-stage 与 Direct-TSP/Cohort-d1 端到端路径 |
 
 这些测试证明代码路径、返回结构和随机复现机制能够工作，但不替代对真实科学结论、标签独立性和最小重要差异的人工审查。

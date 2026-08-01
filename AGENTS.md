@@ -1,32 +1,42 @@
 # CCS - Cohort Congress System - 项目指令
 
-你正在 `/Volumes/2T01/winE/RCloud/RFactory/ccs` 中工作：该目录用于 A Computational Framwork for Personalized Pan-cancer Genomic Classification.。
+本项目是用于个性化泛癌基因组分类的 R 包与计算框架。
 
 ## 项目目标
 
-A Computational Framwork for Personalized Pan-cancer Genomic Classification.
+A Computational Framework for Personalized Pan-cancer Genomic Classification.
 
-本工作区的核心目标是 A Computational Framwork for Personalized Pan-cancer Genomic Classification.。
+本工作区的核心目标是开发、验证并维护可复现的个性化泛癌基因组分类方法。
 
 ## 核心工作流
 
-当用户提出 数据科学项目 相关需求时，按以下流程执行：
+当用户提出数据科学或 R 包开发相关需求时，按以下流程执行：
 
-### 1. 任务理解
+### 任务理解
 
 - 理解用户的真实需求和意图
 - 确认任务范围和预期输出
 - 识别可能的依赖和约束
 
-### 2. 执行流程
+### 执行流程
 
 数据获取 → 探索分析 → 模型训练 → 验证评估
 
-### 3. 输出规范
+### 输出规范
 
 - 代码变更应遵循项目现有风格
 - 文档更新应保持一致性
 - 测试覆盖应符合项目标准
+
+## 项目目录约定
+
+- `R/`：R 包核心代码与导出 API
+- `man/`：由 roxygen2 生成的 Rd 文档
+- `test/`：可复现的场景测试、模型与测试夹具
+- `docs/`：解释性文档、审计材料与教程
+- `docs/plans/`：AI 为特定任务制定的正式计划
+- `docs/contribution.bac`：BAC 协作贡献账本，必须通过 `bac` 命令维护
+- `.bensz-api/`：AI/skill 中间产物，已由 `.gitignore` 排除
 
 ## 工程原则
 
@@ -57,150 +67,45 @@ A Computational Framwork for Personalized Pan-cancer Genomic Classification.
 
 默认优先使用项目内文件与本地上下文；确需联网获取信息时，优先使用本地搜索工具。仅当本地工具不足以满足需求时再使用其它联网手段，并说明原因与保留关键链接。
 
+## 贡献记录
+
+本项目默认且强制基于 [bensz-auto-contribution](https://github.com/huangwb8/bensz-auto-contribution) 使用 `bac` 工具，客观记录人类、AI 与工具的协作贡献边界。默认账本为 `docs/contribution.bac`，运行环境要求 Python 3.10+。
+
+- 开始实质性工作时，用 `bac input record` 记录经过脱敏的用户指令摘要
+- 发生文件修改、工具执行或验证时，用 `bac record` 记录对应事件与证据；文件路径必须位于项目内
+- 交付前运行 `python -m bac --root . --bac-file docs/contribution.bac verify --json`，确认哈希链完整
+- 需要审阅贡献时间线时，运行 `python -m bac --root . --bac-file docs/contribution.bac inspect --limit 20`
+- 不直接编辑 `.bac` 文件；初始化或修复必须通过 `bac` 命令完成
+- 仅当项目负责人明确要求时，才可在 `init-project` 中使用 `--disable-bac`；关闭状态必须在系统文档与 `CHANGELOG.md` 中说明
+- BAC 是过程记录与辅助审计材料，不替代最终署名、责任或合规判断
+- 不记录密钥、访问令牌、完整私有提示词、PHI、专有基因组数据或无关个人隐私
+
 ## Codex CLI 特定说明
 
-### 文件引用规范
+### 文件与输出
 
-在 Codex CLI 中引用文件时：
-- 使用内联代码使文件路径可点击：`src/main.py`
-- 每个引用应有独立路径，即使是同一文件
-- 包含相关的起始行号：`src/main.py:42`
-- 不要输出你刚写的大文件内容，只引用路径
+- 引用文件时使用可点击路径，并尽量带起始行号：`src/main.py:42`
+- 不输出刚写入的大文件内容，只引用路径并说明变更
+- 简单确认避免复杂格式；结束时给出简短后续步骤
 
-### 代码编辑规范
+### 编辑原则
 
-- 高效、连贯的编辑：读取足够上下文后再修改文件，将逻辑相关的编辑批量处理
-- 保持类型安全：变更应始终通过构建检查
-- 无效输入早返回：遵循仓库中的日志/通知模式
-
-### 输出格式
-
-- 对于简单确认，跳过繁重格式
-- 不要输出刚写的大文件，只引用路径
-- 提供简短的逻辑后续步骤（测试、提交、构建）
-
-## 变更边界
-
-- 仅修改与当前任务直接相关的文件
+- 只修改与当前任务直接相关的文件
+- 保持现有代码风格、结构和类型安全
+- 读取足够上下文后再批量处理相关修改
+- 无效输入早返回，遵循项目既有日志/通知模式
 - 不主动添加用户未要求的功能
-- 保持现有代码风格和结构
 
-## 变更记录规范
+## 变更记录与版本
 
-**重要原则**：凡是项目的更新，都要统一在 `CHANGELOG.md` 文件里记录。
-
-### 记录范围
-
-每次修改以下内容时，必须更新 CHANGELOG.md：
-- **项目指令文件**：CLAUDE.md、AGENTS.md 的任何修改
-- **项目结构变更**：新增/删除/重命名目录或关键文件
-- **工作流变更**：核心工作流程的调整
-- **工程原则变更**：新增、修改或删除工程原则
-- **重要配置变更**：影响项目行为的配置文件修改
-
-### 记录格式
-
-遵循 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.1.0/) 格式：
-
-```markdown
-## [版本号] - YYYY-MM-DD
-
-### Added（新增）
-- 新增了 XXX 功能/章节：用途是 YYY
-
-### Changed（变更）
-- 修改了 XXX 章节：原因是 YYY，具体变更内容是 ZZZ
-
-### Fixed（修复）
-- 修复了 XXX 问题：表现是 YYY，修复方式是 ZZZ
-```
-
-### 记录时机
-
-- **修改前**：先在 CHANGELOG.md 的 `[Unreleased]` 部分草拟变更内容
-- **修改后**：完善变更描述，添加具体细节和影响范围
-- **发布时**：将 `[Unreleased]` 内容移至具体版本号下
-
-## 版本号管理规范
-
-**核心原则**：项目的版本号统一通过 DESCRIPTION 文件管理（Single Source of Truth），确保版本信息的一致性和可追溯性。
-
-### 版本号来源
-
-本项目的版本号定义在 `DESCRIPTION` 文件中：
-
-```
-Version: 0.7.2
-```
-
-### Git Tag 命名规范
-
-**格式**：`v{Version}`（v + DESCRIPTION 中的 Version 值）
-
-| DESCRIPTION Version | Git Tag |
-|---------------------|---------|
-| 0.7.2 | v0.7.2 |
-| 1.0.0 | v1.0.0 |
-
-**创建 Tag 流程**：
-1. 确认 DESCRIPTION 中的 Version 已更新
-2. 创建对应 tag：`git tag v0.7.2`
-3. 推送 tag：`git push origin v0.7.2`
-
-### 版本号命名规则
-
-遵循 [语义化版本](https://semver.org/lang/zh-CN/) 规范：
-
-| 版本类型 | 格式 | 使用场景 |
-|---------|------|----------|
-| **稳定版** | `v1.0.0` 及以上 | 项目已稳定可用 |
-| **开发中** | `v0.x.x` | 功能开发中，可能有较大变更 |
-| **实验性** | `v0.0.x` | 早期实验阶段，API 不稳定 |
-
-版本号格式：`主版本号.次版本号.修订号`
-- **主版本号**：不兼容的 API 修改
-- **次版本号**：向下兼容的功能性新增
-- **修订号**：向下兼容的问题修正
-
-### 版本同步机制
-
-版本号必须按照以下顺序同步：
-
-1. **配置文件**（Single Source of Truth）
-   - 所有版本号变更首先在此文件更新
-   - 作为其他文件版本信息的唯一来源
-
-2. **项目文档**
-   - 在 README.md 或其他文档中引用配置文件的版本号
-
-3. **CHANGELOG.md**
-   - 每次版本变更时，添加新的版本条目
-   - 记录该版本的变更内容
-
-### 版本号更新时机
-
-| 变更类型 | 版本更新示例 | 说明 |
-|---------|-------------|------|
-| Bug 修复 | `1.0.0` → `1.0.1` | 修复问题，不改变功能 |
-| 新增功能 | `1.0.0` → `1.1.0` | 向下兼容的新功能 |
-| 破坏性变更 | `1.0.0` → `2.0.0` | 不兼容的 API 变更 |
-
-**实践要点**：
-- 每次更新项目时，首先评估变更类型
-- 根据变更类型更新配置文件中的版本号
-- 立即在 CHANGELOG.md 中记录变更内容
-
-### 版本号检查命令
-
-快速检查项目版本号：
-
-```bash
-# 查看 DESCRIPTION 文件中的版本号
-grep "^Version:" DESCRIPTION
-
-# 查看最近的 git tags
-git tag | tail -5
-```
+- `DESCRIPTION` 中的 `Version` 是项目版本号的唯一来源，但该事实不授予 AI 修改版本号的权限
+- 软件何时发布、采用什么版本号、创建什么 tag 以及是否执行发布，只能由项目负责人本人决定；任何 AI 都不得推断、选择、递增或代替决定
+- 除非项目负责人在当前请求中明确给出目标版本并要求修改，否则 AI 严禁修改 `DESCRIPTION` 的 `Version`、README 版本徽章、`CHANGELOG.md` 的发布版本标题、Git tag 或 GitHub Release
+- 功能新增、问题修复、文档更新、BAC 引入等变更即使按照 SemVer 可能需要升版，AI 也只能记录到 `[Unreleased]`，不得自行调整版本号；如有必要可说明影响，等待项目负责人决定
+- 项目负责人明确要求更新版本时，AI 才可按其指定值同步 `DESCRIPTION`、README、`CHANGELOG.md` 与 tag 说明，不得擅自改成其它版本
+- 影响项目行为、结构、工作流、工程原则、指令文件或关键配置的变更，必须更新 `CHANGELOG.md` 的 `[Unreleased]`
+- 修改 `AGENTS.md` 后，应同步检查 `CLAUDE.md` 的核心内容是否一致
+- `CHANGELOG.md` 遵循 Keep a Changelog；Git tag 使用 `v{Version}`，但只有项目负责人明确授权后才能创建或推送
 
 ## Project Structure & Module Organization
 
@@ -208,7 +113,7 @@ Core package code lives in `R/`, with `ccs*.R` owning S4 classes, `hyperTuningGS
 
 ## Build, Test, and Development Commands
 
-Refresh documentation before committing with `Rscript -e "devtools::document()"`. Package locally with `R CMD build .` followed by `R CMD check ccs_0.7.0.tar.gz` to catch lint, dependency, and vignette issues. During interactive work `Rscript -e "devtools::load_all()"` mirrors `library(CCS)` without reinstalling. Scenario tests run via plain scripts; e.g., `Rscript test/03.test.Classes.R` validates the class definitions and `Rscript test/test.classifier_performance.R` exercises the classifier benchmarks.
+Refresh documentation before committing with `Rscript -e "devtools::document()"`. Package locally with `R CMD build .`, then run `R CMD check CCS_<version>.tar.gz` against the tarball version read from `DESCRIPTION`. During interactive work `Rscript -e "devtools::load_all()"` mirrors `library(CCS)` without reinstalling. Scenario tests run via plain scripts; e.g., `Rscript test/03.test.Classes.R` validates the class definitions and `Rscript test/test.classifier_performance.R` exercises the classifier benchmarks.
 
 ## Coding Style & Naming Conventions
 
@@ -224,38 +129,15 @@ Git history favors concise imperative summaries with optional release tags (`v0.
 
 ## Security & Data Handling
 
-Handle genomic `.rds` files as sensitive. Keep PHI and proprietary data out of the repo, scrub metadata in sample fixtures, and document any secure storage requirements in the PR description. Gate remote downloads behind explicit arguments and never embed credentials or tokens in tracked files.
+Handle genomic `.rds` files as sensitive. Keep PHI and proprietary data out of the repo, scrub metadata in sample fixtures, and document any secure storage requirements in the PR description. Gate remote downloads behind explicit arguments and never embed credentials or tokens in tracked files or the BAC ledger.
 
 ## 有机更新原则
 
 当需要更新本文档时：
 
-### 1. 理解意图
-
-首先理解用户需求背后的意图和在工作流中的本质作用
-
-### 2. 定位生态位
-
-每条规则/要求都应找到其在整个文档结构中的"生态位"——它与其他内容的关系、它服务的目标、它影响的其他部分
-
-### 3. 协调生长
-
-更新一个部分时，检查并同步更新相关部分：
-- 更新工作流步骤时，同步更新示例和验证清单
-- 更新输出规范时，同步更新引用该规范的其他章节
-- 更新术语定义时，全局统一替换
-- **更新本文档时，必须同步更新 CHANGELOG.md**
-- **更新本文档后，确保 CLAUDE.md 的核心内容保持一致**
-- 保持文档格式规范：层级标题不使用序号前缀（用 `##` 而非 `## 1)`），因为 Markdown 本身有层级结构
-
-### 4. 保持呼吸感
-
-文档应该像生物体一样有"呼吸感"——章节之间有逻辑流动，而非割裂的清单
-
-### 5. 定期修剪整合
-
-当某个章节变得过于臃肿时，主动重构
-
----
-
-**提示**：修改本文档后，请立即在 `CHANGELOG.md` 中记录变更，并确保 `CLAUDE.md` 的核心内容保持一致。这是项目管理的强制性要求，不是可选项。
+- 先理解变更意图，再把规则放到最合适的章节，避免重复堆叠
+- 更新工作流、输出规范或术语时，同步检查相关示例、验证清单和引用位置
+- 计划文档统一保存在 `./docs/plans/`
+- 代码变化导致 `docs/` 中非 `plans/` 文档过时时，必须同步更新
+- 修改贡献记录规则时，同步检查 `docs/contribution.bac` 的可验证性与 `CHANGELOG.md` 记录
+- 文档标题不使用序号前缀，保持 Markdown 层级清晰

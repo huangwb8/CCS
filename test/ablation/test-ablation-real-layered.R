@@ -8,7 +8,7 @@ source(file.path("test", "ablation", "ablation.R"))
 result <- ablation(
   object = resCCS,
   data = data_all,
-  experiment = c("scaling", "tissue_first"),
+  experiment = c("scaling", "tissue_first", "metaccs"),
   output.dir = file.path("test", "ablation", "tmp", "real-layered-smoke"),
   params = list(
     rank = 5,
@@ -31,6 +31,14 @@ result <- ablation(
     scaling_subsample_fraction = 1,
     tissue_seeds = 3001,
     tissue_subsample_fraction = 1,
+    metaccs = list(
+      resample_seeds = 3051,
+      umap_seeds = 3052,
+      subsample_fraction = 1,
+      parameter_mode = "fixed",
+      direct_feature_mode = "tissue_model_union",
+      retain_assignments = TRUE
+    ),
     fidelity_samples = 120,
     gate1 = list(enforce = FALSE),
     cover = TRUE
@@ -46,6 +54,16 @@ stopifnot(
   setequal(
     unique(result$experiments$tissue_first$metrics$group_id),
     c("Two-stage", "One-stage")
+  ),
+  setequal(
+    unique(result$experiments$metaccs$metrics$group_id),
+    c("Direct-TSP", "Cohort-d1")
+  ),
+  nrow(result$experiments$metaccs$assignments) == 120 * 2,
+  nrow(result$experiments$metaccs$parameter_audit) > 0,
+  identical(
+    result$manifest$direct_feature_hash,
+    result$experiments$metaccs$audit$direct_feature_hash[1]
   )
 )
 

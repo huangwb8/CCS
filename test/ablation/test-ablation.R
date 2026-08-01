@@ -325,4 +325,193 @@ stopifnot(
 )
 stopifnot(nrow(layered_result$experiments$tissue_first$stability) > 0)
 
+# Experiment 4 uses tissue-specific frozen TSP support for Direct-TSP and keeps
+# both arms paired through two-stage reduction and DBSCAN.
+metaccs_fixture <- make_test_fixture()
+metaccs_features <- list(
+  T1 = metaccs_fixture$tsp_features[1:2],
+  T2 = metaccs_fixture$tsp_features[3:4]
+)
+for (tissue_i in names(metaccs_fixture$object@Model)) {
+  for (cohort_i in names(metaccs_fixture$object@Model[[tissue_i]])) {
+    model_i <- metaccs_fixture$object@Model[[tissue_i]][[cohort_i]]
+    model_i$Model <- lapply(model_i$Model, function(repeat_i) {
+      lapply(repeat_i, function(class_i) {
+        class_i$genes <- metaccs_features[[tissue_i]]
+        class_i
+      })
+    })
+    metaccs_fixture$object@Model[[tissue_i]][[cohort_i]] <- model_i
+  }
+}
+
+metaccs_prepared <- .ablation_prepare_input(
+  object = metaccs_fixture$object,
+  data = metaccs_fixture$data,
+  metadata = metaccs_fixture$metadata,
+  max_samples = Inf,
+  seed = 1401
+)
+stopifnot(
+  setequal(names(metaccs_prepared$feature_manifest$tissue_features), c("T1", "T2")),
+  setequal(metaccs_prepared$feature_manifest$tissue_features$T1, metaccs_features$T1),
+  setequal(metaccs_prepared$feature_manifest$tissue_features$T2, metaccs_features$T2),
+  ncol(metaccs_prepared$tsp) == 4
+)
+
+direct_blocks <- .ablation_direct_tissue_blocks(
+  metaccs_prepared$tsp,
+  metaccs_prepared$feature_manifest$tissue_features
+)
+stopifnot(
+  identical(names(direct_blocks), c("T1", "T2")),
+  identical(colnames(direct_blocks$T1), metaccs_features$T1),
+  identical(colnames(direct_blocks$T2), metaccs_features$T2)
+)
+
+paired_a <- .ablation_paired_two_stage_embeddings(
+  direct_blocks = direct_blocks,
+  cohort_d1 = metaccs_prepared$d1,
+  dr_config = list(
+    method = "UWOT",
+    dimension = c(3, 2),
+    n_neighbors = 5,
+    min_dist = 0.1,
+    spread = 1,
+    set_op_mix_ratio = 1,
+    metric = "euclidean",
+    n_threads = 1
+  ),
+  seed = 1501
+)
+changed_d1 <- metaccs_prepared$d1
+changed_d1[, 1] <- rev(changed_d1[, 1])
+paired_b <- .ablation_paired_two_stage_embeddings(
+  direct_blocks = direct_blocks,
+  cohort_d1 = changed_d1,
+  dr_config = list(
+    method = "UWOT",
+    dimension = c(3, 2),
+    n_neighbors = 5,
+    min_dist = 0.1,
+    spread = 1,
+    set_op_mix_ratio = 1,
+    metric = "euclidean",
+    n_threads = 1
+  ),
+  seed = 1501
+)
+stopifnot(
+  identical(paired_a$embeddings$`Direct-TSP`, paired_b$embeddings$`Direct-TSP`),
+  !identical(paired_a$embeddings$`Cohort-d1`, paired_b$embeddings$`Cohort-d1`),
+  identical(
+    rownames(paired_a$embeddings$`Direct-TSP`),
+    rownames(paired_a$embeddings$`Cohort-d1`)
+  ),
+  all(paired_a$parameter_audit$direct_dimension ==
+    paired_a$parameter_audit$cohort_dimension),
+  all(paired_a$parameter_audit$common_dimension <= 3)
+)
+
+# Cluster-biology metrics must be invariant to arbitrary raw cluster labels.
+cluster_truth <- rep(c("B1", "B2"), each = 4)
+cluster_a <- c(1, 1, 1, 0, 2, 2, 3, 3)
+cluster_b <- c(7, 7, 7, 0, 4, 4, 9, 9)
+biology_a <- .ablation_cluster_biology(cluster_a, cluster_truth)
+biology_b <- .ablation_cluster_biology(cluster_b, cluster_truth)
+stopifnot(isTRUE(all.equal(biology_a, biology_b, tolerance = 1e-12)))
+
+metaccs_result <- ablation(
+  object = metaccs_fixture$object,
+  data = metaccs_fixture$data,
+  metadata = metaccs_fixture$metadata,
+  experiment = "metaccs",
+  output.dir = file.path("test", "ablation", "tmp", "synthetic-metaccs"),
+  params = list(
+    rank = 3,
+    k = 3,
+    bootstrap = 5,
+    rp_seeds = 1601,
+    permutation_seeds = 1602,
+    fidelity_samples = 48,
+    dr = list(
+      method = "UWOT",
+      dimension = c(3, 2),
+      n_neighbors = 5,
+      min_dist = 0.1,
+      spread = 1,
+      set_op_mix_ratio = 1,
+      metric = "euclidean",
+      n_threads = 1
+    ),
+    cluster = list(eps = 0.5, minPts = 3),
+    metaccs = list(
+      resample_seeds = 1701,
+      umap_seeds = c(1801, 1802),
+      subsample_fraction = 1,
+      parameter_mode = "fixed",
+      direct_feature_mode = "tissue_model_union",
+      retain_assignments = TRUE
+    ),
+    cover = TRUE
+  ),
+  seed = 1901,
+  verbose = FALSE
+)
+metaccs <- metaccs_result$experiments$metaccs
+stopifnot(
+  setequal(unique(metaccs$metrics$group_id), c("Direct-TSP", "Cohort-d1")),
+  all(c(
+    "cluster_biology_ari", "cluster_biology_nmi", "weighted_cluster_purity",
+    "non_noise_coverage"
+  ) %in% unique(metaccs$metrics$metric_name)),
+  all(metaccs$contrasts$contrast == "Cohort-d1-Direct-TSP"),
+  nrow(metaccs$assignments) == 48 * 2 * 2,
+  nrow(metaccs$cross_arm_agreement) == 2,
+  nrow(metaccs$stability) == 2,
+  is.data.frame(metaccs$stability_contrasts),
+  nrow(metaccs$parameter_manifest) == 1,
+  all(c(
+    "resample_id", "umap_seed", "dr_param_set_id", "cluster_param_set_id",
+    "direct_feature_hash", "input_hash"
+  ) %in% colnames(metaccs$audit)),
+  file.exists(file.path(
+    "test", "ablation", "tmp", "synthetic-metaccs", "experiment-04-metaccs.rds"
+  ))
+)
+
+# Grid mode expands the shared parameter budget without duplicating public arguments.
+grid_config <- .ablation_merge_lists(
+  .ablation_default_params(2001),
+  list(
+    metaccs = list(
+      parameter_mode = "grid",
+      dr_grid = list(
+        list(n_neighbors = 4, min_dist = 0.1),
+        list(n_neighbors = 5, min_dist = 0.2)
+      ),
+      cluster_grid = list(
+        list(eps = 0.4, minPts = 3),
+        list(eps = 0.5, minPts = 4)
+      )
+    )
+  )
+)
+grid_manifest <- .ablation_metaccs_parameter_manifest(grid_config)
+stopifnot(
+  length(unique(grid_manifest$dr_param_set_id)) == 2,
+  length(unique(grid_manifest$cluster_param_set_id)) == 2,
+  nrow(grid_manifest) == 4
+)
+invalid_grid <- grid_config
+invalid_grid$metaccs$dr_grid <- list(list(n_neighbors = 1))
+stopifnot(inherits(
+  try(.ablation_metaccs_parameter_manifest(invalid_grid), silent = TRUE),
+  "try-error"
+))
+stopifnot(
+  is.na(.ablation_ari(1, 1)),
+  is.na(.ablation_cluster_jaccard(c(0, 0), c(0, 0)))
+)
+
 message("All ablation tests passed.")
