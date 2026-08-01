@@ -4,20 +4,31 @@
 
 格式基于 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.1.0/)。
 
-## [Unreleased]
+## [0.8.2] - 2026-08-01
 
 ### Added（新增）
 
 - 新增 `docs/plans/2026-08-01-metaccs-end-to-end-ablation.md`：规划在 `CCS::ablation()` 中增加 Direct-TSP 与 Cohort-d1 的端到端、等机会 metaCCS 流程比较。
+- 引入 BAC 贡献记录系统：新增 `docs/contribution.bac`，用于记录人类、AI 与工具的协作贡献证据。
 
 ### Changed（变更）
 
+- 调整 `test/ablation/ablation.R` 与设计文档中的 Gate 1 策略：将 `params` 扩写为覆盖全部顶层及嵌套字段、默认值、适用实验和约束的完整 API 说明，补充 Gate 判定及 cutoff 用法，并将 `gate1$enforce` 默认值改为 `FALSE`，使 scaling 默认保留探索性结果、确认性分析可按需启用预注册门槛。
+- 按 `init-project` 2.3.3 规范优化 `AGENTS.md`、`CLAUDE.md` 与 README：确立 `AGENTS.md` 为通用指令唯一来源，并补充 BAC 使用、安全、验证与维护规则。
+- 修改 `AGENTS.md` 的版本管理规则：软件版本号、发布时间、tag 与发布操作只能由项目负责人明确决定，AI 不得自行推断、选择或变更。
+- 优化 `test/ablation/ablation.R` 中 `ablation()` 的内嵌测试：统一合成数据、冻结模型和 d1 的 tissue/cohort 语义，并用最小可复现参数覆盖 cohort、scaling、tissue-first 与 metaCCS 四类实验
+- 将 `DESCRIPTION` 版本更新为项目负责人指定的 `0.8.2`：记录本次向后兼容的消融工作流扩展与内嵌测试修正
 - 调整了 README.md 中教程开放状态的英文措辞：将 “the full tutorial” 细化为“完整且完全可用的形式”，使含义更准确
 - 更新了 README.md 中的教程说明：补充论文正式发表前教程不会完全公开的状态说明，避免读者对开放范围产生误解
 - 修改了 AGENTS.md 中的"版本号管理规范"章节：将版本号来源从 config.yaml 改为 R 包的 DESCRIPTION 文件，新增 Git Tag 命名规范（`v{Version}` 格式）
 - 完善了 README.md：从简单占位符升级为完整的国际化项目文档，包含安装指南、快速开始、API 文档、开发指南、算法概述、引用格式等章节
 - 重写了 README.md：首页改为简洁项目入口，突出 `ccs.principle` 教学仓库与 `GSClassifier` 生态链接，并将推荐引用调整为 `Under review` 占位说明
 - 调整了 README.md 的作者信息展示：改为与 `GSClassifier` 一致的单行作者样式，并保留邮箱、博客和 ORCID 链接
+
+### Fixed（修复）
+
+- 撤销 AI 未经授权将版本从 `0.8.1` 提升至 `0.9.0` 的变更，并将 `DESCRIPTION` 与 README 版本徽章恢复为项目负责人随后决定的 `0.8.2`。
+- 修正 `DESCRIPTION` 与 `AGENTS.md` 中项目英文描述的 `Framwork` 拼写错误，并移除自动合并产生的错误 README 徽章片段与游离版本示例。
 
 ## [0.7.4] - 2026-08-01
 

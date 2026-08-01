@@ -8,7 +8,7 @@ ablation(
   object,
   data,
   metadata = NULL,
-  experiment = c("cohort", "scaling", "tissue_first"),
+  experiment = c("cohort", "scaling", "tissue_first", "metaccs"),
   output.dir = file.path(getwd(), "ccs-ablation"),
   params = list(),
   seed = 20260727,
@@ -16,36 +16,224 @@ ablation(
 )
 }
 \arguments{
-\item{object}{A `CCS` object containing the frozen d1 representation.}
+\item{object}{A \code{CCS} object containing the frozen d1 representation.}
 
 \item{data}{Raw RNA expression data. A tissue/cohort nested list is preferred;
-each leaf can be an expression matrix or a list containing `expr`.}
+each leaf can be an expression matrix or a list containing \code{expr}.}
 
 \item{metadata}{Optional sample annotation with sample, cohort, tissue and
 biological-label columns. Common CCS column names are recognized.}
 
-\item{experiment}{One or more of `"cohort"`, `"scaling"` and
-`"tissue_first"`.}
+\item{experiment}{One or more of \code{"cohort"}, \code{"scaling"},
+\code{"tissue_first"} and \code{"metaccs"}.}
 
 \item{output.dir}{Independent output directory. Existing CCS products are
 never overwritten.}
 
-\item{params}{Named list overriding `.ablation_default_params()`.}
+\item{params}{Named nested list recursively merged onto
+\code{.ablation_default_params(seed)}. Callers may provide only the leaves they
+want to change, for example \code{list(rank = 25L, gate1 = list(enforce = TRUE))}.
+Only the entries below are consumed; use their exact names because unknown
+entries are not generally rejected outside the explicit metaCCS grids.
+
+Shared representation, validation, and metric settings:
+
+\describe{
+\item{\code{rank}}{Positive target PCA rank used by Experiment 1 and the d1
+scaling curves. It is reduced automatically when a fold has fewer
+samples or features. Default: \code{50L}.}
+\item{\code{rank_sensitivity}}{Positive integer vector of additional PCA ranks
+evaluated in Experiment 1; infeasible values are reduced to the common
+maximum rank. Default: \code{c(25L, 50L, 100L)}.}
+\item{\code{k}}{Positive neighborhood size used by kNN similarity, mixing,
+purity, fidelity, and stability metrics. It is capped at the available
+sample count minus one. Default: \code{30L}.}
+\item{\code{distance}}{Distance label stored in metric and audit outputs.
+Current computations remain Euclidean regardless of this value; this is
+not yet a distance-method switch. Default: \code{"euclidean"}.}
+\item{\code{n_folds}}{Number of whole-cohort validation folds shared by
+Experiments 1 and 2. \code{Inf} creates one fold per cohort; a finite value is
+capped at the number of cohorts and must yield at least two folds.
+Default: \code{Inf}.}
+\item{\code{bootstrap}}{Positive number of bootstrap draws used for metric
+summaries and paired 95 percent confidence intervals. Default: \code{1000L}.}
+\item{\code{max_samples}}{Maximum number of aligned input samples retained
+before all experiments. \code{Inf} keeps every sample; finite limits use
+tissue-by-cohort stratified sampling. Default: \code{Inf}.}
+\item{\code{geometry_samples}}{Maximum stratified sample count used for the
+dimension-free TSP-versus-d1 geometry comparison in Experiment 1.
+Default: \code{5000L}.}
+\item{\code{distance_pairs}}{Maximum number of sampled row pairs used to
+estimate the Spearman correlation between distance rankings. Default:
+\code{100000L}.}
+\item{\code{mechanism_samples}}{Maximum stratified sample count used by the
+selective-reconstruction mechanism metrics in Experiment 1. Default:
+\code{1000L}.}
+\item{\code{probe}}{Logical; whether Experiments 1 and 2 fit the cross-cohort
+linear XGBoost probe and report macro AUROC and balanced accuracy.
+Default: \code{TRUE}.}
+\item{\code{probe_label}}{Metadata column decoded by the probe. Labels not
+represented in at least two cohorts are excluded. Default: \code{"tissue"}.}
+\item{\code{probe_nrounds}}{Positive XGBoost boosting-round count for the
+linear probe. Default: \code{50L}.}
+\item{\code{numCores}}{Positive thread count passed to the XGBoost probe.
+Default: \code{1L}.}
+}
+
+Experiment 1 null-control settings:
+
+\describe{
+\item{\code{rp_density}}{Probability that an entry of the sparse Achlioptas
+Null-RP projection matrix is nonzero; it should lie in \verb{(0, 1]}.
+Default: \code{1 / 3}.}
+\item{\code{rp_seeds}}{Non-empty vector of seeds for independent Null-RP
+repeats. Default: \code{seed + seq_len(20)}.}
+\item{\code{permutation_seeds}}{Non-empty vector of seeds for independent
+within-cohort, whole-module Null-Perm repeats. Default:
+\code{seed + 1000L + seq_len(20)}.}
+}
+
+Experiment 2 cohort-axis scaling settings:
+
+\describe{
+\item{\code{scaling_counts}}{Positive module counts evaluated on each nested
+sequence; values above the available module bank are capped. Default:
+\code{c(10L, 25L, 50L, 75L, 100L, 125L, 150L)}.}
+\item{\code{scaling_sequences}}{Positive number of tissue-balanced nested
+module sequences used for the d1 scaling curves. Default: \code{100L}.}
+\item{\code{scaling_embedding_counts}}{Module counts at which the more
+expensive downstream two-stage embedding and DBSCAN analysis is run;
+unavailable counts are capped. Default: \code{c(25L, 50L, 100L, 150L)}.}
+\item{\code{scaling_embedding_sequences}}{Number of nested sequences, starting
+from the generated sequence list, retained for downstream embedding.
+Default: \code{10L}.}
+\item{\code{scaling_embedding_seeds}}{Seeds for paired sample subsampling,
+two-stage reduction, clustering, and stability repeats at each selected
+module count. Default: \code{seed + 2000L + seq_len(10)}.}
+\item{\code{scaling_subsample_fraction}}{Fraction in \verb{(0, 1]} sampled within
+tissue-by-cohort strata for each downstream scaling repeat. Default:
+\code{0.8}.}
+}
+
+Experiment 3 tissue-first settings:
+
+\describe{
+\item{\code{tissue_seeds}}{Seeds defining paired stratified subsamples and
+reduction repeats shared by the Two-stage and One-stage arms. Default:
+\code{seed + 3000L + seq_len(20)}.}
+\item{\code{tissue_subsample_fraction}}{Fraction in \verb{(0, 1]} sampled within
+tissue-by-cohort strata for each Experiment 3 repeat. Default: \code{0.8}.}
+\item{\code{fidelity_samples}}{Maximum stratified sample count used when
+computing embedding trustworthiness and continuity. Default: \code{2000L}.}
+}
+
+Shared dimensional-reduction settings are supplied as \code{dr = list(...)}:
+
+\describe{
+\item{\code{dr$method}}{Reduction method forwarded to the CCS reduction
+helpers. Default: \code{"UWOT"}.}
+\item{\code{dr$dimension}}{Two positive target dimensions: the first is the
+per-tissue d2 dimension and the second is the final global d3 dimension.
+Low-rank blocks use the largest feasible smaller value. Default:
+\code{c(5L, 2L)}.}
+\item{\code{dr$n_neighbors}}{Neighborhood size forwarded to UWOT and capped
+for small blocks; it must be at least two when supplied. Default: \code{30L}.}
+\item{\code{dr$min_dist}}{UWOT minimum-distance parameter. Default: \code{0.01}.}
+\item{\code{dr$spread}}{UWOT spread parameter. Default: \code{0.75}.}
+\item{\code{dr$set_op_mix_ratio}}{UWOT fuzzy-set intersection/union mixing
+parameter. Default: \code{1}.}
+\item{\code{dr$metric}}{Distance metric forwarded to the reduction backend.
+Default: \code{"euclidean"}.}
+\item{\code{dr$n_threads}}{Positive reduction thread count, or \code{NULL} to use
+the CCS/backend default. Default: \code{NULL}.}
+}
+
+Shared DBSCAN settings are supplied as \code{cluster = list(...)}:
+
+\describe{
+\item{\code{cluster$eps}}{Positive DBSCAN neighborhood radius applied after
+column-standardizing d3. Default: \code{0.02}.}
+\item{\code{cluster$minPts}}{Positive DBSCAN core-point neighborhood threshold.
+Default: \code{20L}.}
+}
+
+Experiment 4 end-to-end metaCCS settings are supplied as
+\code{metaccs = list(...)}:
+
+\describe{
+\item{\code{metaccs$resample_seeds}}{Non-empty, finite, unique seeds defining
+tissue-by-cohort stratified sample-composition repeats. Default:
+\code{seed + 4000L + seq_len(10)}.}
+\item{\code{metaccs$umap_seeds}}{Non-empty, finite, unique algorithm seeds run
+within each metaCCS resample. Default:
+\code{seed + 5000L + seq_len(5)}.}
+\item{\code{metaccs$subsample_fraction}}{Fraction in \verb{(0, 1]} retained within
+each tissue-by-cohort stratum. A value of \code{1} measures algorithmic rather
+than sample-composition variation. Default: \code{0.8}.}
+\item{\code{metaccs$parameter_mode}}{\code{"fixed"} uses the shared \code{dr} and
+\code{cluster} settings once; \code{"grid"} evaluates the Cartesian product of
+\code{dr_grid} and \code{cluster_grid} for both arms. Default: \code{"fixed"}.}
+\item{\code{metaccs$dr_grid}}{For grid mode, a non-empty list of named partial
+\code{dr} lists, or a data frame whose rows are partial configurations. Each
+entry is merged onto \code{dr}. \code{NULL} uses only the base configuration.
+Default: \code{NULL}.}
+\item{\code{metaccs$cluster_grid}}{For grid mode, a non-empty list of named
+partial \code{cluster} lists, or a data frame whose rows are partial
+configurations. Each entry is merged onto \code{cluster}. \code{NULL} uses only
+the base configuration. Default: \code{NULL}.}
+\item{\code{metaccs$direct_feature_mode}}{Feature-support rule for the Direct
+arm. The only currently supported value, \code{"tissue_model_union"}, uses
+the union of frozen-model TSPs within each tissue. Default:
+\code{"tissue_model_union"}.}
+\item{\code{metaccs$retain_assignments}}{Logical; retain per-sample raw DBSCAN
+cluster and noise assignments for every metaCCS run. Default: \code{TRUE}.}
+}
+
+Gate 1 settings are supplied as \code{gate1 = list(...)}:
+
+\describe{
+\item{\code{gate1$enforce}}{Logical; Gate 1 is always calculated before
+scaling, but scaling is stopped on failure only when this is \code{TRUE}.
+Keep \code{FALSE} for exploratory analysis. Use \code{TRUE} for preregistered
+confirmatory or compute-gated analysis. Default: \code{FALSE}.}
+\item{\code{gate1$primary_metric}}{Experiment 1 metric used for the three
+Cohort-minus-baseline decisions. If \code{"balanced_accuracy"} is not
+estimable, the current implementation falls back to \code{"biology_purity"}.
+Default: \code{"balanced_accuracy"}.}
+\item{\code{gate1$min_gain}}{Minimum required lower bound of the paired 95 percent
+confidence interval for each of Cohort-Direct, Cohort-Null-RP, and
+Cohort-Null-Perm on the primary metric. \code{0} requires non-negative
+evidence; \code{0.02} requires at least a 0.02 lower-bound gain. Default: \code{0}.}
+\item{\code{gate1$purity_tolerance}}{Largest accepted decrease in
+biology purity: the Cohort-Direct paired CI lower bound must be at least
+the negative tolerance. For example, \code{0.01} permits a lower bound of
+\code{-0.01}. Default: \code{0}.}
+\item{\code{gate1$mixing_tolerance}}{Largest accepted decrease in cohort
+mixing, interpreted in the same way as \code{purity_tolerance}. Default: \code{0}.}
+}
+
+Output handling:
+
+\describe{
+\item{\code{cover}}{Logical; allow writing into a non-empty \code{output.dir} and
+replacing same-named ablation result files. Default: \code{FALSE}.}
+}}
 
 \item{seed}{Master random seed.}
 
 \item{verbose}{Whether to report progress.}
 }
 \value{
-An object of class `CCSAblation`.
+An object of class \code{CCSAblation}.
 }
 \description{
 Evaluate the frozen CCS representation without retraining cohort submodels.
-The function implements the cohort-representation, cohort-axis scaling and
-tissue-first experiments defined by the CCS layered ablation plan. All
+The function implements the cohort-representation, cohort-axis scaling,
+tissue-first and end-to-end metaCCS experiments defined by the CCS layered
+ablation plans. All
 stochastic operations are paired across comparison groups and recorded in
 an audit table.
 }
 \author{
-Weibin Huang <hwb2012@qq.com>
+Weibin Huang \href{mailto:hwb2012@qq.com}{hwb2012@qq.com}
 }
