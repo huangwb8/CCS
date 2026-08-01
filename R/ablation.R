@@ -33,6 +33,142 @@ ablation <- function(
     seed = 20260727,
     verbose = TRUE
 ) {
+  # Test
+  if (FALSE) {
+    # Purpose: Build a self-contained synthetic CCS fixture and run a fast smoke test.
+    # Input: Generated expression, frozen d1 probabilities, models, and metadata.
+    # Parameters: Small repeat counts keep the example quick and reproducible.
+    # Output: A CCSAblation result under the current R session's temporary directory.
+    luckyBase::Plus.library(c("CCS", "digest"))
+    set.seed(101)
+
+    sample_ids <- sprintf("S%03d", seq_len(48))
+    cohort <- rep(paste0("C", 1:4), each = 12)
+    tissue <- rep(c("T1", "T1", "T2", "T2"), each = 12)
+    biology <- rep(rep(c("B1", "B2"), each = 6), 4)
+
+    expr <- matrix(
+      stats::rnorm(4 * length(sample_ids)),
+      nrow = 4,
+      dimnames = list(paste0("g", 1:4), sample_ids)
+    )
+    expr["g1", biology == "B1"] <- expr["g1", biology == "B1"] + 1
+    expr["g4", biology == "B2"] <- expr["g4", biology == "B2"] + 1
+
+    data <- list(
+      T1 = list(
+        C1 = list(
+          expr = expr[, cohort == "C1", drop = FALSE],
+          subtype = biology[cohort == "C1"]
+        ),
+        C2 = list(
+          expr = expr[, cohort == "C2", drop = FALSE],
+          subtype = biology[cohort == "C2"]
+        )
+      ),
+      T2 = list(
+        C3 = list(
+          expr = expr[, cohort == "C3", drop = FALSE],
+          subtype = biology[cohort == "C3"]
+        ),
+        C4 = list(
+          expr = expr[, cohort == "C4", drop = FALSE],
+          subtype = biology[cohort == "C4"]
+        )
+      )
+    )
+
+    tsp_features <- apply(
+      utils::combn(rownames(expr), 2),
+      2,
+      paste,
+      collapse = ":"
+    )
+    tsp <- vapply(strsplit(tsp_features, ":", fixed = TRUE), function(pair) {
+      as.integer(expr[pair[1], ] >= expr[pair[2], ])
+    }, integer(length(sample_ids)))
+    rownames(tsp) <- sample_ids
+
+    module_ids <- c("T1|M1", "T1|M2", "T1|M3", "T2|M4", "T2|M5", "T2|M6")
+    d1 <- do.call(cbind, lapply(seq_along(module_ids), function(i) {
+      feature_index <- ((i - 1) %% ncol(tsp)) + 1
+      score <- stats::plogis(
+        tsp[, feature_index] + stats::rnorm(nrow(tsp), 0, 0.1)
+      )
+      block <- cbind(`1` = score, `2` = 1 - score)
+      colnames(block) <- paste(module_ids[i], colnames(block), sep = "|")
+      block
+    }))
+    rownames(d1) <- sample_ids
+
+    make_test_model <- function() {
+      class_model <- list(
+        bst = NULL,
+        breakVec = c(0, 0.5, 1),
+        genes = c(rownames(expr), tsp_features)
+      )
+      list(
+        Repeat = list(),
+        Model = list(list(`1` = class_model, `2` = class_model))
+      )
+    }
+    models <- list(
+      T1 = stats::setNames(rep(list(make_test_model()), 3), paste0("M", 1:3)),
+      T2 = stats::setNames(rep(list(make_test_model()), 3), paste0("M", 4:6))
+    )
+
+    object <- methods::new(
+      "CCS",
+      Repeat = list(
+        method = "GSClassifier",
+        geneSet = list(A = c("g1", "g2"), B = c("g3", "g4")),
+        geneAnnotation = data.frame(ENSEMBL = rownames(expr)),
+        geneid = "ensembl",
+        seed = 101,
+        model.dir = ""
+      ),
+      Model = models,
+      Data = list(
+        Probability = list(
+          d1 = d1,
+          d2 = matrix(0, length(sample_ids), 4),
+          d3 = matrix(0, length(sample_ids), 2)
+        ),
+        CCS = stats::setNames(
+          rep(1:2, length.out = length(sample_ids)),
+          sample_ids
+        ),
+        CancerType = stats::setNames(tissue, sample_ids)
+      )
+    )
+
+    metadata <- data.frame(
+      sample_id = sample_ids,
+      cohort = cohort,
+      tissue = tissue,
+      biology = biology,
+      stringsAsFactors = FALSE
+    )
+    experiment <- "cohort"
+    output.dir <- file.path(tempdir(), "ccs-ablation-example")
+    params <- list(
+      rank = 3L,
+      rank_sensitivity = 3L,
+      k = 3L,
+      n_folds = 2L,
+      bootstrap = 5L,
+      geometry_samples = length(sample_ids),
+      distance_pairs = 100L,
+      mechanism_samples = 24L,
+      rp_seeds = c(701L, 702L),
+      permutation_seeds = c(801L, 802L),
+      probe = FALSE,
+      cover = TRUE
+    )
+    seed <- 909L
+    verbose <- FALSE
+  }
+
   # Step 1: Validate the public inputs and merge user overrides into reproducible defaults.
   if (!methods::is(object, "CCS")) {
     stop("ablation: object must be a CCS object.", call. = FALSE)

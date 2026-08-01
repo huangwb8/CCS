@@ -6,6 +6,10 @@
 
 ## [Unreleased]
 
+### Added（新增）
+
+- 新增 `docs/plans/2026-08-01-metaccs-end-to-end-ablation.md`：规划在 `CCS::ablation()` 中增加 Direct-TSP 与 Cohort-d1 的端到端、等机会 metaCCS 流程比较。
+
 ### Changed（变更）
 
 - 调整了 README.md 中教程开放状态的英文措辞：将 “the full tutorial” 细化为“完整且完全可用的形式”，使含义更准确
@@ -14,6 +18,16 @@
 - 完善了 README.md：从简单占位符升级为完整的国际化项目文档，包含安装指南、快速开始、API 文档、开发指南、算法概述、引用格式等章节
 - 重写了 README.md：首页改为简洁项目入口，突出 `ccs.principle` 教学仓库与 `GSClassifier` 生态链接，并将推荐引用调整为 `Under review` 占位说明
 - 调整了 README.md 的作者信息展示：改为与 `GSClassifier` 一致的单行作者样式，并保留邮箱、博客和 ORCID 链接
+
+## [0.7.4] - 2026-08-01
+
+### Added（新增）
+
+- 为 `test/ablation/ablation.R` 中的 `ablation()` 增加纯代码合成数据示例：在函数开头通过默认关闭的 `if (FALSE)` 区块构造 CCS 对象、表达矩阵、冻结模型与元数据，可直接执行 cohort smoke test
+
+### Changed（变更）
+
+- 将 `DESCRIPTION` 版本从 `0.7.3` 更新为 `0.7.4`：记录本次向后兼容的测试示例增强
 
 ## [1.0.0] - 2026-03-01
 
