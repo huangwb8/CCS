@@ -2,6 +2,8 @@
 #'
 #' @description
 #' Evaluate the frozen CCS representation without retraining cohort submodels.
+#' Direct features are reconstructed with GSClassifier's native preprocessing
+#' contract and the exact feature support stored in the frozen models.
 #' The function implements the cohort-representation, cohort-axis scaling,
 #' tissue-first and end-to-end metaCCS experiments defined by the CCS layered
 #' ablation plans. All
@@ -19,63 +21,66 @@
 #'   never overwritten.
 #' @param params Named nested list recursively merged onto
 #'   `.ablation_default_params(seed)`. Callers may provide only the leaves they
-#'   want to change, for example `list(rank = 25L, gate1 = list(enforce = TRUE))`.
-#'   Only the entries below are consumed; use their exact names because unknown
-#'   entries are not generally rejected outside the explicit metaCCS grids.
+#'   want to change, for example
+#'   `list(general = list(rank = 25L), scaling = list(gate = list(enforce = TRUE)))`.
+#'   The canonical top-level groups are `general`, `cohort`, `scaling`,
+#'   `tissue_first`, and `metaccs`. Existing flat parameter names remain accepted
+#'   and are normalized to this schema; unknown or ambiguous duplicate fields are
+#'   rejected before computation.
 #'
 #'   Shared representation, validation, and metric settings:
 #'
 #'   \describe{
-#'     \item{`rank`}{Positive target PCA rank used by Experiment 1 and the d1
+#'     \item{`general$rank`}{Positive target PCA rank used by Experiment 1 and the d1
 #'       scaling curves. It is reduced automatically when a fold has fewer
 #'       samples or features. Default: `50L`.}
-#'     \item{`rank_sensitivity`}{Positive integer vector of additional PCA ranks
+#'     \item{`cohort$rank_sensitivity`}{Positive integer vector of additional PCA ranks
 #'       evaluated in Experiment 1; infeasible values are reduced to the common
 #'       maximum rank. Default: `c(25L, 50L, 100L)`.}
-#'     \item{`k`}{Positive neighborhood size used by kNN similarity, mixing,
+#'     \item{`general$k`}{Positive neighborhood size used by kNN similarity, mixing,
 #'       purity, fidelity, and stability metrics. It is capped at the available
 #'       sample count minus one. Default: `30L`.}
-#'     \item{`distance`}{Distance label stored in metric and audit outputs.
+#'     \item{`general$distance`}{Distance label stored in metric and audit outputs.
 #'       Current computations remain Euclidean regardless of this value; this is
 #'       not yet a distance-method switch. Default: `"euclidean"`.}
-#'     \item{`n_folds`}{Number of whole-cohort validation folds shared by
+#'     \item{`general$n_folds`}{Number of whole-cohort validation folds shared by
 #'       Experiments 1 and 2. `Inf` creates one fold per cohort; a finite value is
 #'       capped at the number of cohorts and must yield at least two folds.
 #'       Default: `Inf`.}
-#'     \item{`bootstrap`}{Positive number of bootstrap draws used for metric
+#'     \item{`general$bootstrap`}{Positive number of bootstrap draws used for metric
 #'       summaries and paired 95 percent confidence intervals. Default: `1000L`.}
-#'     \item{`max_samples`}{Maximum number of aligned input samples retained
+#'     \item{`general$max_samples`}{Maximum number of aligned input samples retained
 #'       before all experiments. `Inf` keeps every sample; finite limits use
 #'       tissue-by-cohort stratified sampling. Default: `Inf`.}
-#'     \item{`geometry_samples`}{Maximum stratified sample count used for the
-#'       dimension-free TSP-versus-d1 geometry comparison in Experiment 1.
+#'     \item{`cohort$geometry_samples`}{Maximum stratified sample count used for the
+#'       dimension-free Direct-GSClassifier-versus-d1 geometry comparison in Experiment 1.
 #'       Default: `5000L`.}
-#'     \item{`distance_pairs`}{Maximum number of sampled row pairs used to
+#'     \item{`cohort$distance_pairs`}{Maximum number of sampled row pairs used to
 #'       estimate the Spearman correlation between distance rankings. Default:
 #'       `100000L`.}
-#'     \item{`mechanism_samples`}{Maximum stratified sample count used by the
+#'     \item{`cohort$mechanism_samples`}{Maximum stratified sample count used by the
 #'       selective-reconstruction mechanism metrics in Experiment 1. Default:
 #'       `1000L`.}
-#'     \item{`probe`}{Logical; whether Experiments 1 and 2 fit the cross-cohort
+#'     \item{`general$probe`}{Logical; whether Experiments 1 and 2 fit the cross-cohort
 #'       linear XGBoost probe and report macro AUROC and balanced accuracy.
 #'       Default: `TRUE`.}
-#'     \item{`probe_label`}{Metadata column decoded by the probe. Labels not
+#'     \item{`general$probe_label`}{Metadata column decoded by the probe. Labels not
 #'       represented in at least two cohorts are excluded. Default: `"tissue"`.}
-#'     \item{`probe_nrounds`}{Positive XGBoost boosting-round count for the
+#'     \item{`general$probe_nrounds`}{Positive XGBoost boosting-round count for the
 #'       linear probe. Default: `50L`.}
-#'     \item{`numCores`}{Positive thread count passed to the XGBoost probe.
+#'     \item{`general$numCores`}{Positive thread count passed to the XGBoost probe.
 #'       Default: `1L`.}
 #'   }
 #'
 #'   Experiment 1 null-control settings:
 #'
 #'   \describe{
-#'     \item{`rp_density`}{Probability that an entry of the sparse Achlioptas
+#'     \item{`cohort$rp_density`}{Probability that an entry of the sparse Achlioptas
 #'       Null-RP projection matrix is nonzero; it should lie in `(0, 1]`.
 #'       Default: `1 / 3`.}
-#'     \item{`rp_seeds`}{Non-empty vector of seeds for independent Null-RP
+#'     \item{`cohort$rp_seeds`}{Non-empty vector of seeds for independent Null-RP
 #'       repeats. Default: `seed + seq_len(20)`.}
-#'     \item{`permutation_seeds`}{Non-empty vector of seeds for independent
+#'     \item{`cohort$permutation_seeds`}{Non-empty vector of seeds for independent
 #'       within-cohort, whole-module Null-Perm repeats. Default:
 #'       `seed + 1000L + seq_len(20)`.}
 #'   }
@@ -83,21 +88,21 @@
 #'   Experiment 2 cohort-axis scaling settings:
 #'
 #'   \describe{
-#'     \item{`scaling_counts`}{Positive module counts evaluated on each nested
+#'     \item{`scaling$counts`}{Positive module counts evaluated on each nested
 #'       sequence; values above the available module bank are capped. Default:
 #'       `c(10L, 25L, 50L, 75L, 100L, 125L, 150L)`.}
-#'     \item{`scaling_sequences`}{Positive number of tissue-balanced nested
+#'     \item{`scaling$sequences`}{Positive number of tissue-balanced nested
 #'       module sequences used for the d1 scaling curves. Default: `100L`.}
-#'     \item{`scaling_embedding_counts`}{Module counts at which the more
+#'     \item{`scaling$embedding_counts`}{Module counts at which the more
 #'       expensive downstream two-stage embedding and DBSCAN analysis is run;
 #'       unavailable counts are capped. Default: `c(25L, 50L, 100L, 150L)`.}
-#'     \item{`scaling_embedding_sequences`}{Number of nested sequences, starting
+#'     \item{`scaling$embedding_sequences`}{Number of nested sequences, starting
 #'       from the generated sequence list, retained for downstream embedding.
 #'       Default: `10L`.}
-#'     \item{`scaling_embedding_seeds`}{Seeds for paired sample subsampling,
+#'     \item{`scaling$embedding_seeds`}{Seeds for paired sample subsampling,
 #'       two-stage reduction, clustering, and stability repeats at each selected
 #'       module count. Default: `seed + 2000L + seq_len(10)`.}
-#'     \item{`scaling_subsample_fraction`}{Fraction in `(0, 1]` sampled within
+#'     \item{`scaling$subsample_fraction`}{Fraction in `(0, 1]` sampled within
 #'       tissue-by-cohort strata for each downstream scaling repeat. Default:
 #'       `0.8`.}
 #'   }
@@ -105,42 +110,43 @@
 #'   Experiment 3 tissue-first settings:
 #'
 #'   \describe{
-#'     \item{`tissue_seeds`}{Seeds defining paired stratified subsamples and
+#'     \item{`tissue_first$seeds`}{Seeds defining paired stratified subsamples and
 #'       reduction repeats shared by the Two-stage and One-stage arms. Default:
 #'       `seed + 3000L + seq_len(20)`.}
-#'     \item{`tissue_subsample_fraction`}{Fraction in `(0, 1]` sampled within
+#'     \item{`tissue_first$subsample_fraction`}{Fraction in `(0, 1]` sampled within
 #'       tissue-by-cohort strata for each Experiment 3 repeat. Default: `0.8`.}
-#'     \item{`fidelity_samples`}{Maximum stratified sample count used when
+#'     \item{`general$fidelity_samples`}{Maximum stratified sample count used when
 #'       computing embedding trustworthiness and continuity. Default: `2000L`.}
 #'   }
 #'
-#'   Shared dimensional-reduction settings are supplied as `dr = list(...)`:
+#'   Shared dimensional-reduction settings are supplied as
+#'   `general = list(dr = list(...))`:
 #'
 #'   \describe{
-#'     \item{`dr$method`}{Reduction method forwarded to the CCS reduction
+#'     \item{`general$dr$method`}{Reduction method forwarded to the CCS reduction
 #'       helpers. Default: `"UWOT"`.}
-#'     \item{`dr$dimension`}{Two positive target dimensions: the first is the
+#'     \item{`general$dr$dimension`}{Two positive target dimensions: the first is the
 #'       per-tissue d2 dimension and the second is the final global d3 dimension.
 #'       Low-rank blocks use the largest feasible smaller value. Default:
 #'       `c(5L, 2L)`.}
-#'     \item{`dr$n_neighbors`}{Neighborhood size forwarded to UWOT and capped
+#'     \item{`general$dr$n_neighbors`}{Neighborhood size forwarded to UWOT and capped
 #'       for small blocks; it must be at least two when supplied. Default: `30L`.}
-#'     \item{`dr$min_dist`}{UWOT minimum-distance parameter. Default: `0.01`.}
-#'     \item{`dr$spread`}{UWOT spread parameter. Default: `0.75`.}
-#'     \item{`dr$set_op_mix_ratio`}{UWOT fuzzy-set intersection/union mixing
+#'     \item{`general$dr$min_dist`}{UWOT minimum-distance parameter. Default: `0.01`.}
+#'     \item{`general$dr$spread`}{UWOT spread parameter. Default: `0.75`.}
+#'     \item{`general$dr$set_op_mix_ratio`}{UWOT fuzzy-set intersection/union mixing
 #'       parameter. Default: `1`.}
-#'     \item{`dr$metric`}{Distance metric forwarded to the reduction backend.
+#'     \item{`general$dr$metric`}{Distance metric forwarded to the reduction backend.
 #'       Default: `"euclidean"`.}
-#'     \item{`dr$n_threads`}{Positive reduction thread count, or `NULL` to use
+#'     \item{`general$dr$n_threads`}{Positive reduction thread count, or `NULL` to use
 #'       the CCS/backend default. Default: `NULL`.}
 #'   }
 #'
-#'   Shared DBSCAN settings are supplied as `cluster = list(...)`:
+#'   Shared DBSCAN settings are supplied as `general = list(cluster = list(...))`:
 #'
 #'   \describe{
-#'     \item{`cluster$eps`}{Positive DBSCAN neighborhood radius applied after
+#'     \item{`general$cluster$eps`}{Positive DBSCAN neighborhood radius applied after
 #'       column-standardizing d3. Default: `0.02`.}
-#'     \item{`cluster$minPts`}{Positive DBSCAN core-point neighborhood threshold.
+#'     \item{`general$cluster$minPts`}{Positive DBSCAN core-point neighborhood threshold.
 #'       Default: `20L`.}
 #'   }
 #'
@@ -157,52 +163,52 @@
 #'     \item{`metaccs$subsample_fraction`}{Fraction in `(0, 1]` retained within
 #'       each tissue-by-cohort stratum. A value of `1` measures algorithmic rather
 #'       than sample-composition variation. Default: `0.8`.}
-#'     \item{`metaccs$parameter_mode`}{`"fixed"` uses the shared `dr` and
-#'       `cluster` settings once; `"grid"` evaluates the Cartesian product of
+#'     \item{`metaccs$parameter_mode`}{`"fixed"` uses the shared `general$dr` and
+#'       `general$cluster` settings once; `"grid"` evaluates the Cartesian product of
 #'       `dr_grid` and `cluster_grid` for both arms. Default: `"fixed"`.}
 #'     \item{`metaccs$dr_grid`}{For grid mode, a non-empty list of named partial
-#'       `dr` lists, or a data frame whose rows are partial configurations. Each
-#'       entry is merged onto `dr`. `NULL` uses only the base configuration.
+#'       `general$dr` lists, or a data frame whose rows are partial configurations.
+#'       Each entry is merged onto `general$dr`. `NULL` uses only the base configuration.
 #'       Default: `NULL`.}
 #'     \item{`metaccs$cluster_grid`}{For grid mode, a non-empty list of named
-#'       partial `cluster` lists, or a data frame whose rows are partial
-#'       configurations. Each entry is merged onto `cluster`. `NULL` uses only
+#'       partial `general$cluster` lists, or a data frame whose rows are partial
+#'       configurations. Each entry is merged onto `general$cluster`. `NULL` uses only
 #'       the base configuration. Default: `NULL`.}
 #'     \item{`metaccs$direct_feature_mode`}{Feature-support rule for the Direct
 #'       arm. The only currently supported value, `"tissue_model_union"`, uses
-#'       the union of frozen-model TSPs within each tissue. Default:
+#'       the union of frozen-model GSClassifier input features within each tissue. Default:
 #'       `"tissue_model_union"`.}
 #'     \item{`metaccs$retain_assignments`}{Logical; retain per-sample raw DBSCAN
 #'       cluster and noise assignments for every metaCCS run. Default: `TRUE`.}
 #'   }
 #'
-#'   Gate 1 settings are supplied as `gate1 = list(...)`:
+#'   Gate 1 settings are supplied as `scaling = list(gate = list(...))`:
 #'
 #'   \describe{
-#'     \item{`gate1$enforce`}{Logical; Gate 1 is always calculated before
+#'     \item{`scaling$gate$enforce`}{Logical; Gate 1 is always calculated before
 #'       scaling, but scaling is stopped on failure only when this is `TRUE`.
 #'       Keep `FALSE` for exploratory analysis. Use `TRUE` for preregistered
 #'       confirmatory or compute-gated analysis. Default: `FALSE`.}
-#'     \item{`gate1$primary_metric`}{Experiment 1 metric used for the three
+#'     \item{`scaling$gate$primary_metric`}{Experiment 1 metric used for the three
 #'       Cohort-minus-baseline decisions. If `"balanced_accuracy"` is not
 #'       estimable, the current implementation falls back to `"biology_purity"`.
 #'       Default: `"balanced_accuracy"`.}
-#'     \item{`gate1$min_gain`}{Minimum required lower bound of the paired 95 percent
+#'     \item{`scaling$gate$min_gain`}{Minimum required lower bound of the paired 95 percent
 #'       confidence interval for each of Cohort-Direct, Cohort-Null-RP, and
 #'       Cohort-Null-Perm on the primary metric. `0` requires non-negative
 #'       evidence; `0.02` requires at least a 0.02 lower-bound gain. Default: `0`.}
-#'     \item{`gate1$purity_tolerance`}{Largest accepted decrease in
+#'     \item{`scaling$gate$purity_tolerance`}{Largest accepted decrease in
 #'       biology purity: the Cohort-Direct paired CI lower bound must be at least
 #'       the negative tolerance. For example, `0.01` permits a lower bound of
 #'       `-0.01`. Default: `0`.}
-#'     \item{`gate1$mixing_tolerance`}{Largest accepted decrease in cohort
+#'     \item{`scaling$gate$mixing_tolerance`}{Largest accepted decrease in cohort
 #'       mixing, interpreted in the same way as `purity_tolerance`. Default: `0`.}
 #'   }
 #'
 #'   Output handling:
 #'
 #'   \describe{
-#'     \item{`cover`}{Logical; allow writing into a non-empty `output.dir` and
+#'     \item{`general$cover`}{Logical; allow writing into a non-empty `output.dir` and
 #'       replacing same-named ablation result files. Default: `FALSE`.}
 #'   }
 #' @param seed Master random seed.
@@ -279,7 +285,7 @@ ablation <- function(
     rownames(tsp) <- sample_ids
 
     # Give each frozen cohort model explicit TSP support. Tissue unions differ so
-    # metaCCS can verify that Direct-TSP follows the matching tissue model space.
+    # metaCCS can verify that Direct follows the matching tissue model space.
     module_features <- list(
       `T1|C1` = tsp_features[c(1, 2)],
       `T1|C2` = tsp_features[c(3, 4)],
@@ -355,41 +361,47 @@ ablation <- function(
     experiment <- c("cohort", "scaling", "tissue_first", "metaccs")
     output.dir <- file.path(tempdir(), "ccs-ablation-example")
     params <- list(
-      # Shared geometry and validation budget.
-      rank = 3L,
-      rank_sensitivity = c(2L, 3L),
-      k = 3L,
-      n_folds = 2L,
-      bootstrap = 5L,
-      geometry_samples = length(sample_ids),
-      distance_pairs = 100L,
-      mechanism_samples = 24L,
-      rp_seeds = c(701L, 702L),
-      permutation_seeds = c(801L, 802L),
-      probe = FALSE,
-      # Cohort-axis scaling uses both half and all four frozen modules.
-      scaling_counts = c(2L, 4L),
-      scaling_sequences = 2L,
-      scaling_embedding_counts = c(2L, 4L),
-      scaling_embedding_sequences = 2L,
-      scaling_embedding_seeds = c(901L, 902L),
-      scaling_subsample_fraction = 1,
-      # Tissue-first keeps paired samples and seeds across both reduction arms.
-      tissue_seeds = c(1001L, 1002L),
-      tissue_subsample_fraction = 1,
-      fidelity_samples = length(sample_ids),
-      dr = list(
-        method = "UWOT",
-        dimension = c(3L, 2L),
-        n_neighbors = 5L,
-        min_dist = 0.1,
-        spread = 1,
-        set_op_mix_ratio = 1,
-        metric = "euclidean",
-        n_threads = 1L
+      general = list(
+        rank = 3L,
+        k = 3L,
+        n_folds = 2L,
+        bootstrap = 5L,
+        probe = FALSE,
+        fidelity_samples = length(sample_ids),
+        dr = list(
+          method = "UWOT",
+          dimension = c(3L, 2L),
+          n_neighbors = 5L,
+          min_dist = 0.1,
+          spread = 1,
+          set_op_mix_ratio = 1,
+          metric = "euclidean",
+          n_threads = 1L
+        ),
+        cluster = list(eps = 0.5, minPts = 3L),
+        cover = TRUE
       ),
-      cluster = list(eps = 0.5, minPts = 3L),
-      # metaCCS uses one full-data resample and two UMAP seeds so stability is estimable.
+      cohort = list(
+        rank_sensitivity = c(2L, 3L),
+        geometry_samples = length(sample_ids),
+        distance_pairs = 100L,
+        mechanism_samples = 24L,
+        rp_seeds = c(701L, 702L),
+        permutation_seeds = c(801L, 802L)
+      ),
+      scaling = list(
+        counts = c(2L, 4L),
+        sequences = 2L,
+        embedding_counts = c(2L, 4L),
+        embedding_sequences = 2L,
+        embedding_seeds = c(901L, 902L),
+        subsample_fraction = 1,
+        gate = list(enforce = FALSE)
+      ),
+      tissue_first = list(
+        seeds = c(1001L, 1002L),
+        subsample_fraction = 1
+      ),
       metaccs = list(
         resample_seeds = 1101L,
         umap_seeds = c(1201L, 1202L),
@@ -397,10 +409,7 @@ ablation <- function(
         parameter_mode = "fixed",
         direct_feature_mode = "tissue_model_union",
         retain_assignments = TRUE
-      ),
-      # Compute Gate 1 but do not let a tiny synthetic effect stop the scaling smoke test.
-      gate1 = list(enforce = FALSE),
-      cover = TRUE
+      )
     )
     seed <- 1301L
     verbose <- FALSE
@@ -413,19 +422,23 @@ ablation <- function(
 
   choices <- c("cohort", "scaling", "tissue_first", "metaccs")
   experiment <- unique(match.arg(experiment, choices, several.ok = TRUE))
-  config <- .ablation_merge_lists(.ablation_default_params(seed), params)
-  .ablation_validate_config(config)
+  config <- .ablation_resolve_config(seed, params)
 
   # Keep each run isolated and never overwrite existing results unless cover is explicit.
-  if (dir.exists(output.dir) && length(list.files(output.dir)) > 0 && !config$cover) {
+  if (dir.exists(output.dir) &&
+      length(list.files(output.dir)) > 0 &&
+      !config$general$cover) {
     stop(
-      "ablation: output.dir is not empty. Use a new directory or set params$cover = TRUE.",
+      paste0(
+        "ablation: output.dir is not empty. Use a new directory or set ",
+        "params$general$cover = TRUE."
+      ),
       call. = FALSE
     )
   }
   dir.create(output.dir, recursive = TRUE, showWarnings = FALSE)
 
-  # Step 2: Align frozen d1, RNA/TSP features, and sample annotations, then freeze the manifest.
+  # Step 2: Align frozen d1, GSClassifier inputs, and sample annotations.
   if (verbose) {
     luckyBase::LuckyVerbose("ablation: Prepare frozen CCS inputs...")
   }
@@ -433,7 +446,7 @@ ablation <- function(
     object = object,
     data = data,
     metadata = metadata,
-    max_samples = config$max_samples,
+    max_samples = config$general$max_samples,
     seed = seed
   )
   manifest <- .ablation_build_manifest(object, prepared, config, seed)
@@ -462,8 +475,8 @@ ablation <- function(
 
   if ("scaling" %in% experiment) {
     # When enforced, Gate 1 stops scaling unless the cohort representation beats its baselines.
-    gate <- .ablation_gate_one(experiments$cohort, config$gate1)
-    if (gate$pass || !config$gate1$enforce) {
+    gate <- .ablation_gate_one(experiments$cohort, config$scaling$gate)
+    if (gate$pass || !config$scaling$gate$enforce) {
       if (verbose) {
         luckyBase::LuckyVerbose("ablation: Experiment 2 - cohort-axis scaling...")
       }
@@ -556,48 +569,59 @@ ablation <- function(
 # each random control or reduction repeat be reproduced in isolation.
 .ablation_default_params <- function(seed = 20260727) {
   list(
-    # Experiment 1: common rank, neighborhood, validation, and geometry settings.
-    rank = 50L,
-    rank_sensitivity = c(25L, 50L, 100L),
-    k = 30L,
-    distance = "euclidean",
-    n_folds = Inf,
-    bootstrap = 1000L,
-    max_samples = Inf,
-    geometry_samples = 5000L,
-    distance_pairs = 100000L,
-    mechanism_samples = 1000L,
-    probe = TRUE,
-    probe_label = "tissue",
-    probe_nrounds = 50L,
-    numCores = 1L,
-    # Repeat random projection and within-cohort module permutation separately.
-    rp_density = 1 / 3,
-    rp_seeds = seed + seq_len(20),
-    permutation_seeds = seed + 1000L + seq_len(20),
-    # Experiment 2: nested module-count sequences and downstream embedding repeats.
-    scaling_counts = c(10L, 25L, 50L, 75L, 100L, 125L, 150L),
-    scaling_sequences = 100L,
-    scaling_embedding_counts = c(25L, 50L, 100L, 150L),
-    scaling_embedding_sequences = 10L,
-    scaling_embedding_seeds = seed + 2000L + seq_len(10),
-    scaling_subsample_fraction = 0.8,
-    # Experiment 3: paired sampling and reduction settings shared by both arms.
-    tissue_seeds = seed + 3000L + seq_len(20),
-    tissue_subsample_fraction = 0.8,
-    fidelity_samples = 2000L,
-    dr = list(
-      method = "UWOT",
-      dimension = c(5L, 2L),
-      n_neighbors = 30L,
-      min_dist = 0.01,
-      spread = 0.75,
-      set_op_mix_ratio = 1,
-      metric = "euclidean",
-      n_threads = NULL
+    general = list(
+      rank = 50L,
+      k = 30L,
+      distance = "euclidean",
+      n_folds = Inf,
+      bootstrap = 1000L,
+      max_samples = Inf,
+      probe = TRUE,
+      probe_label = "tissue",
+      probe_nrounds = 50L,
+      numCores = 1L,
+      fidelity_samples = 2000L,
+      dr = list(
+        method = "UWOT",
+        dimension = c(5L, 2L),
+        n_neighbors = 30L,
+        min_dist = 0.01,
+        spread = 0.75,
+        set_op_mix_ratio = 1,
+        metric = "euclidean",
+        n_threads = NULL
+      ),
+      cluster = list(eps = 0.02, minPts = 20L),
+      cover = FALSE
     ),
-    cluster = list(eps = 0.02, minPts = 20L),
-    # Experiment 4: shared resamples, UMAP seeds, parameter budget, and Direct support.
+    cohort = list(
+      rank_sensitivity = c(25L, 50L, 100L),
+      geometry_samples = 5000L,
+      distance_pairs = 100000L,
+      mechanism_samples = 1000L,
+      rp_density = 1 / 3,
+      rp_seeds = seed + seq_len(20),
+      permutation_seeds = seed + 1000L + seq_len(20)
+    ),
+    scaling = list(
+      counts = c(10L, 25L, 50L, 75L, 100L, 125L, 150L),
+      sequences = 100L,
+      embedding_counts = c(25L, 50L, 100L, 150L),
+      embedding_sequences = 10L,
+      embedding_seeds = seed + 2000L + seq_len(10),
+      subsample_fraction = 0.8,
+      gate = list(
+        enforce = FALSE,
+        primary_metric = "balanced_accuracy",
+        min_gain = 0,
+        purity_tolerance = 0,
+        mixing_tolerance = 0
+      )
+    ),
+    tissue_first = list(
+      seeds = seed + 3000L + seq_len(20),
+      subsample_fraction = 0.8
+    ),
     metaccs = list(
       resample_seeds = seed + 4000L + seq_len(10),
       umap_seeds = seed + 5000L + seq_len(5),
@@ -607,17 +631,126 @@ ablation <- function(
       cluster_grid = NULL,
       direct_feature_mode = "tissue_model_union",
       retain_assignments = TRUE
-    ),
-    # Gate 1 checks the primary effect, biological purity, and cohort mixing together.
-    gate1 = list(
-      enforce = FALSE,
-      primary_metric = "balanced_accuracy",
-      min_gain = 0,
-      purity_tolerance = 0,
-      mixing_tolerance = 0
-    ),
-    cover = FALSE
+    )
   )
+}
+
+
+# Resolve the public nested schema while keeping existing flat calls compatible.
+.ablation_resolve_config <- function(seed, params = list()) {
+  default <- .ablation_default_params(seed)
+  override <- .ablation_normalize_params(params, default)
+  config <- .ablation_merge_lists(default, override)
+  .ablation_validate_config(config)
+  config
+}
+
+
+.ablation_normalize_params <- function(params, default = .ablation_default_params()) {
+  if (!is.list(params)) {
+    stop("ablation: params must be a named list.", call. = FALSE)
+  }
+  if (length(params) == 0) {
+    return(list())
+  }
+  if (is.null(names(params)) || any(!nzchar(names(params))) || anyDuplicated(names(params))) {
+    stop("ablation: params must have unique, non-empty names.", call. = FALSE)
+  }
+
+  groups <- names(default)
+  legacy_paths <- list(
+    rank = c("general", "rank"),
+    k = c("general", "k"),
+    distance = c("general", "distance"),
+    n_folds = c("general", "n_folds"),
+    bootstrap = c("general", "bootstrap"),
+    max_samples = c("general", "max_samples"),
+    probe = c("general", "probe"),
+    probe_label = c("general", "probe_label"),
+    probe_nrounds = c("general", "probe_nrounds"),
+    numCores = c("general", "numCores"),
+    fidelity_samples = c("general", "fidelity_samples"),
+    dr = c("general", "dr"),
+    cluster = c("general", "cluster"),
+    cover = c("general", "cover"),
+    rank_sensitivity = c("cohort", "rank_sensitivity"),
+    geometry_samples = c("cohort", "geometry_samples"),
+    distance_pairs = c("cohort", "distance_pairs"),
+    mechanism_samples = c("cohort", "mechanism_samples"),
+    rp_density = c("cohort", "rp_density"),
+    rp_seeds = c("cohort", "rp_seeds"),
+    permutation_seeds = c("cohort", "permutation_seeds"),
+    scaling_counts = c("scaling", "counts"),
+    scaling_sequences = c("scaling", "sequences"),
+    scaling_embedding_counts = c("scaling", "embedding_counts"),
+    scaling_embedding_sequences = c("scaling", "embedding_sequences"),
+    scaling_embedding_seeds = c("scaling", "embedding_seeds"),
+    scaling_subsample_fraction = c("scaling", "subsample_fraction"),
+    gate1 = c("scaling", "gate"),
+    tissue_seeds = c("tissue_first", "seeds"),
+    tissue_subsample_fraction = c("tissue_first", "subsample_fraction")
+  )
+  known <- c(groups, names(legacy_paths))
+  unknown <- setdiff(names(params), known)
+  if (length(unknown) > 0) {
+    stop(
+      "ablation: unknown params field(s): ",
+      paste(unknown, collapse = ", "), ".",
+      call. = FALSE
+    )
+  }
+
+  override <- params[intersect(groups, names(params))]
+  for (legacy_name in intersect(names(legacy_paths), names(params))) {
+    path <- legacy_paths[[legacy_name]]
+    group <- path[1]
+    field <- path[2]
+    if (!is.null(override[[group]]) && field %in% names(override[[group]])) {
+      stop(
+        "ablation: params$", legacy_name, " and params$", group, "$", field,
+        " were provided more than once.",
+        call. = FALSE
+      )
+    }
+    if (is.null(override[[group]])) {
+      override[[group]] <- list()
+    }
+    override[[group]][[field]] <- params[[legacy_name]]
+  }
+  override <- override[intersect(groups, names(override))]
+  .ablation_validate_override(default, override)
+  override
+}
+
+
+.ablation_validate_override <- function(default, override, path = "params") {
+  if (!is.list(override)) {
+    stop("ablation: ", path, " must be a named list.", call. = FALSE)
+  }
+  if (length(override) == 0) {
+    return(invisible(TRUE))
+  }
+  if (is.null(names(override)) || any(!nzchar(names(override))) || anyDuplicated(names(override))) {
+    stop("ablation: ", path, " must have unique, non-empty names.", call. = FALSE)
+  }
+  unknown <- setdiff(names(override), names(default))
+  if (length(unknown) > 0) {
+    stop(
+      "ablation: unknown params field(s): ",
+      paste(paste0(path, "$", unknown), collapse = ", "), ".",
+      call. = FALSE
+    )
+  }
+  for (name in intersect(names(default), names(override))) {
+    if (is.list(default[[name]])) {
+      .ablation_validate_override(
+        default[[name]],
+        override[[name]],
+        paste0(path, "$", name)
+      )
+    }
+  }
+  invisible(TRUE)
 }
 
 
@@ -639,20 +772,25 @@ ablation <- function(
 
 # Validate the minimum settings that could invalidate an experiment before costly work starts.
 .ablation_validate_config <- function(config) {
-  if (length(config$rank) != 1 || config$rank < 1) {
-    stop("ablation: params$rank must be a positive integer.", call. = FALSE)
+  if (length(config$general$rank) != 1 || config$general$rank < 1) {
+    stop("ablation: params$general$rank must be a positive integer.", call. = FALSE)
   }
-  if (length(config$k) != 1 || config$k < 1) {
-    stop("ablation: params$k must be a positive integer.", call. = FALSE)
+  if (length(config$general$k) != 1 || config$general$k < 1) {
+    stop("ablation: params$general$k must be a positive integer.", call. = FALSE)
   }
-  if (length(config$rp_seeds) < 1 || length(config$permutation_seeds) < 1) {
+  if (length(config$cohort$rp_seeds) < 1 ||
+      length(config$cohort$permutation_seeds) < 1) {
     stop("ablation: both null controls require at least one seed.", call. = FALSE)
   }
-  if (length(config$bootstrap) != 1 || config$bootstrap < 1) {
-    stop("ablation: params$bootstrap must be a positive integer.", call. = FALSE)
+  if (length(config$general$bootstrap) != 1 || config$general$bootstrap < 1) {
+    stop("ablation: params$general$bootstrap must be a positive integer.", call. = FALSE)
   }
-  if (length(config$dr$dimension) != 2 || any(config$dr$dimension < 1)) {
-    stop("ablation: params$dr$dimension must contain two positive integers.", call. = FALSE)
+  if (length(config$general$dr$dimension) != 2 ||
+      any(config$general$dr$dimension < 1)) {
+    stop(
+      "ablation: params$general$dr$dimension must contain two positive integers.",
+      call. = FALSE
+    )
   }
   if (length(config$metaccs$resample_seeds) < 1 ||
       length(config$metaccs$umap_seeds) < 1) {
@@ -711,21 +849,31 @@ ablation <- function(
 }
 
 
-# Read only the TSP features used by frozen models; never retrain or modify CCS.
-# Prefer object@Model and fall back to the recorded model directory when needed.
+# Read only the ordinary gene-pair features used by frozen models.
 .ablation_extract_tsp_features <- function(object, module_manifest) {
+  .ablation_frozen_feature_manifest(object, module_manifest)$tsp_features
+}
+
+
+# Read the complete GSClassifier input feature support used by frozen models.
+.ablation_extract_direct_features <- function(object, module_manifest) {
   .ablation_frozen_feature_manifest(object, module_manifest)$features
 }
 
 
-# Recover module- and tissue-level frozen feature support once. Experiment 4
-# uses tissue unions to give Direct-TSP the same selected feature support as d1.
+# Recover module- and tissue-level frozen GSClassifier feature support once.
 .ablation_frozen_feature_manifest <- function(object, module_manifest) {
+  if (!identical(object@Repeat$method, "GSClassifier")) {
+    stop(
+      "ablation: frozen cohort models must use method = 'GSClassifier'.",
+      call. = FALSE
+    )
+  }
   models <- object@Model
   use_embedded <- length(models) > 0 && !identical(models, list(NA))
   path_map <- if (use_embedded) NULL else .ablation_model_path_map(object)
 
-  module_features <- lapply(seq_len(nrow(module_manifest$modules)), function(i) {
+  module_records <- lapply(seq_len(nrow(module_manifest$modules)), function(i) {
     tissue <- module_manifest$modules$tissue[i]
     cohort <- module_manifest$modules$cohort[i]
     module_id <- module_manifest$modules$module_id[i]
@@ -739,52 +887,113 @@ ablation <- function(
       readRDS(path)
     }
     features <- .ablation_model_features(model)
-    features <- unique(features[grepl(":", features, fixed = TRUE)])
     if (length(features) == 0) {
-      return(data.frame(
-        module_id = character(),
-        tissue = character(),
-        cohort = character(),
-        feature = character(),
-        stringsAsFactors = FALSE
-      ))
+      stop(
+        "ablation: frozen model has no GSClassifier features for module ",
+        module_id,
+        ".",
+        call. = FALSE
+      )
     }
-    data.frame(
-      module_id = module_id,
-      tissue = tissue,
-      cohort = cohort,
-      feature = features,
-      stringsAsFactors = FALSE
+    list(
+      features = data.frame(
+        module_id = module_id,
+        tissue = tissue,
+        cohort = cohort,
+        feature = features,
+        feature_type = .ablation_feature_type(features),
+        stringsAsFactors = FALSE
+      ),
+      break_vectors = .ablation_model_break_vectors(model)
     )
   })
-  module_features <- do.call(rbind, module_features)
+  module_features <- do.call(rbind, lapply(module_records, `[[`, "features"))
   features <- unique(module_features$feature)
   if (length(features) == 0) {
-    stop("ablation: no TSP pair features were found in frozen models.", call. = FALSE)
+    stop("ablation: no GSClassifier features were found in frozen models.", call. = FALSE)
   }
+  feature_manifest <- unique(module_features[, c("feature", "feature_type")])
+  feature_manifest <- feature_manifest[match(features, feature_manifest$feature), , drop = FALSE]
   tissue_features <- lapply(
     split(module_features$feature, module_features$tissue),
     unique
   )
+  break_vectors <- unlist(
+    lapply(module_records, `[[`, "break_vectors"),
+    recursive = FALSE,
+    use.names = FALSE
+  )
+  break_hashes <- vapply(break_vectors, digest::digest, character(1), algo = "md5")
+  unique_breaks <- break_vectors[!duplicated(break_hashes)]
+  if (length(unique_breaks) != 1) {
+    stop(
+      "ablation: frozen GSClassifier models use heterogeneous breakVec values.",
+      call. = FALSE
+    )
+  }
+  tsp_features <- feature_manifest$feature[feature_manifest$feature_type == "gene_pair"]
   list(
     features = features,
+    tsp_features = tsp_features,
+    feature_manifest = feature_manifest,
     module_features = module_features,
     tissue_features = tissue_features,
-    direct_feature_hash = digest::digest(tissue_features, algo = "md5")
+    break_vec = unique_breaks[[1]],
+    break_vec_hash = digest::digest(unique_breaks[[1]], algo = "md5"),
+    direct_feature_hash = digest::digest(
+      list(tissue_features = tissue_features, break_vec = unique_breaks[[1]]),
+      algo = "md5"
+    )
   )
 }
 
 
-# Collect gene pairs used across all repeats and class-specific frozen models.
+# Collect the exact input features used across all repeats and frozen class models.
 .ablation_model_features <- function(model) {
   if (is.null(model) || is.null(model$Model)) {
     stop("ablation: malformed frozen cohort model.", call. = FALSE)
   }
   unique(unlist(lapply(model$Model, function(repeat_model) {
     unlist(lapply(repeat_model, function(class_model) {
-      if (is.null(class_model)) character() else class_model$genes
+      if (is.null(class_model)) {
+        return(character())
+      }
+      features <- class_model$bst$feature_names
+      if (length(features) == 0) {
+        features <- class_model$genes
+      }
+      features
     }), use.names = FALSE)
   }), use.names = FALSE))
+}
+
+
+.ablation_model_break_vectors <- function(model) {
+  vectors <- unlist(lapply(model$Model, function(repeat_model) {
+    lapply(repeat_model, function(class_model) {
+      if (is.null(class_model)) NULL else class_model$breakVec
+    })
+  }), recursive = FALSE, use.names = FALSE)
+  vectors <- Filter(function(x) length(x) > 0, vectors)
+  if (length(vectors) == 0 || any(!vapply(vectors, function(x) {
+    is.numeric(x) &&
+      length(x) >= 2 &&
+      all(is.finite(x)) &&
+      all(x >= 0 & x <= 1) &&
+      all(diff(x) > 0)
+  }, logical(1)))) {
+    stop("ablation: malformed GSClassifier breakVec in frozen model.", call. = FALSE)
+  }
+  lapply(vectors, as.numeric)
+}
+
+
+.ablation_feature_type <- function(features) {
+  ifelse(
+    grepl(":", features, fixed = TRUE),
+    "gene_pair",
+    ifelse(grepl("^s[0-9]+s[0-9]+$", features), "set_pair", "single_bin")
+  )
 }
 
 
@@ -807,7 +1016,7 @@ ablation <- function(
 }
 
 
-# Align CCS, RNA expression, and metadata to one sample set and build the shared TSP matrix.
+# Align CCS, RNA expression, and metadata, then build GSClassifier features.
 .ablation_prepare_input <- function(
     object,
     data,
@@ -818,7 +1027,8 @@ ablation <- function(
   # Derive the feature universe from frozen models before organizing expression and metadata.
   module_manifest <- .ablation_module_manifest(object)
   feature_manifest <- .ablation_frozen_feature_manifest(object, module_manifest)
-  tsp_features <- feature_manifest$features
+  direct_features <- feature_manifest$features
+  tsp_features <- feature_manifest$tsp_features
   flattened <- .ablation_flatten_expression(data)
   metadata <- .ablation_prepare_metadata(metadata, flattened$metadata, object)
 
@@ -849,37 +1059,21 @@ ablation <- function(
   }
 
   expr <- flattened$expr[, sample_ids, drop = FALSE]
-  pair_genes <- unique(unlist(strsplit(tsp_features, ":", fixed = TRUE)))
-  # Reuse the CCS geneMatch rule only when raw row names do not cover model genes.
-  if (!all(pair_genes %in% rownames(expr))) {
-    matched <- GSClassifier::geneMatch(
-      X = expr,
-      geneAnnotation = object@Repeat$geneAnnotation,
-      geneid = object@Repeat$geneid,
-      matchmode = "fix"
-    )
-    expr <- matched$Subset
-  }
-  missing_genes <- setdiff(pair_genes, rownames(expr))
-  if (length(missing_genes) > 0) {
-    stop(
-      "ablation: RNA data lack TSP genes: ",
-      paste(missing_genes, collapse = ", "),
-      call. = FALSE
-    )
-  }
-
-  tsp <- .ablation_tsp_matrix(expr, tsp_features)
+  direct <- .ablation_gsclassifier_matrix(object, expr, feature_manifest)
+  tsp_features <- feature_manifest$tsp_features
+  tsp <- direct[, tsp_features, drop = FALSE]
   d1 <- d1[sample_ids, , drop = FALSE]
   metadata <- metadata[match(sample_ids, metadata$sample_id), , drop = FALSE]
   rownames(metadata) <- metadata$sample_id
 
   list(
+    direct = direct,
     tsp = tsp,
     d1 = d1,
     metadata = metadata,
     module_manifest = module_manifest,
     feature_manifest = feature_manifest,
+    direct_features = direct_features,
     tsp_features = tsp_features,
     excluded_duplicate_samples = excluded_duplicate_samples
   )
@@ -933,9 +1127,18 @@ ablation <- function(
   }
   metadata <- do.call(rbind, annotations)
   duplicate_ids <- unique(metadata$sample_id[duplicated(metadata$sample_id)])
-  # Intersect genes across cohorts before binding so every sample shares one feature space.
-  genes <- Reduce(intersect, lapply(matrices, rownames))
-  expr <- do.call(cbind, lapply(matrices, function(x) x[genes, , drop = FALSE]))
+  # Match CCS::getResData(): join cohorts by gene union and retain missing cells as NA.
+  genes <- unique(unlist(lapply(matrices, rownames), use.names = FALSE))
+  expr <- do.call(cbind, lapply(matrices, function(x) {
+    aligned <- matrix(
+      NA_real_,
+      nrow = length(genes),
+      ncol = ncol(x),
+      dimnames = list(genes, colnames(x))
+    )
+    aligned[rownames(x), ] <- x
+    aligned
+  }))
   keep <- !metadata$sample_id %in% duplicate_ids
   list(
     expr = expr[, keep, drop = FALSE],
@@ -1006,15 +1209,46 @@ ablation <- function(
 }
 
 
-# Encode each geneA:geneB pair as a binary TSP, with geneA >= geneB mapped to 1.
-.ablation_tsp_matrix <- function(expr, features) {
-  pairs <- strsplit(features, ":", fixed = TRUE)
-  tsp <- vapply(pairs, function(pair) {
-    as.integer(expr[pair[1], ] >= expr[pair[2], ])
-  }, integer(ncol(expr)))
-  rownames(tsp) <- colnames(expr)
-  colnames(tsp) <- features
-  tsp
+# Reconstruct the frozen GSClassifier input space without refitting any model.
+.ablation_gsclassifier_matrix <- function(object, expr, feature_manifest) {
+  if (!identical(object@Repeat$method, "GSClassifier")) {
+    stop(
+      "ablation: Direct features require method = 'GSClassifier'.",
+      call. = FALSE
+    )
+  }
+  if (length(object@Repeat$geneSet) == 0) {
+    stop("ablation: GSClassifier Direct features require a non-empty geneSet.", call. = FALSE)
+  }
+  matched <- GSClassifier::geneMatch(
+    X = expr,
+    geneAnnotation = object@Repeat$geneAnnotation,
+    geneid = object@Repeat$geneid,
+    matchmode = "fix"
+  )
+  build_features <- getFromNamespace("trainDataProc_X", "GSClassifier")
+  transformed <- build_features(
+    Xmat = as.matrix(matched$Subset),
+    geneSet = object@Repeat$geneSet,
+    breakVec = feature_manifest$break_vec
+  )$dat$Xbin
+  transformed <- as.matrix(transformed)
+  missing <- setdiff(feature_manifest$features, colnames(transformed))
+  if (length(missing) > 0) {
+    stop(
+      "ablation: GSClassifier did not reconstruct frozen features: ",
+      paste(missing, collapse = ", "),
+      call. = FALSE
+    )
+  }
+  direct <- transformed[, feature_manifest$features, drop = FALSE]
+  if (any(!is.finite(direct))) {
+    stop(
+      "ablation: GSClassifier Direct features contain non-finite values.",
+      call. = FALSE
+    )
+  }
+  direct
 }
 
 
@@ -1024,26 +1258,39 @@ ablation <- function(
   feature_hash <- digest::digest(
     list(
       tsp = prepared$tsp_features,
+      direct = prepared$direct_features,
       modules = prepared$module_manifest$modules,
       d1_columns = colnames(prepared$d1)
     ),
     algo = "md5"
   )
   list(
-    version = 1L,
+    version = 2L,
     created = format(Sys.time(), "%Y-%m-%dT%H:%M:%S%z"),
     seed = seed,
     object_class = class(object)[1],
     object_version = tryCatch(as.character(utils::packageVersion("CCS")), error = function(e) NA_character_),
+    gsclassifier_version = tryCatch(
+      as.character(utils::packageVersion("GSClassifier")),
+      error = function(e) NA_character_
+    ),
+    gsclassifier_feature_builder = "trainDataProc_X",
     model_dir = object@Repeat$model.dir,
     sample_count = nrow(prepared$d1),
     tsp_feature_count = ncol(prepared$tsp),
+    direct_feature_count = ncol(prepared$direct),
+    direct_feature_type_count = table(factor(
+      prepared$feature_manifest$feature_manifest$feature_type,
+      levels = c("single_bin", "gene_pair", "set_pair")
+    )),
     d1_dimension = dim(prepared$d1),
     module_count = nrow(prepared$module_manifest$modules),
     excluded_duplicate_sample_count = length(prepared$excluded_duplicate_samples),
     sample_manifest_hash = sample_hash,
     feature_manifest_hash = feature_hash,
     direct_feature_hash = prepared$feature_manifest$direct_feature_hash,
+    direct_break_vec = prepared$feature_manifest$break_vec,
+    direct_break_vec_hash = prepared$feature_manifest$break_vec_hash,
     tissue_feature_count = vapply(
       prepared$feature_manifest$tissue_features,
       length,
@@ -1294,11 +1541,11 @@ ablation <- function(
     feature_selector = "cyclic",
     objective = "multi:softprob",
     num_class = length(classes),
-    nrounds = as.integer(config$probe_nrounds),
+    nrounds = as.integer(config$general$probe_nrounds),
     eta = 0.1,
     lambda = 1,
     alpha = 0,
-    nthread = as.integer(config$numCores),
+    nthread = as.integer(config$general$numCores),
     verbose = 0
   )
   probability <- predict(fit, as.matrix(test[keep_test, , drop = FALSE]))
@@ -1347,10 +1594,10 @@ ablation <- function(
 }
 
 
-# Compare Direct and candidate distance-rank changes along original TSP neighbor edges,
+# Compare Direct and candidate distance-rank changes along original feature edges,
 # separating biology-discordant edges from biology-matched, cross-cohort edges.
 .ablation_selective_reconstruction <- function(
-    tsp,
+    original,
     direct,
     candidate,
     metadata,
@@ -1358,20 +1605,20 @@ ablation <- function(
     max_samples,
     seed
 ) {
-  if (nrow(tsp) > max_samples) {
+  if (nrow(original) > max_samples) {
     rows <- .ablation_stratified_sample(metadata, max_samples, seed)
-    tsp <- tsp[rows, , drop = FALSE]
+    original <- original[rows, , drop = FALSE]
     direct <- direct[rows, , drop = FALSE]
     candidate <- candidate[rows, , drop = FALSE]
     metadata <- metadata[rows, , drop = FALSE]
   }
-  k <- min(k, nrow(tsp) - 1L)
-  edges <- .ablation_knn(tsp, k)
+  k <- min(k, nrow(original) - 1L)
+  edges <- .ablation_knn(original, k)
   direct_distance <- as.matrix(stats::dist(direct))
   candidate_distance <- as.matrix(stats::dist(candidate))
   direct_rank <- t(apply(direct_distance, 1, rank, ties.method = "average")) - 1
   candidate_rank <- t(apply(candidate_distance, 1, rank, ties.method = "average")) - 1
-  # delta > 0 means the TSP neighbor ranks farther away in the candidate than in Direct.
+  # delta > 0 means an original neighbor ranks farther away in the candidate than in Direct.
   anchor <- rep(seq_len(nrow(edges)), each = ncol(edges))
   neighbor <- as.vector(t(edges))
   delta <- candidate_rank[cbind(anchor, neighbor)] - direct_rank[cbind(anchor, neighbor)]
@@ -1391,7 +1638,7 @@ ablation <- function(
 .ablation_metric_rows <- function(
     direct_scores,
     candidate_scores,
-    tsp_test,
+    original_test,
     metadata_test,
     metadata_train,
     train_scores,
@@ -1403,23 +1650,23 @@ ablation <- function(
     config,
     seed
 ) {
-  local_k <- min(config$k, nrow(candidate_scores) - 1L)
+  local_k <- min(config$general$k, nrow(candidate_scores) - 1L)
   # Compute geometry, mixing, probe, and mechanism metrics on the same test sample set.
   mixing <- .ablation_mixing_purity(candidate_scores, metadata_test, local_k)
   mechanism <- .ablation_selective_reconstruction(
-    tsp = tsp_test,
+    original = original_test,
     direct = direct_scores,
     candidate = candidate_scores,
     metadata = metadata_test,
     k = local_k,
-    max_samples = config$mechanism_samples,
+    max_samples = config$cohort$mechanism_samples,
     seed = seed
   )
-  probe <- if (config$probe) {
+  probe <- if (config$general$probe) {
     probe_metadata <- rbind(metadata_train, metadata_test)
     probe_label <- .ablation_eligible_probe_labels(
       probe_metadata,
-      config$probe_label
+      config$general$probe_label
     )
     train_label <- probe_label[seq_len(nrow(metadata_train))]
     test_label <- probe_label[nrow(metadata_train) + seq_len(nrow(metadata_test))]
@@ -1439,7 +1686,7 @@ ablation <- function(
     distance_spearman = .ablation_distance_spearman(
       direct_scores,
       candidate_scores,
-      config$distance_pairs,
+      config$cohort$distance_pairs,
       seed
     ),
     knn_jaccard = .ablation_knn_jaccard(direct_scores, candidate_scores, local_k),
@@ -1458,7 +1705,7 @@ ablation <- function(
     stochastic_seed = stochastic_seed,
     rank_q = rank_q,
     k = local_k,
-    distance = config$distance,
+    distance = config$general$distance,
     metric_name = names(values),
     metric_value = as.numeric(values),
     stringsAsFactors = FALSE
@@ -1471,11 +1718,11 @@ ablation <- function(
 .ablation_experiment_cohort <- function(prepared, config, manifest, seed, verbose) {
   folds <- .ablation_grouped_folds(
     prepared$metadata$cohort,
-    n_folds = config$n_folds,
+    n_folds = config$general$n_folds,
     seed = seed
   )
   # Generate each permutation once and reuse it across ranks and folds for strict pairing.
-  permuted <- lapply(config$permutation_seeds, function(seed_i) {
+  permuted <- lapply(config$cohort$permutation_seeds, function(seed_i) {
     .ablation_permute_blocks(
       prepared$d1,
       prepared$module_manifest$blocks,
@@ -1483,7 +1730,7 @@ ablation <- function(
       seed_i
     )
   })
-  names(permuted) <- as.character(config$permutation_seeds)
+  names(permuted) <- as.character(config$cohort$permutation_seeds)
 
   minimum_train_size <- min(vapply(
     sort(unique(folds)),
@@ -1491,16 +1738,16 @@ ablation <- function(
     integer(1)
   ))
   maximum_rank <- min(
-    ncol(prepared$tsp),
+    ncol(prepared$direct),
     ncol(prepared$d1),
     minimum_train_size - 1L
   )
   # Truncate all requested ranks to the largest common rank estimable in every fold.
   rank_targets <- unique(pmin(
-    as.integer(c(config$rank, config$rank_sensitivity)),
+    as.integer(c(config$general$rank, config$cohort$rank_sensitivity)),
     maximum_rank
   ))
-  main_rank <- min(as.integer(config$rank), maximum_rank)
+  main_rank <- min(as.integer(config$general$rank), maximum_rank)
   metrics_by_rank <- lapply(rank_targets, function(rank_target) {
     .ablation_cohort_rank_metrics(
       prepared = prepared,
@@ -1518,12 +1765,16 @@ ablation <- function(
 
   # Use the main rank for Gate 1 and the remaining ranks only for sensitivity analysis.
   geometry <- .ablation_dimension_free_geometry(prepared, config, seed)
-  summary <- .ablation_metric_summary(metrics, config$bootstrap, seed)
-  contrasts <- .ablation_paired_contrasts(metrics, config$bootstrap, seed)
+  summary <- .ablation_metric_summary(metrics, config$general$bootstrap, seed)
+  contrasts <- .ablation_paired_contrasts(metrics, config$general$bootstrap, seed)
   sensitivity <- list(
     metrics = sensitivity_metrics,
     summary = if (nrow(sensitivity_metrics) > 0) {
-      .ablation_metric_summary(sensitivity_metrics, config$bootstrap, seed + 500L)
+      .ablation_metric_summary(
+        sensitivity_metrics,
+        config$general$bootstrap,
+        seed + 500L
+      )
     } else {
       data.frame()
     }
@@ -1563,13 +1814,13 @@ ablation <- function(
     train_rows <- !test_rows
     rank_q <- min(
       as.integer(rank_target),
-      ncol(prepared$tsp),
+      ncol(prepared$direct),
       ncol(prepared$d1),
       sum(train_rows) - 1L
     )
     direct <- .ablation_fit_pca(
-      prepared$tsp[train_rows, , drop = FALSE],
-      prepared$tsp[test_rows, , drop = FALSE],
+      prepared$direct[train_rows, , drop = FALSE],
+      prepared$direct[test_rows, , drop = FALSE],
       rank_q
     )
     cohort <- .ablation_fit_pca(
@@ -1579,38 +1830,38 @@ ablation <- function(
     )
     metadata_train <- prepared$metadata[train_rows, , drop = FALSE]
     metadata_test <- prepared$metadata[test_rows, , drop = FALSE]
-    tsp_test <- prepared$tsp[test_rows, , drop = FALSE]
+    direct_test <- prepared$direct[test_rows, , drop = FALSE]
 
-    # Direct is equal-rank PCA of raw TSPs; Cohort is equal-rank PCA of frozen d1.
+    # Direct is equal-rank PCA of frozen GSClassifier inputs; Cohort uses d1.
     metrics[[index]] <- .ablation_metric_rows(
-      direct$test, direct$test, tsp_test, metadata_test, metadata_train,
+      direct$test, direct$test, direct_test, metadata_test, metadata_train,
       direct$train, "Direct", fold, NA_character_, NA_integer_, direct$rank,
       config, seed + fold
     )
     index <- index + 1L
     metrics[[index]] <- .ablation_metric_rows(
-      direct$test, cohort$test, tsp_test, metadata_test, metadata_train,
+      direct$test, cohort$test, direct_test, metadata_test, metadata_train,
       cohort$train, "Cohort", fold, NA_character_, NA_integer_, cohort$rank,
       config, seed + 100L + fold
     )
     index <- index + 1L
 
-    scaled_tsp <- .ablation_scale_train_apply(
-      prepared$tsp[train_rows, , drop = FALSE],
-      prepared$tsp[test_rows, , drop = FALSE]
+    scaled_direct <- .ablation_scale_train_apply(
+      prepared$direct[train_rows, , drop = FALSE],
+      prepared$direct[test_rows, , drop = FALSE]
     )
     # Null-RP tests whether equal-rank random compression alone improves the metrics.
-    for (seed_i in config$rp_seeds) {
+    for (seed_i in config$cohort$rp_seeds) {
       projection <- .ablation_projection_matrix(
-        ncol(prepared$tsp),
+        ncol(prepared$direct),
         rank_q,
         seed_i,
-        config$rp_density
+        config$cohort$rp_density
       )
-      rp_train <- scaled_tsp$train %*% projection
-      rp_test <- scaled_tsp$test %*% projection
+      rp_train <- scaled_direct$train %*% projection
+      rp_test <- scaled_direct$test %*% projection
       metrics[[index]] <- .ablation_metric_rows(
-        direct$test, rp_test, tsp_test, metadata_test, metadata_train,
+        direct$test, rp_test, direct_test, metadata_test, metadata_train,
         rp_train, "Null-RP", fold, "projection_seed", seed_i, rank_q,
         config, seed_i + fold
       )
@@ -1618,14 +1869,14 @@ ablation <- function(
     }
 
     # Null-Perm preserves within-cohort block structure but breaks cross-block sample pairing.
-    for (seed_i in config$permutation_seeds) {
+    for (seed_i in config$cohort$permutation_seeds) {
       perm_fit <- .ablation_fit_pca(
         permuted[[as.character(seed_i)]][train_rows, , drop = FALSE],
         permuted[[as.character(seed_i)]][test_rows, , drop = FALSE],
         rank_q
       )
       metrics[[index]] <- .ablation_metric_rows(
-        direct$test, perm_fit$test, tsp_test, metadata_test, metadata_train,
+        direct$test, perm_fit$test, direct_test, metadata_test, metadata_train,
         perm_fit$train, "Null-Perm", fold, "permutation_seed", seed_i,
         perm_fit$rank, config, seed_i + fold
       )
@@ -1636,25 +1887,30 @@ ablation <- function(
 }
 
 
-# Compare raw TSP and d1 with dimension-free geometry metrics as evidence beyond PCA.
+# Compare raw GSClassifier inputs and d1 with dimension-free geometry metrics.
 .ablation_dimension_free_geometry <- function(prepared, config, seed) {
   rows <- seq_len(nrow(prepared$d1))
-  if (length(rows) > config$geometry_samples) {
+  if (length(rows) > config$cohort$geometry_samples) {
     rows <- .ablation_stratified_sample(
       prepared$metadata,
-      config$geometry_samples,
+      config$cohort$geometry_samples,
       seed
     )
   }
-  tsp <- prepared$tsp[rows, , drop = FALSE]
+  direct <- prepared$direct[rows, , drop = FALSE]
   d1 <- prepared$d1[rows, , drop = FALSE]
-  k <- min(config$k, length(rows) - 1L)
+  k <- min(config$general$k, length(rows) - 1L)
   data.frame(
     metric_name = c("linear_cka", "distance_spearman", "knn_jaccard"),
     metric_value = c(
-      .ablation_linear_cka(tsp, d1),
-      .ablation_distance_spearman(tsp, d1, config$distance_pairs, seed),
-      .ablation_knn_jaccard(tsp, d1, k)
+      .ablation_linear_cka(direct, d1),
+      .ablation_distance_spearman(
+        direct,
+        d1,
+        config$cohort$distance_pairs,
+        seed
+      ),
+      .ablation_knn_jaccard(direct, d1, k)
     ),
     sample_count = length(rows),
     stringsAsFactors = FALSE
@@ -1949,11 +2205,15 @@ ablation <- function(
 .ablation_experiment_scaling <- function(prepared, config, manifest, seed, verbose) {
   sequences <- .ablation_nested_module_sequences(
     prepared$module_manifest$modules,
-    config$scaling_sequences,
+    config$scaling$sequences,
     seed
   )
-  counts <- sort(unique(pmin(config$scaling_counts, manifest$module_count)))
-  folds <- .ablation_grouped_folds(prepared$metadata$cohort, config$n_folds, seed)
+  counts <- sort(unique(pmin(config$scaling$counts, manifest$module_count)))
+  folds <- .ablation_grouped_folds(
+    prepared$metadata$cohort,
+    config$general$n_folds,
+    seed
+  )
   metrics <- list()
   index <- 1L
 
@@ -1967,7 +2227,7 @@ ablation <- function(
       for (fold in sort(unique(folds))) {
         test_rows <- folds == fold
         train_rows <- !test_rows
-        rank_q <- min(config$rank, ncol(candidate), sum(train_rows) - 1L)
+        rank_q <- min(config$general$rank, ncol(candidate), sum(train_rows) - 1L)
         full_fit <- .ablation_fit_pca(
           prepared$d1[train_rows, , drop = FALSE],
           prepared$d1[test_rows, , drop = FALSE],
@@ -1981,13 +2241,13 @@ ablation <- function(
         # Use the same rank_q for full and subset fits so dimension does not drive geometry.
         metadata_test <- prepared$metadata[test_rows, , drop = FALSE]
         metadata_train <- prepared$metadata[train_rows, , drop = FALSE]
-        local_k <- min(config$k, sum(test_rows) - 1L)
+        local_k <- min(config$general$k, sum(test_rows) - 1L)
         mixing <- .ablation_mixing_purity(subset_fit$test, metadata_test, local_k)
-        probe <- if (config$probe) {
+        probe <- if (config$general$probe) {
           probe_metadata <- rbind(metadata_train, metadata_test)
           probe_label <- .ablation_eligible_probe_labels(
             probe_metadata,
-            config$probe_label
+            config$general$probe_label
           )
           train_label <- probe_label[seq_len(nrow(metadata_train))]
           test_label <- probe_label[
@@ -2021,7 +2281,7 @@ ablation <- function(
           stochastic_seed = seed + sequence_id,
           rank_q = subset_fit$rank,
           k = local_k,
-          distance = config$distance,
+          distance = config$general$distance,
           metric_name = names(values),
           metric_value = as.numeric(values),
           module_sequence_id = sprintf("S%03d", sequence_id),
@@ -2034,7 +2294,7 @@ ablation <- function(
     }
   }
   metrics <- do.call(rbind, metrics)
-  summary <- .ablation_scaling_summary(metrics, config$bootstrap, seed)
+  summary <- .ablation_scaling_summary(metrics, config$general$bootstrap, seed)
   d1_audit <- cbind(
     metrics,
     sample_manifest_hash = manifest$sample_manifest_hash,
@@ -2202,12 +2462,12 @@ ablation <- function(
     verbose
 ) {
   sequence_count <- min(
-    as.integer(config$scaling_embedding_sequences),
+    as.integer(config$scaling$embedding_sequences),
     length(sequences)
   )
   selected_sequences <- sequences[seq_len(sequence_count)]
   counts <- sort(unique(pmin(
-    config$scaling_embedding_counts,
+    config$scaling$embedding_counts,
     manifest$module_count
   )))
   metrics <- list()
@@ -2223,16 +2483,16 @@ ablation <- function(
         prepared$module_manifest$blocks[module_ids],
         use.names = FALSE
       )
-      for (seed_i in config$scaling_embedding_seeds) {
+      for (seed_i in config$scaling$embedding_seeds) {
         rows <- .ablation_tissue_subsample(
           prepared$metadata,
-          config$scaling_subsample_fraction,
+          config$scaling$subsample_fraction,
           seed_i
         )
         d1 <- prepared$d1[rows, columns, drop = FALSE]
         metadata <- prepared$metadata[rows, , drop = FALSE]
-        d3 <- .ablation_two_stage_embedding(d1, config$dr, seed_i)
-        clusters <- .ablation_dbscan(d3, config$cluster)
+        d3 <- .ablation_two_stage_embedding(d1, config$general$dr, seed_i)
+        clusters <- .ablation_dbscan(d3, config$general$cluster)
         values <- .ablation_embedding_metrics(
           high = d1,
           low = d3,
@@ -2251,8 +2511,8 @@ ablation <- function(
           seed_type = "umap_seed",
           stochastic_seed = seed_i,
           rank_q = ncol(d3),
-          k = min(config$k, nrow(d3) - 1L),
-          distance = config$distance,
+          k = min(config$general$k, nrow(d3) - 1L),
+          distance = config$general$distance,
           metric_name = names(values),
           metric_value = as.numeric(values),
           module_sequence_id = sequence_name,
@@ -2272,8 +2532,8 @@ ablation <- function(
   }
 
   metrics <- do.call(rbind, metrics)
-  stability <- .ablation_scaling_embedding_stability(embeddings, config$k)
-  summary <- .ablation_metric_summary(metrics, config$bootstrap, seed)
+  stability <- .ablation_scaling_embedding_stability(embeddings, config$general$k)
+  summary <- .ablation_metric_summary(metrics, config$general$bootstrap, seed)
   audit <- cbind(
     metrics,
     sample_manifest_hash = manifest$sample_manifest_hash,
@@ -2336,7 +2596,7 @@ ablation <- function(
 # Experiment 3 reuses CCS reduction and ablates only the tissue-first layer: Two-stage
 # reduces each tissue to d2 before d3, whereas One-stage maps full d1 directly to d3.
 .ablation_experiment_tissue_first <- function(prepared, config, manifest, seed, verbose) {
-  seeds <- config$tissue_seeds
+  seeds <- config$tissue_first$seeds
   results <- list()
   metrics <- list()
   stratified <- list()
@@ -2346,15 +2606,15 @@ ablation <- function(
     seed_i <- seeds[i]
     rows <- .ablation_tissue_subsample(
       prepared$metadata,
-      config$tissue_subsample_fraction,
+      config$tissue_first$subsample_fraction,
       seed_i
     )
     d1 <- prepared$d1[rows, , drop = FALSE]
     metadata <- prepared$metadata[rows, , drop = FALSE]
-    embeddings <- .ablation_tissue_embeddings(d1, config$dr, seed_i)
+    embeddings <- .ablation_tissue_embeddings(d1, config$general$dr, seed_i)
     for (group in names(embeddings)) {
       d3 <- embeddings[[group]]
-      clusters <- .ablation_dbscan(d3, config$cluster)
+      clusters <- .ablation_dbscan(d3, config$general$cluster)
       values <- .ablation_embedding_metrics(
         high = d1,
         low = d3,
@@ -2371,8 +2631,8 @@ ablation <- function(
         seed_type = "umap_seed",
         stochastic_seed = seed_i,
         rank_q = ncol(d3),
-        k = min(config$k, nrow(d3) - 1L),
-        distance = config$distance,
+        k = min(config$general$k, nrow(d3) - 1L),
+        distance = config$general$distance,
         metric_name = names(values),
         metric_value = as.numeric(values),
         stringsAsFactors = FALSE
@@ -2383,7 +2643,7 @@ ablation <- function(
         metadata = metadata,
         group_id = group,
         seed = seed_i,
-        k = config$k
+        k = config$general$k
       )
       results[[paste(group, seed_i, sep = "|")]] <- list(
         sample_id = metadata$sample_id,
@@ -2402,13 +2662,13 @@ ablation <- function(
   )
   # Flag bottom-quartile tissues to test whether tissue-first benefits only large tissues.
   stratified$small_tissue <- stratified$sample_count <= quartile
-  stability <- .ablation_embedding_stability(results, config$k)
-  summary <- .ablation_metric_summary(metrics, config$bootstrap, seed)
+  stability <- .ablation_embedding_stability(results, config$general$k)
+  summary <- .ablation_metric_summary(metrics, config$general$bootstrap, seed)
   contrasts <- .ablation_two_group_contrasts(
     metrics,
     first_group = "Two-stage",
     second_group = "One-stage",
-    bootstrap = config$bootstrap,
+    bootstrap = config$general$bootstrap,
     seed = seed
   )
   audit <- .ablation_add_audit_hashes(metrics, manifest)
@@ -2558,15 +2818,19 @@ ablation <- function(
 # Evaluate high/low-dimensional fidelity, within-tissue retention, cohort/biology, and clusters.
 .ablation_embedding_metrics <- function(high, low, metadata, clusters, config, seed) {
   rows <- seq_len(nrow(high))
-  if (length(rows) > config$fidelity_samples) {
-    rows <- .ablation_stratified_sample(metadata, config$fidelity_samples, seed)
+  if (length(rows) > config$general$fidelity_samples) {
+    rows <- .ablation_stratified_sample(
+      metadata,
+      config$general$fidelity_samples,
+      seed
+    )
   }
   fidelity <- .ablation_trust_continuity(
     high[rows, , drop = FALSE],
     low[rows, , drop = FALSE],
-    min(config$k, length(rows) - 1L)
+    min(config$general$k, length(rows) - 1L)
   )
-  local_k <- min(config$k, nrow(low) - 1L)
+  local_k <- min(config$general$k, nrow(low) - 1L)
   mixing <- .ablation_mixing_purity(low, metadata, local_k)
   tissue_retention <- .ablation_tissue_knn_retention(high, low, metadata$tissue, local_k)
   c(
@@ -2760,12 +3024,12 @@ ablation <- function(
 .ablation_metaccs_parameter_manifest <- function(config) {
   mode <- config$metaccs$parameter_mode
   dr_sets <- .ablation_parameter_sets(
-    base = config$dr,
+    base = config$general$dr,
     grid = if (identical(mode, "grid")) config$metaccs$dr_grid else NULL,
     label = "dr_grid"
   )
   cluster_sets <- .ablation_parameter_sets(
-    base = config$cluster,
+    base = config$general$cluster,
     grid = if (identical(mode, "grid")) config$metaccs$cluster_grid else NULL,
     label = "cluster_grid"
   )
@@ -2849,27 +3113,27 @@ ablation <- function(
 }
 
 
-# Build Direct-TSP blocks from each tissue's frozen model feature union.
-.ablation_direct_tissue_blocks <- function(tsp, tissue_features) {
-  missing <- setdiff(unique(unlist(tissue_features, use.names = FALSE)), colnames(tsp))
+# Build Direct-GSClassifier blocks from each tissue's frozen feature union.
+.ablation_direct_tissue_blocks <- function(direct, tissue_features) {
+  missing <- setdiff(unique(unlist(tissue_features, use.names = FALSE)), colnames(direct))
   if (length(missing) > 0) {
     stop(
-      "ablation: Direct-TSP lacks frozen tissue features: ",
+      "ablation: Direct-GSClassifier lacks frozen tissue features: ",
       paste(missing, collapse = ", "),
       call. = FALSE
     )
   }
   blocks <- lapply(tissue_features, function(features) {
-    tsp[, features, drop = FALSE]
+    direct[, features, drop = FALSE]
   })
   if (length(blocks) == 0 || any(lengths(tissue_features) == 0)) {
-    stop("ablation: every tissue requires at least one Direct-TSP feature.", call. = FALSE)
+    stop("ablation: every tissue requires at least one Direct-GSClassifier feature.", call. = FALSE)
   }
   blocks
 }
 
 
-# Pair Direct-TSP and Cohort-d1 through tissue and global reduction. Both arms
+# Pair Direct-GSClassifier and Cohort-d1 through tissue and global reduction. Both arms
 # use the same tissue order, feasible dimensions, neighbors, and derived seeds.
 .ablation_paired_two_stage_embeddings <- function(
     direct_blocks,
@@ -2885,7 +3149,7 @@ ablation <- function(
   )
   tissues <- names(direct_blocks)
   if (!setequal(tissues, unique(cohort_reference))) {
-    stop("ablation: Direct-TSP and Cohort-d1 tissue blocks do not match.", call. = FALSE)
+    stop("ablation: Direct-GSClassifier and Cohort-d1 tissue blocks do not match.", call. = FALSE)
   }
   tissues <- tissues[tissues %in% unique(cohort_reference)]
   cohort_blocks <- lapply(tissues, function(tissue) {
@@ -2894,7 +3158,7 @@ ablation <- function(
   names(cohort_blocks) <- tissues
   if (!all(vapply(direct_blocks, rownames, character(nrow(cohort_d1))) ==
       rownames(cohort_d1))) {
-    stop("ablation: Direct-TSP and Cohort-d1 sample order must match.", call. = FALSE)
+    stop("ablation: Direct-GSClassifier and Cohort-d1 sample order must match.", call. = FALSE)
   }
 
   set.seed(seed)
@@ -2998,8 +3262,8 @@ ablation <- function(
     block
   }))
   list(
-    embeddings = list(`Direct-TSP` = direct_d3, `Cohort-d1` = cohort_d3),
-    high = list(`Direct-TSP` = direct_high, `Cohort-d1` = cohort_d1),
+    embeddings = list(`Direct-GSClassifier` = direct_d3, `Cohort-d1` = cohort_d3),
+    high = list(`Direct-GSClassifier` = direct_high, `Cohort-d1` = cohort_d1),
     parameter_audit = do.call(rbind, audit)
   )
 }
@@ -3070,11 +3334,11 @@ ablation <- function(
 .ablation_experiment_metaccs <- function(prepared, config, manifest, seed, verbose) {
   parameter_manifest <- .ablation_metaccs_parameter_manifest(config)
   direct_blocks <- .ablation_direct_tissue_blocks(
-    prepared$tsp,
+    prepared$direct,
     prepared$feature_manifest$tissue_features
   )
   input_hash <- digest::digest(
-    list(tsp = prepared$tsp, d1 = prepared$d1),
+    list(direct = prepared$direct, d1 = prepared$d1),
     algo = "md5"
   )
   metrics <- list()
@@ -3162,8 +3426,8 @@ ablation <- function(
               seed_type = "umap_seed",
               stochastic_seed = umap_seed,
               rank_q = ncol(d3),
-              k = min(config$k, nrow(d3) - 1L),
-              distance = config$distance,
+              k = min(config$general$k, nrow(d3) - 1L),
+              distance = config$general$distance,
               metric_name = names(values),
               metric_value = as.numeric(values),
               resample_id = resample_id,
@@ -3181,7 +3445,7 @@ ablation <- function(
               metadata = metadata,
               group_id = group_id,
               seed = umap_seed,
-              k = config$k
+              k = config$general$k
             )
             stratified_i$resample_id <- resample_id
             stratified_i$resample_seed <- resample_seed
@@ -3230,13 +3494,13 @@ ablation <- function(
             dr_param_set_id = dr_param_set_id,
             cluster_param_set_id = cluster_param_set_id,
             neighbor_jaccard = .ablation_knn_jaccard(
-              paired$embeddings$`Direct-TSP`,
+              paired$embeddings$`Direct-GSClassifier`,
               paired$embeddings$`Cohort-d1`,
-              min(config$k, nrow(metadata) - 1L)
+              min(config$general$k, nrow(metadata) - 1L)
             ),
-            ari = .ablation_ari(clusters$`Direct-TSP`, clusters$`Cohort-d1`),
+            ari = .ablation_ari(clusters$`Direct-GSClassifier`, clusters$`Cohort-d1`),
             cluster_jaccard = .ablation_cluster_jaccard(
-              clusters$`Direct-TSP`,
+              clusters$`Direct-GSClassifier`,
               clusters$`Cohort-d1`
             ),
             stringsAsFactors = FALSE
@@ -3267,17 +3531,17 @@ ablation <- function(
   assignments <- .ablation_rbind(assignments)
   cross_arm <- .ablation_rbind(cross_arm)
   parameter_audit <- .ablation_rbind(parameter_audit)
-  stability <- .ablation_metaccs_stability(runs, config$k)
+  stability <- .ablation_metaccs_stability(runs, config$general$k)
   stability_contrasts <- .ablation_metaccs_stability_contrasts(stability)
   summary <- .ablation_metaccs_summary(
     metrics,
-    bootstrap = config$bootstrap,
+    bootstrap = config$general$bootstrap,
     seed = seed,
     subsample_fraction = config$metaccs$subsample_fraction
   )
   contrasts <- .ablation_metaccs_contrasts(
     metrics,
-    bootstrap = config$bootstrap,
+    bootstrap = config$general$bootstrap,
     seed = seed,
     subsample_fraction = config$metaccs$subsample_fraction
   )
@@ -3422,7 +3686,7 @@ ablation <- function(
   if (nrow(stability) == 0) {
     return(data.frame())
   }
-  direct <- stability[stability$group_id == "Direct-TSP", , drop = FALSE]
+  direct <- stability[stability$group_id == "Direct-GSClassifier", , drop = FALSE]
   cohort <- stability[stability$group_id == "Cohort-d1", , drop = FALSE]
   by <- c("dr_param_set_id", "cluster_param_set_id", "run_a", "run_b")
   paired <- merge(cohort, direct, by = by, suffixes = c(".cohort", ".direct"))
@@ -3430,7 +3694,7 @@ ablation <- function(
   .ablation_rbind(lapply(metrics, function(metric) {
     data.frame(
       paired[, by, drop = FALSE],
-      contrast = "Cohort-d1-Direct-TSP",
+      contrast = "Cohort-d1-Direct-GSClassifier",
       metric_name = metric,
       metric_value = paired[[paste0(metric, ".cohort")]] -
         paired[[paste0(metric, ".direct")]],
@@ -3498,7 +3762,7 @@ ablation <- function(
     data = data,
     FUN = mean
   )
-  direct <- data[data$group_id == "Direct-TSP", , drop = FALSE]
+  direct <- data[data$group_id == "Direct-GSClassifier", , drop = FALSE]
   cohort <- data[data$group_id == "Cohort-d1", , drop = FALSE]
   by <- c("resample_id", "dr_param_set_id", "cluster_param_set_id", "metric_name")
   paired <- merge(cohort, direct, by = by, suffixes = c(".cohort", ".direct"))
@@ -3514,7 +3778,7 @@ ablation <- function(
     part <- parts[[i]]
     interval <- .ablation_bootstrap_mean(part$delta, bootstrap, seed + 10000L + i)
     data.frame(
-      contrast = "Cohort-d1-Direct-TSP",
+      contrast = "Cohort-d1-Direct-GSClassifier",
       dr_param_set_id = part$dr_param_set_id[1],
       cluster_param_set_id = part$cluster_param_set_id[1],
       metric_name = part$metric_name[1],
