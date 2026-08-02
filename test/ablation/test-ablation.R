@@ -1,7 +1,7 @@
 library(luckyBase)
 Plus.library(c("CCS", "digest"))
 
-source(file.path("test", "ablation", "ablation.R"))
+source(file.path("R", "ablation.R"))
 
 make_test_fixture <- function() {
   set.seed(101)
@@ -34,6 +34,7 @@ make_test_fixture <- function() {
     as.integer(expr[pair[1], ] >= expr[pair[2], ])
   }, integer(length(sample_ids)))
   rownames(tsp) <- sample_ids
+  direct_features <- c(rownames(expr), tsp_features, "s1s2")
 
   module_ids <- c("T1|M1", "T1|M2", "T1|M3", "T2|M4", "T2|M5", "T2|M6")
   d1 <- do.call(cbind, lapply(seq_along(module_ids), function(i) {
@@ -46,9 +47,9 @@ make_test_fixture <- function() {
 
   make_model <- function() {
     class_model <- list(
-      bst = NULL,
+      bst = list(feature_names = direct_features),
       breakVec = c(0, 0.5, 1),
-      genes = c(rownames(expr), tsp_features)
+      genes = direct_features
     )
     list(
       Repeat = list(),
@@ -86,7 +87,14 @@ make_test_fixture <- function() {
     stringsAsFactors = FALSE
   )
 
-  list(object = object, data = data, metadata = metadata, tsp_features = tsp_features)
+  list(
+    object = object,
+    data = data,
+    metadata = metadata,
+    expr = expr,
+    direct_features = direct_features,
+    tsp_features = tsp_features
+  )
 }
 
 fixture <- make_test_fixture()
@@ -100,11 +108,16 @@ stopifnot(
   length(module_manifest$blocks) == 6
 )
 
-# Only pairwise TSP features actually consumed by frozen models enter Direct.
+# Direct uses the complete frozen GSClassifier feature contract; the legacy
+# TSP extractor remains restricted to ordinary gene-pair features.
+direct_features <- .ablation_extract_direct_features(fixture$object, module_manifest)
 tsp_features <- .ablation_extract_tsp_features(fixture$object, module_manifest)
-stopifnot(setequal(tsp_features, fixture$tsp_features))
+stopifnot(
+  setequal(direct_features, fixture$direct_features),
+  setequal(tsp_features, fixture$tsp_features)
+)
 
-# Input preparation aligns samples once and constructs a binary TSP matrix.
+# Input preparation must reproduce GSClassifier's complete feature builder.
 prepared <- .ablation_prepare_input(
   object = fixture$object,
   data = fixture$data,
@@ -112,13 +125,67 @@ prepared <- .ablation_prepare_input(
   max_samples = Inf,
   seed = 303
 )
+expected_direct <- GSClassifier:::trainDataProc_X(
+  Xmat = fixture$expr,
+  geneSet = fixture$object@Repeat$geneSet,
+  breakVec = c(0, 0.5, 1)
+)$dat$Xbin[, fixture$direct_features, drop = FALSE]
+matched_expr <- GSClassifier::geneMatch(
+  fixture$expr,
+  fixture$object@Repeat$geneAnnotation,
+  fixture$object@Repeat$geneid,
+  "fix"
+)$Subset
+expected_prediction_input <- GSClassifier:::dataProc(
+  X = matched_expr,
+  mods = fixture$object@Model$T1$M1$Model[[1]][[1]],
+  geneSet = fixture$object@Repeat$geneSet
+)
 stopifnot(
+  identical(rownames(prepared$direct), prepared$metadata$sample_id),
   identical(rownames(prepared$tsp), prepared$metadata$sample_id),
   identical(rownames(prepared$d1), prepared$metadata$sample_id),
+  isTRUE(all.equal(
+    prepared$direct[, fixture$direct_features, drop = FALSE],
+    expected_direct[prepared$metadata$sample_id, , drop = FALSE],
+    check.attributes = TRUE
+  )),
+  isTRUE(all.equal(
+    prepared$direct[, colnames(expected_prediction_input), drop = FALSE],
+    expected_prediction_input[prepared$metadata$sample_id, , drop = FALSE],
+    check.attributes = TRUE
+  )),
   all(prepared$tsp %in% c(0L, 1L)),
+  ncol(prepared$direct) == length(fixture$direct_features),
   ncol(prepared$tsp) == length(fixture$tsp_features),
+  identical(
+    as.integer(factor(
+      prepared$feature_manifest$feature_manifest$feature_type,
+      levels = c("single_bin", "gene_pair", "set_pair")
+    ) |> table()),
+    c(4L, 6L, 1L)
+  ),
   identical(prepared$metadata$pathway_label, fixture$metadata$pathway_label)
 )
+
+# Cohort matrices are joined by gene union, matching CCS::getResData().
+uneven_data <- fixture$data
+uneven_samples <- colnames(uneven_data$T1$C2$expr)
+uneven_data$T1$C2$expr <- uneven_data$T1$C2$expr[-4, , drop = FALSE]
+uneven <- .ablation_flatten_expression(uneven_data)
+stopifnot(
+  "g4" %in% rownames(uneven$expr),
+  all(is.na(uneven$expr["g4", uneven_samples])),
+  all(is.finite(uneven$expr["g4", colnames(fixture$data$T1$C1$expr)]))
+)
+
+# One Direct feature name must have one frozen binning definition.
+heterogeneous <- fixture$object
+heterogeneous@Model$T1$M1$Model[[1]][[1]]$breakVec <- c(0, 0.25, 0.5, 0.75, 1)
+stopifnot(inherits(
+  try(.ablation_frozen_feature_manifest(heterogeneous, module_manifest), silent = TRUE),
+  "try-error"
+))
 probe_metadata <- prepared$metadata
 probe_metadata$probe_label <- ifelse(
   probe_metadata$cohort == "C1",
@@ -170,23 +237,23 @@ stopifnot(identical(
 ))
 
 # Null-RP and core geometry metrics are deterministic.
-rp_a <- .ablation_random_projection(prepared$tsp, rank_q = 3, seed = 606)
-rp_b <- .ablation_random_projection(prepared$tsp, rank_q = 3, seed = 606)
+rp_a <- .ablation_random_projection(prepared$direct, rank_q = 3, seed = 606)
+rp_b <- .ablation_random_projection(prepared$direct, rank_q = 3, seed = 606)
 stopifnot(identical(rp_a, rp_b), identical(dim(rp_a), c(48L, 3L)))
 stopifnot(abs(.ablation_linear_cka(rp_a, rp_a) - 1) < 1e-10)
 stopifnot(abs(.ablation_knn_jaccard(rp_a, rp_a, k = 3) - 1) < 1e-10)
 
-probe_train <- seq(1, nrow(prepared$tsp), by = 2)
-probe_test <- setdiff(seq_len(nrow(prepared$tsp)), probe_train)
+probe_train <- seq(1, nrow(prepared$direct), by = 2)
+probe_test <- setdiff(seq_len(nrow(prepared$direct)), probe_train)
 probe_metrics <- .ablation_probe(
-  train = prepared$tsp[probe_train, , drop = FALSE],
-  test = prepared$tsp[probe_test, , drop = FALSE],
+  train = prepared$direct[probe_train, , drop = FALSE],
+  test = prepared$direct[probe_test, , drop = FALSE],
   train_label = prepared$metadata$biology[probe_train],
   test_label = prepared$metadata$biology[probe_test],
   seed = 607,
-  config = .ablation_merge_lists(
-    .ablation_default_params(607),
-    list(probe_nrounds = 5, numCores = 1)
+  config = .ablation_resolve_config(
+    607,
+    list(general = list(probe_nrounds = 5, numCores = 1))
   )
 )
 stopifnot(all(is.finite(probe_metrics)))
@@ -199,20 +266,30 @@ result <- ablation(
   experiment = "cohort",
   output.dir = file.path("test", "ablation", "tmp", "synthetic"),
   params = list(
-    rank = 3,
-    k = 3,
-    n_folds = 2,
-    bootstrap = 10,
-    rp_seeds = c(701, 702),
-    permutation_seeds = c(801, 802),
-    mechanism_samples = 24,
-    probe = FALSE,
-    cover = TRUE
+    general = list(
+      rank = 3,
+      k = 3,
+      n_folds = 2,
+      bootstrap = 10,
+      probe = FALSE,
+      cover = TRUE
+    ),
+    cohort = list(
+      rp_seeds = c(701, 702),
+      permutation_seeds = c(801, 802),
+      mechanism_samples = 24
+    )
   ),
   seed = 909,
   verbose = FALSE
 )
 stopifnot(inherits(result, "CCSAblation"))
+stopifnot(
+  result$manifest$version == 2L,
+  identical(result$manifest$gsclassifier_feature_builder, "trainDataProc_X"),
+  result$manifest$direct_feature_count == length(fixture$direct_features),
+  result$manifest$tsp_feature_count == length(fixture$tsp_features)
+)
 stopifnot(setequal(
   unique(result$experiments$cohort$metrics$group_id),
   c("Direct", "Cohort", "Null-RP", "Null-Perm")
@@ -234,7 +311,7 @@ stopifnot(all(c(
 
 gate_warning <- FALSE
 invisible(withCallingHandlers(
-  .ablation_gate_one(result$experiments$cohort, result$config$gate1),
+  .ablation_gate_one(result$experiments$cohort, result$config$scaling$gate),
   warning = function(condition) {
     gate_warning <<- TRUE
     invokeRestart("muffleWarning")
@@ -252,33 +329,39 @@ layered_result <- withCallingHandlers(ablation(
   experiment = c("scaling", "tissue_first"),
   output.dir = file.path("test", "ablation", "tmp", "synthetic-layered"),
   params = list(
-    rank = 3,
-    rank_sensitivity = 3,
-    k = 3,
-    n_folds = 2,
-    bootstrap = 5,
-    rp_seeds = 1001,
-    permutation_seeds = 1002,
-    mechanism_samples = 24,
-    probe = FALSE,
-    scaling_counts = c(2, 4, 6),
-    scaling_sequences = 2,
-    scaling_embedding_counts = c(2, 6),
-    scaling_embedding_sequences = 1,
-    scaling_embedding_seeds = c(1101, 1102),
-    tissue_seeds = c(1201, 1202),
-    fidelity_samples = 48,
-    dr = list(
-      method = "UWOT",
-      dimension = c(3, 2),
-      n_neighbors = 5,
-      min_dist = 0.1,
-      spread = 1,
-      set_op_mix_ratio = 1
+    general = list(
+      rank = 3,
+      k = 3,
+      n_folds = 2,
+      bootstrap = 5,
+      probe = FALSE,
+      fidelity_samples = 48,
+      dr = list(
+        method = "UWOT",
+        dimension = c(3, 2),
+        n_neighbors = 5,
+        min_dist = 0.1,
+        spread = 1,
+        set_op_mix_ratio = 1
+      ),
+      cluster = list(eps = 0.5, minPts = 3),
+      cover = TRUE
     ),
-    cluster = list(eps = 0.5, minPts = 3),
-    gate1 = list(enforce = FALSE),
-    cover = TRUE
+    cohort = list(
+      rank_sensitivity = 3,
+      rp_seeds = 1001,
+      permutation_seeds = 1002,
+      mechanism_samples = 24
+    ),
+    scaling = list(
+      counts = c(2, 4, 6),
+      sequences = 2,
+      embedding_counts = c(2, 6),
+      embedding_sequences = 1,
+      embedding_seeds = c(1101, 1102),
+      gate = list(enforce = FALSE)
+    ),
+    tissue_first = list(seeds = c(1201, 1202))
   ),
   seed = 1301,
   verbose = FALSE
@@ -325,12 +408,12 @@ stopifnot(
 )
 stopifnot(nrow(layered_result$experiments$tissue_first$stability) > 0)
 
-# Experiment 4 uses tissue-specific frozen TSP support for Direct-TSP and keeps
+# Experiment 4 uses tissue-specific frozen GSClassifier support and keeps
 # both arms paired through two-stage reduction and DBSCAN.
 metaccs_fixture <- make_test_fixture()
 metaccs_features <- list(
-  T1 = metaccs_fixture$tsp_features[1:2],
-  T2 = metaccs_fixture$tsp_features[3:4]
+  T1 = c("g1", "g2", "g1:g2", "s1s2"),
+  T2 = c("g3", "g4", "g3:g4", "s1s2")
 )
 for (tissue_i in names(metaccs_fixture$object@Model)) {
   for (cohort_i in names(metaccs_fixture$object@Model[[tissue_i]])) {
@@ -338,6 +421,7 @@ for (tissue_i in names(metaccs_fixture$object@Model)) {
     model_i$Model <- lapply(model_i$Model, function(repeat_i) {
       lapply(repeat_i, function(class_i) {
         class_i$genes <- metaccs_features[[tissue_i]]
+        class_i$bst$feature_names <- metaccs_features[[tissue_i]]
         class_i
       })
     })
@@ -356,11 +440,12 @@ stopifnot(
   setequal(names(metaccs_prepared$feature_manifest$tissue_features), c("T1", "T2")),
   setequal(metaccs_prepared$feature_manifest$tissue_features$T1, metaccs_features$T1),
   setequal(metaccs_prepared$feature_manifest$tissue_features$T2, metaccs_features$T2),
-  ncol(metaccs_prepared$tsp) == 4
+  ncol(metaccs_prepared$direct) == 7,
+  ncol(metaccs_prepared$tsp) == 2
 )
 
 direct_blocks <- .ablation_direct_tissue_blocks(
-  metaccs_prepared$tsp,
+  metaccs_prepared$direct,
   metaccs_prepared$feature_manifest$tissue_features
 )
 stopifnot(
@@ -402,10 +487,13 @@ paired_b <- .ablation_paired_two_stage_embeddings(
   seed = 1501
 )
 stopifnot(
-  identical(paired_a$embeddings$`Direct-TSP`, paired_b$embeddings$`Direct-TSP`),
+  identical(
+    paired_a$embeddings$`Direct-GSClassifier`,
+    paired_b$embeddings$`Direct-GSClassifier`
+  ),
   !identical(paired_a$embeddings$`Cohort-d1`, paired_b$embeddings$`Cohort-d1`),
   identical(
-    rownames(paired_a$embeddings$`Direct-TSP`),
+    rownames(paired_a$embeddings$`Direct-GSClassifier`),
     rownames(paired_a$embeddings$`Cohort-d1`)
   ),
   all(paired_a$parameter_audit$direct_dimension ==
@@ -428,23 +516,28 @@ metaccs_result <- ablation(
   experiment = "metaccs",
   output.dir = file.path("test", "ablation", "tmp", "synthetic-metaccs"),
   params = list(
-    rank = 3,
-    k = 3,
-    bootstrap = 5,
-    rp_seeds = 1601,
-    permutation_seeds = 1602,
-    fidelity_samples = 48,
-    dr = list(
-      method = "UWOT",
-      dimension = c(3, 2),
-      n_neighbors = 5,
-      min_dist = 0.1,
-      spread = 1,
-      set_op_mix_ratio = 1,
-      metric = "euclidean",
-      n_threads = 1
+    general = list(
+      rank = 3,
+      k = 3,
+      bootstrap = 5,
+      fidelity_samples = 48,
+      dr = list(
+        method = "UWOT",
+        dimension = c(3, 2),
+        n_neighbors = 5,
+        min_dist = 0.1,
+        spread = 1,
+        set_op_mix_ratio = 1,
+        metric = "euclidean",
+        n_threads = 1
+      ),
+      cluster = list(eps = 0.5, minPts = 3),
+      cover = TRUE
     ),
-    cluster = list(eps = 0.5, minPts = 3),
+    cohort = list(
+      rp_seeds = 1601,
+      permutation_seeds = 1602
+    ),
     metaccs = list(
       resample_seeds = 1701,
       umap_seeds = c(1801, 1802),
@@ -452,20 +545,19 @@ metaccs_result <- ablation(
       parameter_mode = "fixed",
       direct_feature_mode = "tissue_model_union",
       retain_assignments = TRUE
-    ),
-    cover = TRUE
+    )
   ),
   seed = 1901,
   verbose = FALSE
 )
 metaccs <- metaccs_result$experiments$metaccs
 stopifnot(
-  setequal(unique(metaccs$metrics$group_id), c("Direct-TSP", "Cohort-d1")),
+  setequal(unique(metaccs$metrics$group_id), c("Direct-GSClassifier", "Cohort-d1")),
   all(c(
     "cluster_biology_ari", "cluster_biology_nmi", "weighted_cluster_purity",
     "non_noise_coverage"
   ) %in% unique(metaccs$metrics$metric_name)),
-  all(metaccs$contrasts$contrast == "Cohort-d1-Direct-TSP"),
+  all(metaccs$contrasts$contrast == "Cohort-d1-Direct-GSClassifier"),
   nrow(metaccs$assignments) == 48 * 2 * 2,
   nrow(metaccs$cross_arm_agreement) == 2,
   nrow(metaccs$stability) == 2,
