@@ -1,8 +1,23 @@
+# 升级
+
+test\ablation\ablation.R 可以替换 R\ablation.R 了，然后 DESCRIPTION 升级版本号为 0.8.2。安装并更新本设备的CCS包。git commit，描述语言为英文。不发布 git release。
+
 # 日常
 
 ---
 
-基于 E:\iProjects\RCheck\GSClassifier\routine02\docs\plans\2026-08-01-ccs可新增消融实验计划.md 、 docs\plans\2026-08-01-metaccs-end-to-end-ablation.md 这2个计划，优化ccs包的 R\ablation.R ，进一步完善消融实验。
+
+
+
+---
+
+基于 E:\iProjects\RCheck\GSClassifier\routine02\docs\plans\2026-08-01-ccs可新增消融实验计划.md 、 docs\plans\2026-08-01-metaccs-end-to-end-ablation.md 这2个计划，优化ccs包的 R\ablation.R ，进一步完善针对CCS架构的消融实验。这是我的大致想法：
+- 本轮任务的工作目录是： E:\RCloud\RFactory\ccs\test\ablation，你可以在它及其子文件夹里生成、编辑文件。在此之外的文件，都是只读以保证安全。
+- 和目前ccs包的函数、定义相协调，在函数的参数上尽量不要重复地造轮子，能复用就复用；实在没有再搞新的
+- 函数`ablation`的参数的数量恰到好处就行，不要冗余。
+- 在 test\ablation\ablation.md 里要更新本轮加上的消融实验。
+- 不要动ccs包已有的函数体系；而是主动兼容、补充到目前ccs包的代码体系（`ablation`应该相当于ccs包的一个“挂件”）。代码风格上尽量同我的接近，以便我后期可以比较简单审查你写的代码。
+- 加载"E:\RCloud\RFactory\ccs\test\ablation\ablation-test-data.R" （只读）后可以获得一个真实可用的CCS对象和训练样本的RNA原始表达量，里面有一些实际的数据。你运行消融实验代码进行测试时，可以利用这些数据；但千万不能编辑、改动这些数据的原始文件，以保证安全。
 
 ---
 

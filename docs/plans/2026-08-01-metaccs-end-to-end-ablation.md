@@ -2,16 +2,16 @@
 
 ## 问题是什么
 
-- **当前现象：** `CCS::ablation()` 的 cohort experiment 只把 Direct TSP 与 Cohort d1 比较到共同秩表示和 linear probe；tissue-first experiment 则固定完整 d1，只比较 Two-stage 与 One-stage。两者都没有直接回答“cohort bank 的变化能否穿过实际的 two-stage UWOT、d3 和 DBSCAN，最终改善 metaCCS”。
+- **当前现象：** `CCS::ablation()` 的 cohort experiment 把 Direct-GSClassifier 与 Cohort d1 比较到共同秩表示和 linear probe；tissue-first experiment 则固定完整 d1，只比较 Two-stage 与 One-stage。两者都没有直接回答“cohort bank 的变化能否穿过实际的 two-stage UWOT、d3 和 DBSCAN，最终改善 metaCCS”。
 - **影响：** 目前只能确认 Cohort d1 小幅改变了局部纯度和 cohort mixing，不能判断这些变化在完整聚类流程中是有效信号、被下游放大后的工程差异，还是没有任务价值的几何扰动。
 - **已知实现事实：** 现用参数表中目标 `paramMD5` 对应 `dimension = c(5, 2)`、`n_neighbors = 30`、`min_dist = 0.01`、`spread = 0.75`、`set_op_mix_ratio = 1`、`eps = 0.02`、`minPts = 20`，与当前 ablation 默认值一致；实际流程还显式使用 Euclidean metric 和运行线程数。
-- **关键公平性问题：** Cohort d1 的列天然具有 `tissue|cohort|feature` 分块，而 Direct TSP 没有同构的 tissue block。直接把全局 TSP 送入现有 two-stage helper 会把“是否有 tissue-first 结构”与“是否有 cohort transformation”混在一起。
+- **关键公平性问题：** Cohort d1 的列天然具有 `tissue|cohort|feature` 分块，而 Direct-GSClassifier 没有同构的 tissue block。直接把全局 GSClassifier 输入送入现有 two-stage helper 会把“是否有 tissue-first 结构”与“是否有 cohort transformation”混在一起。
 - **`record` 的实际边界：** 参数表保存的是 DR/DBSCAN 数值超参数；`record` 在现有代码中把一次 DBSCAN 解的原始 cluster ID 合并为 0–3 四类 `normSubtype`。原始 cluster ID 会随 arm、seed 和参数变化，不能把同一个 `record` 字符串直接套到 Direct 结果。
 
 ## 要达到什么目标
 
-- **完成后的变化：** `ablation()` 新增独立的 `experiment = "metaccs"`，在同一批样本、同一随机计划、同一 two-stage UWOT 预算和同一 DBSCAN 预算下，直接比较 `Cohort-d1` 与 `Direct-TSP` 两条端到端流程。
-- **可回答的问题：** 输出应能区分生物结构、跨 cohort 混合、降维保真、聚类稳定性和聚类工程特征，形成 `Cohort-d1 - Direct-TSP` 的配对差值，而不是用“图更成簇”代替任务价值。
+- **完成后的变化：** `ablation()` 新增独立的 `experiment = "metaccs"`，在同一批样本、同一随机计划、同一 two-stage UWOT 预算和同一 DBSCAN 预算下，直接比较 `Cohort-d1` 与 `Direct-GSClassifier` 两条端到端流程。
+- **可回答的问题：** 输出应能区分生物结构、跨 cohort 混合、降维保真、聚类稳定性和聚类工程特征，形成 `Cohort-d1 - Direct-GSClassifier` 的配对差值，而不是用“图更成簇”代替任务价值。
 - **兼容性：** 保持现有 `cohort`、`scaling`、`tissue_first` 行为与结果文件不变；新实验不受 Gate 1 阻断，因为它本身就是验证 cohort representation 是否有下游价值的直接证据。
 - **可追溯性：** 每个结果都记录样本、Direct feature block、DR 参数集、DBSCAN 参数集、resample、UMAP seed 和输入 hash，并保存逐样本 cluster assignment。
 
@@ -27,13 +27,13 @@
 
 ### 定义不混杂 tissue-first 的 Direct 对照
 
-新增 tissue-level TSP feature manifest。对每个 tissue，汇总其所有冻结 cohort models 实际使用过的 TSP features，并直接从共同 TSP 矩阵取值，形成 `Direct-TSP` 的 tissue blocks；该 arm 不读取任何 d1 数值，也不使用 biology 标签。
+新增 tissue-level GSClassifier feature manifest。对每个 tissue，汇总其冻结 cohort models 实际使用过的单基因分箱、普通基因对和 gene-set 对比，并由 GSClassifier 原生预处理函数统一重建，形成 `Direct-GSClassifier` tissue blocks；该 arm 不读取任何 d1 数值，也不使用 biology 标签。
 
 两条主路径定义为：
 
 ```text
-Direct-TSP:
-各 tissue 冻结特征集上的原始 TSP
+Direct-GSClassifier:
+各 tissue 冻结特征集上的原始 GSClassifier 输入
 → tissue-specific UWOT d2
 → global UWOT d3
 → column scaling
@@ -47,7 +47,7 @@ Cohort-d1:
 → DBSCAN
 ```
 
-这种 Direct baseline 保留与 Cohort arm 相同的冻结特征支持和 tissue-first 架构，只消除 cohort model transformation。TSP feature 在多个 tissues 中出现时允许进入多个 tissue blocks，但必须在 feature manifest 中显式记录；不能静默复制完整全局 TSP 到每个 tissue。
+这种 Direct baseline 保留与 Cohort arm 相同的冻结特征支持和 tissue-first 架构，只消除 cohort model transformation。特征在多个 tissues 中出现时允许进入多个 tissue blocks，但必须在 feature manifest 中显式记录；不能静默复制完整全局输入到每个 tissue。
 
 第一阶段的 tissue 顺序、随机种子、目标维数和 `n_neighbors` 应联合确定。若任一 arm 的某 tissue 因列数、去重后样本数或有效秩不足而需要降档，两组都使用共同可实现的较小值，避免一组获得更多 d2 维数或更大邻域预算。全局第二阶段采用同样的共同约束。
 
@@ -80,7 +80,7 @@ Cohort-d1:
 新实验至少返回：
 
 - `metrics`：逐 arm、resample、seed、参数集的长表；
-- `summary` 与 `contrasts`：先在同一 resample 内聚合 UMAP seeds，再以 resample 为统计单位计算 `Cohort-d1 - Direct-TSP`；只有全样本 seed 重复时应明确标为算法波动，而不是生物抽样 CI；
+- `summary` 与 `contrasts`：先在同一 resample 内聚合 UMAP seeds，再以 resample 为统计单位计算 `Cohort-d1 - Direct-GSClassifier`；只有全样本 seed 重复时应明确标为算法波动，而不是生物抽样 CI；
 - `stratified`：逐 tissue 的邻域保真、purity 和 mixing，避免总体结果掩盖小 tissue 损失；
 - `stability` 与 `stability_contrasts`：各 arm 跨 seed/resample 的 neighbor Jaccard、ARI 和双向 cluster Jaccard及其配对差值；
 - `cross_arm_agreement`：相同 repeat 下两组聚类的 ARI/cluster Jaccard，只描述两条流程改变了多少，不把高一致性自动解释为更好；
@@ -112,8 +112,8 @@ Cohort-d1:
 ## 实施范围与顺序
 
 1. 先稳定当前正在进行的 `test/ablation/ablation.R → R/ablation.R` 迁移，确认测试不再 source 已删除文件；保留现有未提交修改，不覆盖用户工作。
-2. 扩展冻结 feature manifest，使其同时提供全局 TSP union、module-to-feature 和 tissue-to-feature 映射，并在 manifest 中加入对应 hash。
-3. 抽出成对 two-stage reduction helper，实现共同 tissue 顺序、共同可实现维数、共同 `n_neighbors` 和相同派生 seed；在其上建立 `Direct-TSP` 与 `Cohort-d1` arms。
+2. 扩展冻结 feature manifest，使其同时提供完整 GSClassifier feature union、TSP 子集、module-to-feature 和 tissue-to-feature 映射，并在 manifest 中加入对应 hash 与 `breakVec`。
+3. 抽出成对 two-stage reduction helper，实现共同 tissue 顺序、共同可实现维数、共同 `n_neighbors` 和相同派生 seed；在其上建立 `Direct-GSClassifier` 与 `Cohort-d1` arms。
 4. 接入 `experiment = "metaccs"`、独立结果文件、assignments、parameter manifest 和扩展 audit；该分支不依赖 Gate 1。
 5. 先完成 frozen fixed-parameter 路径，再增加相同 parameter grid 的批量评估与缓存，避免在核心流程尚未对齐时引入选参复杂度。
 6. 增加 cluster biology、稳定性和配对差值指标，明确 resample 与 UMAP seed 的统计层级。
@@ -131,7 +131,7 @@ Cohort-d1:
 ## 如何确认完成
 
 - 使用目标 `paramMD5` 的参数行运行 Cohort arm时，在相同样本、seed 和无动态降档条件下，d3 与 `CCS::dr(..., cover = TRUE)`、cluster 与 `CCS::cluster(eps = 0.02, minPts = 20)` 达到预期的确定性等价。
-- 合成测试证明 Direct arm 只读取 TSP/tissue feature manifest，不读取 d1 数值或 biology 标签；人为改变 d1 只影响 Cohort arm。
+- 合成测试证明 Direct arm 只读取重建的 GSClassifier 输入和 tissue feature manifest，不读取 d1 数值或 biology 标签；人为改变 d1 只影响 Cohort arm。
 - 两组每个 repeat 的 sample IDs、tissue 顺序、共同第一阶段维数、共同邻域上限、UMAP seeds、最终维数和 DBSCAN 参数完全相同，并由 audit 断言。
 - 固定参数模式产生两个 arms、全部核心指标、配对 contrasts、stability、cross-arm agreement 和逐样本 assignments。
 - Grid 模式对每个 parameter set 两组行数一致，d3 对 DBSCAN grid 被复用，不把参数组合或 UMAP seeds误当作独立 cohort 样本。
@@ -141,10 +141,9 @@ Cohort-d1:
 
 ## 风险与待确认事项
 
-- **Direct baseline 的估计对象：** `tissue_model_union` 保留了冻结模型做过的 feature selection，因此比较的是“在相同冻结特征支持下，cohort model transformation 是否有增益”，不是“完全原始、未选择的所有 TSP 是否更好”。文档必须保持这一限定。
+- **Direct baseline 的估计对象：** `tissue_model_union` 保留冻结模型使用过的全部 GSClassifier 输入特征，因此比较的是“在相同冻结特征支持下，cohort model transformation 是否有增益”，不是“完全原始、未选择的所有表达特征是否更好”。
 - **参数选择偏倚：** 当前数值参数来自 Cohort 流程，fixed 模式可能偏向 Cohort；共同 grid 是等机会结论的必要敏感性分析。
 - **四类 normalized metaCCS：** `record` 依赖原始 cluster IDs且目前没有 arm-neutral 生成规则。它不阻塞 raw DBSCAN solution 的端到端比较，但阻塞“最终四类 metaCCS 已被公平比较”的强表述。
 - **统计单位：** UMAP seeds只是算法重复；只有独立 resamples、cohort resamples或外部数据才支持更强的不确定性推断。
 - **计算量：** two-stage UWOT 按 tissue、arm、resample、seed 和 DR grid 成倍增长，需要缓存 d3并限制默认 grid；不得通过减少某一 arm 的预算来提速。
 - **当前工作树：** `R/ablation.R`、文档、NAMESPACE、DESCRIPTION 和测试迁移已有未提交修改。实施者必须基于这些修改增量工作，并在开始前确认删除的旧测试源码已被正确替代。
-
