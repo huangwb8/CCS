@@ -4,6 +4,19 @@
 
 格式基于 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.1.0/)。
 
+## [Unreleased]
+
+### Changed（变更）
+
+- 重构 `ablation()` 参数 schema：将共享参数归入 `general`，并按 `cohort`、`scaling`、`tissue_first`、`metaccs` 组织任务特异参数；保存的 `config.rds` 与 `result$config` 使用规范嵌套结构，同时兼容现有扁平调用，并对未知字段及新旧写法冲突提前报错。
+- 更新 `ablation()` 文档与合成场景测试，使参数示例、Gate 1 路径及各实验配置读取与新 schema 一致。
+- `ablation()` 的 Direct 表征改为复用 GSClassifier 的原生特征构造合同，按冻结模型的 `bst$feature_names` 重建单基因分箱、普通基因对和 gene-set 对比；Experiment 4 的对应组名更新为 `Direct-GSClassifier`。
+
+### Fixed（修复）
+
+- 修正合成测试中 `table` 属性导致的错误严格比较，并让 metaCCS 特征夹具同步冻结模型实际使用的 `bst$feature_names`。
+- 修复消融实验仅手工计算普通 TSP、遗漏 GSClassifier 单基因分箱与 gene-set 对比，以及跨队列表达合并错误使用基因交集的问题。
+
 ## [0.8.2] - 2026-08-01
 
 ### Added（新增）
