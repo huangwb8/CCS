@@ -2,6 +2,8 @@
 
 ## 设计目标
 
+`R/ablation.R` 是 `ablation()` 及其私有辅助函数的唯一事实来源。`test/ablation/` 只保存测试夹具、测试脚本与设计说明；测试脚本直接加载包源码，不维护实现副本。
+
 `ablation()` 是挂接在现有 CCS 体系旁边的实验入口。它不重新训练 cohort submodels，也不修改 `CCS` 对象，而是用 GSClassifier 的原生预处理函数重建冻结模型输入特征，读取完整 d1 和样本注释，自动执行 CCS 分层与端到端消融计划中的四个核心实验：
 
 - cohort representation 是否有必要；
