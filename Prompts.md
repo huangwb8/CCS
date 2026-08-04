@@ -6,8 +6,41 @@ test\ablation\ablation.R 可以替换 R\ablation.R 了，然后 DESCRIPTION 升�
 
 ---
 
+预训练时我用的数据包是： E:/iProjects/CCS_Data/report/DataListForCCS_GEO+cBioPortal+UCXCXenav20240809_PADv20240810.rds （只读） 。E:/iProjects/CCS_Data （只读） 里有生成这个数据的代码及对应的原始数据。 我希望你按图索骥，通过联网确认、适当编程或其它可靠、安全的方法，最终获得 DataListForCCS_GEO+cBioPortal+UCXCXenav20240809_PADv20240810.rds 里的数据集的 docs/关于CCS框架的讨论.md 里 `## 证据层预训练语料的最小数据要求` 小节所描述的数据，以方便我进行后续分析。我的想法大致如下：
+- 工作目录是： test/pre-train-info 。在本目录以外的所有文件，都是只读，严禁修改。
+- 确认 `## 证据层预训练语料的最小数据要求` 小节所描述的数据的策略是多样的；有时候原始数据里可以直接获得；有时候可以需要联网找一下（比如，GEO数据集你联网找一下一般是有相关的数据的）；有时候可能需要通过某些API。一般来说，数据来源于GEO、cBioPortal和UCXC Xenav。你要灵活运用多种方法。
+- 要求：信息保证准确；如果不确定，就用unknow代替。不能伪造数据。
+- 一个一个数据集串行地搜索、确认，不要并行。每找一个数据集，关键中间数据要留痕；这样就算任务偶然中断，也可以继续下去。不管数据的来源如何，最终关键的中间数据要使用你自定义的规范方法来暂存。最后，直接用你开发的代码它们提取、merge，直接生成我需要的矩阵。
+- 本次任务的出品：
+  - ./test/pre-train-info/DataListForCCS_GEO+cBioPortal+UCXCXenav20240809_PADv20240810_BatchInfo.xlsx ：包含一个矩阵，记录我想要的上述数据信息。每一行是一个样本；每一列是一个信息。每个样本的ID、样本所属于的cohort名、tissue名，要和E:/iProjects/CCS_Data/report/DataListForCCS_GEO+cBioPortal+UCXCXenav20240809_PADv20240810.rds的标签对齐；不要创造新的标签。
+  - ./test/pre-train-info/human-should-check.md：系统地记录有哪些数据是不太确定的、需要人类进一步审核。
+  - 其它重要的R脚本：工作时可以不遵守 bensz-rmd-rules 的规范，因为这不是一个标准的分析流程。可以按你自己的意思来。
 
+---
 
+设计CCS框架最初的灵感大致是：
+- 在肿瘤学里，基于RNA的预测模型在临床转化过程中面临一些问题：（1）我们需要一个好的泛癌个体化转录组模型，因为它有希望解决一些小众癌种的特定药物（比如ICI）的疗效预测问题。但是，构建一个有临床应用价值的泛癌个体化转录组模型，一个重要前提是，这个模型在跨平台、跨临床中心的预测具有稳健性；只有这个“稳健性”得到了保证，这个地基打牢了，一个好的泛癌个体化转录组模型才是可能的。
+- 不同的RNA队列会因为很多技术原因（比如属于不同的batch；不同测量平台[比如RNA-Seq或microarray; RNA-Seq也有可能导致]）；不同的标本类型导致RNA的绝对表达量无法被轻易地merge起来做事情（比如构建预测模型）。类似TSP这样的简洁技术很早就出现了——基于相对表达量。一般来说，很多论文、研究，包括我自己的实验，均表明TSP具有较强的跨平台、抗批次效应的能力。虽然绝对表达量到相对表达量的转换过程中，有一部分信息丢失了；但是却有希望把更多的RNA表达队列merge起来做事情。总之，一般认为TSP有这些优势：不依赖表达量绝对尺度、对单调变换不敏感、跨测序平台和标准化流程更容易迁移、每个特征都可以解释为具体的基因排序关系、单个新样本可以独立计算，不要求与训练队列共同标准化。
+- 纯 TSP 存在三个根本问题：（1）全局聚类容易被组织来源支配：如果把所有癌种直接放在一起，最先聚出的通常可能是组织来源、细胞组成或测序差异，而不是期望的跨癌种机制 （2）TSP特征高度相关：共享基因的 TSP、互补 TSP 和满足传递关系的 TSP 会重复表达相似信息。
+- 因此，我们想：利用大量异质转录组队列，在TSP的基础上构建一种可对单个新样本独立计算、能够跨平台迁移，并可服务不同临床任务的泛癌转录组证据层。
+
+所以，我觉得你需要补充一个实验
+- 对于本次任务的真实数据来说，2个TSP很相似的样本，在各自的队列里面，就PAD分型而言，是不是很不相似？
+
+---
+
+我忽然有一个灵光一闪： 目前，我在实际构建CCS框架的时候（E:\iProjects\Manuscripts\CCS [只读]），有一步是先构建metaCCS，然后再构建normCCS。现在，在你的提示下，我觉得metaCCS这一步既不必须的、也不重要。因为，我有d2向量（它比d1还是好一些，因此它基于tissue分别聚类了一下，避免样本量很大的tissue遮住样本量很少的tissue）就够了；因为metaCCS本来就是d3推导出来；但是求metaCCS的时候，我还要调各种参数，自讨苦吃。我就假设，我只要到d3就足够了。然后，我准备一些ICI队列准备构建normCCS。基于已训练的队列子模型和CCS框架，我直接就获取了这些ICI队列的样本的d2矩阵。然后，我已经有了ICI response这个表型标签。 如果我想专做ICI response，我就直接 ICI rsponse ~ d3矩阵构建模型就行了。我似乎不再需要normCCS。当然，这样做也有一些缺陷：
+- 在叙事上面，这种直接的、功利的转录组模型的叙事可能不如metaCCS/normCCS，生物学上的可解释性较差些
+- 在CCS的框架下， 对于已经完成训练的队列子模型来说，d1显然是稳定的；但d2/d3这2步的参数的限制，我不知道d3矩阵是不是稳定的；如果d3矩阵不是稳定的话，那 ICI rsponse ~ d3矩阵就行不通，我还是得走metaCCS~normCCS的老路；因为metaCCS是d1 ~ 自聚类的解码模型得到的，它是稳定的；metaCCS是通过确定的规则获得normCCS
+结合你之前的分析、以及我这里的想法，你有什么意见、建议？
+
+---
+
+./test/tsp-based-clustering/tsp-based-clustering-test-data.R 里有一些数据，你看注释就知道它们的用途。 我希望做一些简单的分析：
+- 基于训练集（这是个泛癌数据集），利用训练集里包含的30+基因构建一个纯TSP模型（TSP的计算最好用GSClassifier的，具体你可以参考下 ./R/ablation.R 是怎么做的）。先通过一些技术方法给纯TSP的表达矩阵进行聚类（这里的聚类结果就类似于metaCCS），然后通过 f: 聚类 ~ TSP矩阵构建机器学习模型。
+- 使用 Validation Data - Used for building ICI-guided normCCS-like clustering 里对应的数据，构建一个类似4分型normCCS的二次分型系统 S
+- 在 Validation Data - Used for validating normCCS-like clustering in ICI prediction 里对应的数据里验证二次分型系统 S对于ICI预测能力如何
+- 所有的分析结果都在 ./test/tsp-based-clustering 这个文件夹里；在这个文件夹以外的所有文件都是只读的，严禁修改。 分析要基于 bensz-rmd-rules skill 的规范，结果的解读要足够详细。
 
 ---
 
