@@ -6,6 +6,10 @@ test\ablation\ablation.R 可以替换 R\ablation.R 了，然后 DESCRIPTION 升�
 
 ---
 
+根据 docs\关于CCS框架的讨论.md 里，其实最重要的问题，就是 d1 vs. TSP有什么区别。但是，如果观测指标拓展到d1的下游—— d2/d3/metaCCS/normCCS/ICI response，其实意义不大，因为这些部分涉及的超参数特别多。 比如，2个分组——d1 vs. TSP，其它参数基本一样，然后最后ICI reponse这里 d1 比 TSP好，也无法说明d1真的好，因为我可以说——TSP也许不是最佳的超参数组合，所以比不上基于cohort的d1。就算你设计再多的实验，也很难比较严格地证明这一点。所以，我觉得最重要的消融实验，应该把重点放在 d1 vs. TSP有什么区别 、d1改善了什么、d1妥协了什么，往这个方向去思考；当然，你有更好的意见。 你综合 docs\关于CCS框架的讨论.md、R\ablation.R 的设计和E:\iProjects\Manuscripts\CCS\paper\docs\plans\2026-07-27-ccs框架分层消融实验计划.md （这些文件有好的、也有不好的方面），写一个 R\ablation.R 的源代码优化计划，告诉我要怎么改良它。我们的目标就是：最符合CCS框架这个科研场景的最优化消融实验方案。 
+
+---
+
 预训练时我用的数据包是： E:/iProjects/CCS_Data/report/DataListForCCS_GEO+cBioPortal+UCXCXenav20240809_PADv20240810.rds （只读） 。E:/iProjects/CCS_Data （只读） 里有生成这个数据的代码及对应的原始数据。 我希望你按图索骥，通过联网确认、适当编程或其它可靠、安全的方法，最终获得 DataListForCCS_GEO+cBioPortal+UCXCXenav20240809_PADv20240810.rds 里的数据集的 docs/关于CCS框架的讨论.md 里 `## 证据层预训练语料的最小数据要求` 小节所描述的数据，以方便我进行后续分析。我的想法大致如下：
 - 工作目录是： test/pre-train-info 。在本目录以外的所有文件，都是只读，严禁修改。
 - 确认 `## 证据层预训练语料的最小数据要求` 小节所描述的数据的策略是多样的；有时候原始数据里可以直接获得；有时候可以需要联网找一下（比如，GEO数据集你联网找一下一般是有相关的数据的）；有时候可能需要通过某些API。一般来说，数据来源于GEO、cBioPortal和UCXC Xenav。你要灵活运用多种方法。
