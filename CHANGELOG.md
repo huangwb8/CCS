@@ -8,8 +8,11 @@
 
 ### Changed（变更）
 
+- 将预训练元数据流水线入口由 Windows 专用 PowerShell 脚本替换为跨平台 Python 编排器；外部 RDS、cBioPortal、UCSC Xena 与 GEO 路径改为命令行或环境变量配置，并支持 Windows Excel 或三平台 LibreOffice 公式重算。
+- 按项目负责人确认的口径，将 assay 与托管来源已经充分确认的 cBioPortal cohort 记为 `metadata_status = confirmed`；数据提供者未公开具体测序仪或芯片型号时保留 `platform_id = unknow`，不再仅因此列入人工审核，并重建预训练元数据工作簿与审核报告。
+- 接受有可靠来源支持的平台家族作为预训练元数据的 `platform_id`：Chin 2006 与 Hess 2006 标记为 `Affymetrix U133 family`，Vijver 2002 标记为 `Agilent/Rosetta custom microarray family`；不再因原始研究未公开精确芯片型号而将这些 Xena cohort 保留为 `unknow` 或列入平台人工审核。
 - 按项目负责人确认的口径调整预训练元数据状态：已匹配官方 UCSC Xena dataset 的 RNA-seq cohort 即使缺少统一测序仪型号，也保留 `platform_id = unknow` 并将 `metadata_status` 记为 `confirmed`，不再列入平台人工审核；报告同时保留各数据集在官方 metadata 中实际记录的 TPM、FPKM-UQ、FPKM 或 CPM 单位。
-- 更新预训练样本信息取证流程：将本地 UCSC Xena 表达矩阵精确匹配到官方 hub/dataset metadata 与数据页，确认 Caldas 2007 队列使用 `Agilent Human 1A (V2) microarray`，并为证据仍不足的 Xena 队列保留 `unknow` 或平台家族提示后重建相关 CSV、审核报告与工作簿。
+- 更新预训练样本信息取证流程：将本地 UCSC Xena 表达矩阵精确匹配到官方 hub/dataset metadata 与数据页，确认 Caldas 2007 队列使用 `Agilent Human 1A (V2) microarray`；证据只支持平台家族时使用家族级 `platform_id`，完全缺少可靠平台证据时保留 `unknow`，并重建相关 CSV、审核报告与工作簿。
 - 移除 `test/ablation/ablation.R` 的重复实现；`R/ablation.R` 现为 `ablation()` 的唯一事实来源，消融测试继续直接加载包源码。
 - 重构 `ablation()` 参数 schema：将共享参数归入 `general`，并按 `cohort`、`scaling`、`tissue_first`、`metaccs` 组织任务特异参数；保存的 `config.rds` 与 `result$config` 使用规范嵌套结构，同时兼容现有扁平调用，并对未知字段及新旧写法冲突提前报错。
 - 更新 `ablation()` 文档与合成场景测试，使参数示例、Gate 1 路径及各实验配置读取与新 schema 一致。
