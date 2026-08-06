@@ -4,6 +4,7 @@
 # Output: Full data plus auditable reference/external partitions; no business filtering.
 
 luckyBase::Plus.library(c("CCS", "readxl", "digest"))
+source(file.path("test", "ablation-02", "ablation-test-data_functions.R"))
 
 # Step 1: Resolve cross-platform roots without embedding user-specific directories.
 sysname <- Sys.info()[["sysname"]]
@@ -80,8 +81,20 @@ batch_workbook_path <- file.path(
     "_BatchInfo.xlsx"
   )
 )
+tissue_mapping_path <- file.path(
+  "test",
+  "pre-train-info",
+  "scripts",
+  "tissue_mapping.csv"
+)
 
-required_paths <- c(data_path, resccs_path, batch_workbook_path, model.dir)
+required_paths <- c(
+  data_path,
+  resccs_path,
+  batch_workbook_path,
+  tissue_mapping_path,
+  model.dir
+)
 missing_paths <- required_paths[!file.exists(required_paths) & !dir.exists(required_paths)]
 if (length(missing_paths) > 0) {
   stop(
@@ -91,11 +104,26 @@ if (length(missing_paths) > 0) {
   )
 }
 
-# Step 2: Load the complete expression data and frozen filtered CCS object.
+# Step 2: Load the complete expression data and restore audited tissue groups.
 data_all <- readRDS(data_path)
+tissue_mapping <- utils::read.csv(
+  tissue_mapping_path,
+  check.names = FALSE,
+  stringsAsFactors = FALSE
+)
+raw_cohort_index <- .atd_cohort_index(data_all)
+tissue_resolution <- .atd_resolve_tissue_groups(data_all, tissue_mapping)
+data_all <- tissue_resolution$data
+tissue_resolution_audit <- tissue_resolution$audit
+resolved_cohort_index <- .atd_cohort_index(data_all)
+
 resCCS <- readRDS(resccs_path)
 resCCS@Repeat$model.dir <- model.dir
-filtered_cohorts <- as.character(resCCS@Data$filtered.cohort)
+filtered_model_cohorts <- as.character(resCCS@Data$filtered.cohort)
+filtered_cohorts <- .atd_resolve_cohort_keys(
+  filtered_model_cohorts,
+  tissue_mapping
+)
 
 # Step 3: Read the workbook as the single source for sample identity and technology.
 batch_info <- as.data.frame(
@@ -114,6 +142,16 @@ ablation_metadata$cohort_key <- paste(
   ablation_metadata$cohort,
   sep = "/"
 )
+ablation_metadata$bank_tissue <- ifelse(
+  ablation_metadata$cohort %in% tissue_mapping$cohort_id,
+  "Undefined",
+  ablation_metadata$tissue
+)
+ablation_metadata$bank_cohort_key <- paste(
+  ablation_metadata$bank_tissue,
+  ablation_metadata$cohort,
+  sep = "/"
+)
 ablation_metadata$analysis_set <- ifelse(
   ablation_metadata$cohort_key %in% filtered_cohorts,
   "external_query",
@@ -126,7 +164,7 @@ ablation_metadata$d1_provenance <- ifelse(
 )
 
 # cancer_type comes from the independent BatchInfo evidence layer and was not
-# used to fit the frozen cohort bank. tissue remains the bank-aligned fallback.
+# used to fit the frozen cohort bank. bank_tissue preserves the historical model key.
 ablation_metadata$biology <- ablation_metadata$cancer_type
 ablation_metadata$anchor_role <- "independent"
 ablation_metadata$duplicate_sample_id_global <- as.logical(
@@ -156,19 +194,17 @@ partition_data <- function(data, cohort_keys, keep) {
 external_data <- partition_data(data_all, filtered_cohorts, keep = TRUE)
 reference_data <- partition_data(data_all, filtered_cohorts, keep = FALSE)
 
-# Step 5: Fail loudly when the workbook and RDS identity layers drift apart.
-cohort_data <- unlist(lapply(data_all, unname), recursive = FALSE)
-raw_sample_count <- sum(vapply(
-  cohort_data,
-  function(leaf) {
-    expr <- if (is.list(leaf) && !is.null(leaf$expr)) leaf$expr else leaf
-    ncol(expr)
-  },
-  integer(1)
-))
+# Step 5: Fail loudly when expression, workbook, and frozen-bank identities drift.
+raw_sample_count <- sum(resolved_cohort_index$sample_count)
 if (raw_sample_count != nrow(ablation_metadata)) {
   stop(
     "ablation-test-data: BatchInfo row count does not match expression samples.",
+    call. = FALSE
+  )
+}
+if ("Undefined" %in% names(data_all) || any(ablation_metadata$tissue == "Undefined")) {
+  stop(
+    "ablation-test-data: audited tissue restoration left Undefined entries.",
     call. = FALSE
   )
 }
@@ -180,6 +216,26 @@ if (!setequal(filtered_cohorts, unique(
     call. = FALSE
   )
 }
+if (!setequal(filtered_model_cohorts, unique(
+  ablation_metadata$bank_cohort_key[
+    ablation_metadata$analysis_set == "external_query"
+  ]
+))) {
+  stop(
+    "ablation-test-data: frozen-bank cohort keys do not match the model contract.",
+    call. = FALSE
+  )
+}
+
+# Step 6: Build full, unfiltered profiles for the human-readable report.
+ablation_data_profile <- .atd_build_data_profile(
+  raw_cohort_index = raw_cohort_index,
+  resolved_cohort_index = resolved_cohort_index,
+  metadata = ablation_metadata,
+  tissue_resolution_audit = tissue_resolution_audit,
+  filtered_model_cohorts = filtered_model_cohorts,
+  filtered_cohorts = filtered_cohorts
+)
 
 luckyBase::LuckyVerbose(
   "ablation-test-data: loaded ",
@@ -187,6 +243,8 @@ luckyBase::LuckyVerbose(
   " rows across ",
   nrow(cohort_summary),
   " cohorts; ",
+  nrow(tissue_resolution_audit),
+  " historical Undefined cohorts were restored; ",
   sum(ablation_metadata$analysis_set == "external_query"),
   " rows belong to ",
   length(filtered_cohorts),

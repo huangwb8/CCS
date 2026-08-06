@@ -25,7 +25,7 @@ output:
 
 ```{r setup, include=FALSE}
 # Purpose: Load completed computation artifacts and prepare report-only summaries.
-# Input: Seven RDS/CSV products from ablation-experiment.R.
+# Input: The data profile plus seven RDS/CSV products from ablation-experiment.R.
 # Parameters: Display thresholds from YAML params; no scientific winner threshold is invented.
 # Output: Traceable variables used by inline numbers, tables, and figures.
 knitr::opts_chunk$set(
@@ -46,6 +46,7 @@ required_results <- file.path(
   result_dir,
   c(
     "manifest.rds",
+    "data-profile.rds",
     "native_geometry.rds",
     "retrieval.rds",
     "readout.rds",
@@ -59,6 +60,7 @@ if (!all(file.exists(required_results))) {
 }
 
 manifest <- readRDS(file.path(result_dir, "manifest.rds"))
+data_profile <- readRDS(file.path(result_dir, "data-profile.rds"))
 native_geometry <- readRDS(file.path(result_dir, "native_geometry.rds"))
 retrieval <- readRDS(file.path(result_dir, "retrieval.rds"))
 readout <- readRDS(file.path(result_dir, "readout.rds"))
@@ -77,10 +79,63 @@ metric_value <- function(name) {
     match(name, native_geometry$metrics$metric_name)
   ]
 }
-find_source_line <- function(pattern) {
-  lines <- readLines(file.path("..", "..", "R", "ablation.R"), warn = FALSE)
-  match(TRUE, grepl(pattern, lines, fixed = TRUE))
-}
+find_source_line <- function(pattern) .ae_find_source_line(
+  file.path("..", "..", "R", "ablation.R"),
+  pattern
+)
+
+raw_sample_count <- .ae_profile_value(data_profile, "Raw samples")
+raw_cohort_count <- .ae_profile_value(data_profile, "Raw cohorts")
+raw_tissue_count <- .ae_profile_value(data_profile, "Raw tissue groups")
+resolved_tissue_count <- .ae_profile_value(data_profile, "Resolved tissue groups")
+remapped_cohort_count <- .ae_profile_value(data_profile, "Remapped cohorts")
+remapped_sample_count <- .ae_profile_value(data_profile, "Remapped samples")
+unresolved_sample_count <- .ae_profile_value(
+  data_profile,
+  "Unresolved tissue samples"
+)
+
+tissue_profile_plot <- data_profile$tissue_profile
+tissue_order <- data_profile$tissue_totals$tissue[
+  order(data_profile$tissue_totals$sample_count)
+]
+tissue_profile_plot$tissue <- factor(
+  tissue_profile_plot$tissue,
+  levels = tissue_order
+)
+tissue_profile_plot$analysis_set <- factor(
+  tissue_profile_plot$analysis_set,
+  levels = c("reference_atlas", "external_query"),
+  labels = c("Reference atlas", "External query")
+)
+
+tissue_totals <- data_profile$tissue_totals[
+  order(data_profile$tissue_totals$sample_count, decreasing = TRUE),
+  ,
+  drop = FALSE
+]
+tissue_label <- utils::head(tissue_totals, params$interpret_top_n)
+
+source_profile_plot <- .ae_complete_source_profile(data_profile)
+source_profile_plot$tissue <- factor(
+  source_profile_plot$tissue,
+  levels = tissue_order
+)
+
+mapping_tissue_summary <- data_profile$resolution_audit |>
+  dplyr::group_by(.data$resolved_tissue) |>
+  dplyr::summarise(
+    cohort_count = dplyr::n(),
+    sample_count = sum(.data$sample_count),
+    .groups = "drop"
+  ) |>
+  dplyr::arrange(dplyr::desc(.data$sample_count))
+
+largest_cohort <- data_profile$cohort_profile[
+  order(data_profile$cohort_profile$sample_count, decreasing = TRUE),
+  ,
+  drop = FALSE
+][1, , drop = FALSE]
 
 geometry_metrics <- native_geometry$metrics[
   native_geometry$metrics$metric_name %in%
@@ -214,7 +269,202 @@ direct_top_k_rate <- retrieval$summary$top_k_label_rate[
 
 ## 数据概览
 
-原始 filtered 集合包含 `r length(manifest$external_cohorts)` 个 cohorts。其中，`r manifest$query_cohort_count` 个 cohorts 的 cancer_type 在 reference 中至少覆盖 `r manifest$config$anchors$min_reference_cohorts` 个 cohort，共形成 `r manifest$query_sample_count` 个确认性 query。reference atlas 含 `r manifest$reference_sample_count` 个可唯一对齐样本、`r manifest$reference_cohort_count` 个 cohort。所有 query 的 d1 provenance 均为 `external_frozen`，独立锚点来自 Excel 证据层中的 `r manifest$anchor`，本轮证据等级为 **`r manifest$evidence_level`**。Direct-GSClassifier 使用 `r manifest$direct_feature_count` 个真实冻结特征，其中 ordinary gene-pair 为 `r manifest$tsp_feature_count` 个；Cohort-d1 使用 `r manifest$module_count` 个冻结 modules、`r manifest$d1_feature_count` 个概率输出列。
+### 原始数据与组织标签恢复
+
+表达 RDS 共含 `r raw_sample_count` 个样本、`r raw_cohort_count` 个 cohort；旧结构只有 `r raw_tissue_count` 个顶层 tissue，其中 `Undefined` 汇集了 `r remapped_cohort_count` 个已知 cohort 和 `r remapped_sample_count` 个样本。这里不依据 cohort 名称猜测 tissue，而是逐行读取 `test/pre-train-info/scripts/tissue_mapping.csv` 的已核验映射，将这些 cohort 移入真实 tissue。重组后得到 `r resolved_tissue_count` 个 tissue，未解析样本数为 **`r unresolved_sample_count`**，样本数与 cohort 数均保持不变。
+
+冻结 CCS bank 仍以历史 `Undefined/cohort` 作为部分 module provenance；报告因此同时保留 `bank_tissue/bank_cohort_key` 与真实 `tissue/cohort_key`。前者保证模型文件和审计哈希可追溯，后者用于数据分层、样本抽样和生物学解释。该双键设计避免了把“历史存储标签”误当成“未知组织”，也避免真实 tissue 恢复后丢失 `r length(data_profile$filtered_key_audit$cohort_key)` 个 external filtered cohort。
+
+```{r tissue-resolution-table, interp_check=TRUE}
+# Purpose: Show every historical Undefined cohort and its audited tissue destination.
+# Input: Full tissue-resolution audit from ablation-test-data.R.
+# Parameters: Ten rows per page; no cohort is filtered from the interactive table.
+# Output: Traceable mapping with sample/feature counts and analysis role.
+render_dt(
+  data_profile$resolution_audit[, c(
+    "cohort", "source_tissue", "resolved_tissue", "sample_count",
+    "feature_count", "analysis_set"
+  )],
+  pageLength = 10
+)
+```
+
+恢复规模最大的三个 tissue 是 `r paste(mapping_tissue_summary$resolved_tissue[seq_len(3L)], mapping_tissue_summary$sample_count[seq_len(3L)], sep = " = ", collapse = "; ")` 个样本。该表保留所有 `r remapped_cohort_count` 条映射及其 feature 数，因而审核者可以从任一真实 tissue 反查原始 `Undefined` cohort。后续若 `pre-train-info` 映射变化，数据契约会要求源 `Undefined` cohort 集合与映射表严格相等；不一致时主脚本直接停止，而不会静默丢弃或猜测标签。
+
+### 样本与 reference-query 构成
+
+```{r figure-data-tissue-composition, interp_check=TRUE}
+# ==== Data Figure 1: Tissue composition (user-adjustable parameters) ====
+fig_data1 <- list(
+  # A tall canvas keeps all resolved tissue labels legible; 8-12 in is suitable here.
+  width_in = 7.4,
+  height_in = 8.8,
+  # Base font in pt. Values below 8 are avoided for print readability.
+  base_size = 9,
+  # Bar width controls separation between tissue rows; 0.65-0.85 is typical.
+  bar_width = 0.76,
+  # The bottom legend remains outside the data panel.
+  legend_position = "bottom"
+)
+
+p_data1 <- ggplot2::ggplot(
+  tissue_profile_plot,
+  ggplot2::aes(
+    x = .data$sample_count,
+    y = .data$tissue,
+    fill = .data$analysis_set
+  )
+) +
+  ggplot2::geom_col(width = fig_data1$bar_width) +
+  ggplot2::scale_fill_manual(values = c(
+    "Reference atlas" = nature_colors[["blue"]],
+    "External query" = nature_colors[["orange"]]
+  )) +
+  ggplot2::scale_x_continuous(
+    labels = scales::label_number(big.mark = ",")
+  ) +
+  ggplot2::labs(
+    x = "Samples",
+    y = "Resolved tissue",
+    fill = "Analysis set"
+  ) +
+  theme_nature_readable(
+    base_size = fig_data1$base_size,
+    x_text_angle = 0,
+    legend_position = fig_data1$legend_position
+  )
+
+# Readability check: horizontal bars protect 32 tissue labels from overlap; the
+# tall canvas and external legend keep both small and large strata visible.
+fig_data1_jpg <- .ae_save_plot(
+  p_data1, "figure-data-01-tissue-composition", figure_dir,
+  preview_dir, fig_data1, params$plot_preview_dpi
+)
+knitr::include_graphics(fig_data1_jpg)
+```
+
+当前数据的构成结果显示，`r tissue_totals$tissue[1]` 是样本量最大的 tissue（`r tissue_totals$sample_count[1]` 个样本、`r tissue_totals$cohort_count[1]` 个 cohort），其次为 `r tissue_totals$tissue[2]`（`r tissue_totals$sample_count[2]`）和 `r tissue_totals$tissue[3]`（`r tissue_totals$sample_count[3]`）。图中 reference/query 并非随机切分：external query 由冻结模型记录的 filtered cohort 决定，完整原始层面为 `r sum(data_profile$tissue_profile$sample_count[data_profile$tissue_profile$analysis_set == "external_query"])` 个样本；实际表示实验随后排除跨 cohort 重复 sample ID，并要求 cancer_type 在 reference 中至少覆盖 `r manifest$config$anchors$min_reference_cohorts` 个 cohort，因此确认性 query 收敛到 `r manifest$query_sample_count` 个样本和 `r manifest$query_cohort_count` 个 cohort。**这一构成差异提示，原始可用数据与满足外部验证合同的数据必须分开报告。**
+
+### cohort 规模与来源异质性
+
+```{r figure-data-cohort-scale, interp_check=TRUE}
+# ==== Data Figure 2: Cohort scale heterogeneity (user-adjustable parameters) ====
+fig_data2 <- list(
+  width_in = 7.2,
+  height_in = 5.2,
+  base_size = 10,
+  point_size_min = 2.4,
+  point_size_max = 7.5,
+  point_alpha = 0.82,
+  label_size = 3.0,
+  legend_position = "right"
+)
+
+p_data2 <- ggplot2::ggplot(
+  tissue_totals,
+  ggplot2::aes(
+    x = .data$cohort_count,
+    y = .data$sample_count,
+    size = .data$median_cohort_size,
+    color = .data$query_fraction
+  )
+) +
+  ggplot2::geom_point(alpha = fig_data2$point_alpha) +
+  ggplot2::geom_text(
+    data = tissue_label,
+    ggplot2::aes(label = .data$tissue),
+    size = fig_data2$label_size,
+    nudge_y = 0.10,
+    check_overlap = TRUE,
+    show.legend = FALSE
+  ) +
+  ggplot2::scale_y_log10(
+    labels = scales::label_number(big.mark = ",")
+  ) +
+  ggplot2::scale_size_continuous(
+    range = c(fig_data2$point_size_min, fig_data2$point_size_max)
+  ) +
+  ggplot2::scale_color_gradient(
+    low = "grey75",
+    high = nature_colors[["red"]],
+    labels = scales::label_percent(accuracy = 1)
+  ) +
+  ggplot2::labs(
+    x = "Cohorts per tissue",
+    y = "Samples per tissue (log scale)",
+    size = "Median cohort size",
+    color = "External-query share"
+  ) +
+  theme_nature_readable(
+    base_size = fig_data2$base_size,
+    x_text_angle = 0,
+    legend_position = fig_data2$legend_position
+  )
+
+# Readability check: the log scale preserves rare tissues without flattening large
+# tissues; only the top sample-count tissues are labeled, preventing text collisions.
+fig_data2_jpg <- .ae_save_plot(
+  p_data2, "figure-data-02-cohort-scale", figure_dir,
+  preview_dir, fig_data2, params$plot_preview_dpi
+)
+knitr::include_graphics(fig_data2_jpg)
+```
+
+当前数据结果显示，各 tissue 存在跨量级的 cohort 与样本规模差异；最大单一 cohort 为 `r largest_cohort$tissue` / `r largest_cohort$cohort`，含 `r largest_cohort$sample_count` 个样本。点大小进一步显示 median cohort size，颜色表示 external-query 占比，因此样本多不等于外部证据更充分。对样本量小或 query 占比较高的 tissue，后续 lineage-specific 结论应优先报告 cohort-level bootstrap 或 leave-one-cohort-out 区间；判据应是方向在独立 cohort 中保持一致，而不是由一个大 cohort 的样本数驱动总体均值。
+
+```{r figure-data-source-composition, interp_check=TRUE}
+# ==== Data Figure 3: Source-system composition (user-adjustable parameters) ====
+fig_data3 <- list(
+  width_in = 6.8,
+  height_in = 8.8,
+  base_size = 9,
+  tile_border_width = 0.35,
+  legend_position = "right"
+)
+
+p_data3 <- ggplot2::ggplot(
+  source_profile_plot,
+  ggplot2::aes(
+    x = .data$source_system,
+    y = .data$tissue,
+    fill = .data$tissue_fraction
+  )
+) +
+  ggplot2::geom_tile(
+    color = "white",
+    linewidth = fig_data3$tile_border_width
+  ) +
+  ggplot2::scale_fill_gradient(
+    low = "grey96",
+    high = nature_colors[["purple"]],
+    labels = scales::label_percent(accuracy = 1),
+    limits = c(0, 1)
+  ) +
+  ggplot2::labs(
+    x = "Source system",
+    y = "Resolved tissue",
+    fill = "Within-tissue share"
+  ) +
+  theme_nature_readable(
+    base_size = fig_data3$base_size,
+    x_text_angle = 30,
+    legend_position = fig_data3$legend_position
+  )
+
+# Readability check: only three source columns are shown; a tall canvas preserves
+# tissue labels, white tile borders separate cells, and the legend stays external.
+fig_data3_jpg <- .ae_save_plot(
+  p_data3, "figure-data-03-source-composition", figure_dir,
+  preview_dir, fig_data3, params$plot_preview_dpi
+)
+knitr::include_graphics(fig_data3_jpg)
+```
+
+当前数据的来源构成结果显示，各 tissue 分别由 GEO、cBioPortal 或 UCSC Xena 以不同比例支撑；颜色按 tissue 内部归一化，避免 BRCA/CRC 等大样本 tissue 在绝对计数上遮蔽小组织。**这一来源差异提示，单一 source 占主导的 tissue 不能被当作生物学重复。** 当前消融已在邻居层报告 assay、platform 与 source excess；下一步可在 `r tissue_totals$tissue[1]`、`r tissue_totals$tissue[2]` 和 `r tissue_totals$tissue[3]` 中分别执行 leave-one-source-out，只有移除主要来源后效应方向仍一致，才支持跨来源稳健性。
+
+### 表示实验的数据合同
+
+原始 filtered 集合包含 `r length(data_profile$filtered_key_audit$cohort_key)` 个 cohorts。其中，`r manifest$query_cohort_count` 个 cohorts 的 cancer_type 在 reference 中至少覆盖 `r manifest$config$anchors$min_reference_cohorts` 个 cohort，共形成 `r manifest$query_sample_count` 个确认性 query。reference atlas 含 `r manifest$reference_sample_count` 个可唯一对齐样本、`r manifest$reference_cohort_count` 个 cohort。所有 query 的 d1 provenance 均为 `external_frozen`，独立锚点来自 Excel 证据层中的 `r manifest$anchor`，本轮证据等级为 **`r manifest$evidence_level`**。Direct-GSClassifier 使用 `r manifest$direct_feature_count` 个真实冻结特征，其中 ordinary gene-pair 为 `r manifest$tsp_feature_count` 个；Cohort-d1 使用 `r manifest$module_count` 个冻结 modules、`r manifest$d1_feature_count` 个概率输出列。
 
 ```{r data-overview-table}
 # Purpose: Expose the exact data and representation contract used by all analyses.
@@ -257,6 +507,9 @@ render_dt(overview_table, pageLength = 10)
 
 | 分析过程/产物 | 关键函数/对象 | 关键参数 | 本次设置理由 | 源代码位置 |
 |---|---|---|---|---|
+| tissue 标签恢复 | `.atd_resolve_tissue_groups()` | `tissue_mapping.csv`；源标签 `Undefined` | 只使用 pre-train-info 已核验映射；保留全部样本与 cohort | `ablation-test-data_functions.R` |
+| 双 cohort key | `.atd_resolve_cohort_keys()` | `bank_cohort_key` / `cohort_key` | 同时满足冻结模型追溯与真实 tissue 分层 | `ablation-test-data_functions.R` |
+| 全量数据画像 | `.atd_build_data_profile()` | 不应用样本量阈值 | `.R` 保留 `r raw_cohort_count` 个 cohort 的完整审计信息，Rmd 只决定展示 | `ablation-test-data_functions.R` |
 | 完整 GSClassifier 输入 | `.ablation_gsclassifier_matrix()` | 冻结 `geneSet`、`breakVec`、feature manifest | 保留 32 single-bin、496 gene-pair、1 set-pair 的真实合同 | `R/ablation.R:` `r find_source_line(".ablation_gsclassifier_matrix <- function")` |
 | 外部 d1 重编码 | `.ablation_encode_d1_from_direct()` | 150 modules；模型 repeat 中位数 | filtered query 从未参与 bank 训练；优化编码与既有 d1 零误差一致 | `R/ablation.R:` `r find_source_line(".ablation_encode_d1_from_direct <- function")` |
 | query-to-reference 检索 | `.ablation_query_reference_retrieval()` | k = `r paste(manifest$config$geometry$k, collapse = "/")` | query 只到其它 cohorts 的 atlas 找邻居 | `R/ablation.R:` `r find_source_line(".ablation_query_reference_retrieval <- function")` |
@@ -335,7 +588,7 @@ fig1_jpg <- .ae_save_plot(
 knitr::include_graphics(fig1_jpg)
 ```
 
-两种表示的 global alignment 为 CKA = `r fmt(metric_value("linear_cka"))`，随机抽样距离排序相关为 `r fmt(metric_value("distance_spearman"))`，局部邻居 Jaccard 为 `r fmt(metric_value("knn_jaccard"))`。这三项指标说明 cohort-model bank 实质性改写了 Direct 的全局与局部结构。该差异是 CCS 产生新证据几何的必要条件，但不足以判断改写方向是否有益；还需结合技术边界减弱、新状态稳定性、跨癌种共享生物锚点与任务效用评价，癌种检索和 readout 不能单独给出结论。
+当前数据的几何结果显示，两种表示的 global alignment 为 CKA = `r fmt(metric_value("linear_cka"))`，随机抽样距离排序相关为 `r fmt(metric_value("distance_spearman"))`，局部邻居 Jaccard 为 `r fmt(metric_value("knn_jaccard"))`。这三项指标说明 cohort-model bank 实质性改写了 Direct 的全局与局部结构，且全局与局部的一致性差异并不相同。该差异是 CCS 产生新证据几何的必要条件，但不足以判断改写方向是否有益；还需结合技术边界减弱、新状态稳定性、跨癌种共享生物锚点与任务效用评价，癌种检索和 readout 不能单独给出结论。
 
 ## 外部癌种标签检索
 
@@ -400,7 +653,7 @@ fig2_jpg <- .ae_save_plot(
 knitr::include_graphics(fig2_jpg)
 ```
 
-在 k = `r params$display_k` 时，Cohort-d1 相对 Direct 的样本级 top-k 癌种一致率平均差为 **`r fmt(retrieval_mean_delta)`**，MRR 平均差为 `r fmt(retrieval_mrr_delta)`。d1 的局部几何受传统癌种标签的主导较弱，这一结果本身不能说明生物效用下降。Top 3 正向 cohorts 依次是 `r retrieval_top$cohort[1]`、`r retrieval_top$cohort[2]` 与 `r retrieval_top$cohort[3]`；癌种可恢复性下降最明显的是 **`r retrieval_bottom$cohort[1]`**（`r fmt(retrieval_bottom$estimate[1])`）。cohort 间方向并不一致，说明 cohort bank 对 lineage 信号的重加权具有异质性。后续需要检查这些 cohort 是否对应可复现的共享状态，不能仅凭癌种检索下降收紧 d1 的适用范围。
+在 k = `r params$display_k` 时，当前数据结果显示 Cohort-d1 相对 Direct 的样本级 top-k 癌种一致率平均差为 **`r fmt(retrieval_mean_delta)`**，MRR 平均差为 `r fmt(retrieval_mrr_delta)`。d1 的局部几何受传统癌种标签的主导较弱，这一结果本身不能说明生物效用下降。Top 3 正向 cohorts 依次是 `r retrieval_top$cohort[1]`、`r retrieval_top$cohort[2]` 与 `r retrieval_top$cohort[3]`；癌种可恢复性下降最明显的是 **`r retrieval_bottom$cohort[1]`**（`r fmt(retrieval_bottom$estimate[1])`）。**这种 cohort 间差异提示，cohort bank 对 lineage 信号的重加权具有异质性。** 后续需要检查这些 cohort 是否对应可复现的共享状态，不能仅凭癌种检索下降收紧 d1 的适用范围。
 
 ```{r retrieval-top-table}
 # Purpose: Expose the strongest external retrieval gains and losses with sample counts.
@@ -465,7 +718,7 @@ fig3_jpg <- .ae_save_plot(
 knitr::include_graphics(fig3_jpg)
 ```
 
-使用全部 reference cohorts 时，Direct-GSClassifier 的外部 balanced accuracy 为 `r fmt(readout_direct$balanced_accuracy)`，Cohort-d1 为 `r fmt(readout_d1$balanced_accuracy)`，配对总体差为 **`r fmt(readout_delta)`**，d1 明显低于 Direct。d1 的最佳 readout cohort 为 `r readout_top$cohort[1]`（差 `r fmt(readout_top$delta_balanced_accuracy[1])`），最差为 `r readout_bottom$cohort[1]`（差 `r fmt(readout_bottom$delta_balanced_accuracy[1])`）。该比较使用 `r manifest$config$validation$inner_folds`-fold grouped CV，两种表示采用相同的预处理和调参预算。结果不支持“d1 让低复杂度模型更容易利用旧癌种标签”这一狭义主张；同一表示是否更容易读出 ICI response、pathway state 或新的 pan-cancer subtype，尚无法从本实验判断。
+使用全部 reference cohorts 时，当前数据结果显示 Direct-GSClassifier 的外部 balanced accuracy 为 `r fmt(readout_direct$balanced_accuracy)`，Cohort-d1 为 `r fmt(readout_d1$balanced_accuracy)`，配对总体差为 **`r fmt(readout_delta)`**，d1 明显低于 Direct。d1 的最佳 readout cohort 为 `r readout_top$cohort[1]`（差 `r fmt(readout_top$delta_balanced_accuracy[1])`），最差为 `r readout_bottom$cohort[1]`（差 `r fmt(readout_bottom$delta_balanced_accuracy[1])`）。该比较使用 `r manifest$config$validation$inner_folds`-fold grouped CV，两种表示采用相同的预处理和调参预算。结果不支持“d1 让低复杂度模型更容易利用旧癌种标签”这一狭义主张；同一表示是否更容易读出 ICI response、pathway state 或新的 pan-cancer subtype，尚无法从本实验判断。
 
 ## 癌种 readout 的样本效率
 
@@ -537,7 +790,7 @@ fig4_jpg <- .ae_save_plot(
 knitr::include_graphics(fig4_jpg)
 ```
 
-在 10%、25%、50% 和 100% reference cohorts 下，d1-minus-Direct 的癌种 balanced-accuracy 差依次为 `r paste(vapply(manifest$config$validation$learning_fractions, function(f) fmt(learning_delta$estimate[match(f, learning_delta$requested_fraction)]), character(1)), collapse = ", ")`。阴影给出 `r manifest$config$validation$repeats` 次配对重复的近似 95% CI（均值 ± 1.96 SE）。训练比例增加后，负向差值仍未消失，表明 d1 对旧癌种标签的去强化并非仅由小样本估计造成。每个比例的两种表示共享 cohort subset hash 与外部 query hash，可排除训练组成或测试样本漂移对曲线差的影响。该曲线仅评价 cancer-type readout 的样本效率，不能据此认定 d1 对所有新分型任务都存在“过度压缩”。
+当前数据的学习曲线结果显示，在 10%、25%、50% 和 100% reference cohorts 下，d1-minus-Direct 的癌种 balanced-accuracy 差依次为 `r paste(vapply(manifest$config$validation$learning_fractions, function(f) fmt(learning_delta$estimate[match(f, learning_delta$requested_fraction)]), character(1)), collapse = ", ")`。阴影给出 `r manifest$config$validation$repeats` 次配对重复的近似 95% CI（均值 ± 1.96 SE）。训练比例增加后，负向差值仍未消失，表明 d1 对旧癌种标签的去强化并非仅由小样本估计造成。每个比例的两种表示共享 cohort subset hash 与外部 query hash，可排除训练组成或测试样本漂移对曲线差的影响。该曲线仅评价 cancer-type readout 的样本效率，不能据此认定 d1 对所有新分型任务都存在“过度压缩”。
 
 ## 技术来源与癌种锚点的联合评估
 
@@ -550,7 +803,7 @@ fig5 <- list(
   point_size = 1.8,
   point_alpha = 0.72,
   zero_line_width = 0.55,
-  legend_position = "bottom"
+  legend_position = "none"
 )
 p5 <- ggplot2::ggplot(
   technical_delta,
@@ -586,7 +839,8 @@ p5 <- ggplot2::ggplot(
   )
 
 # Readability check: factor labels are short, jitter exposes cohort heterogeneity,
-# and a horizontal zero line separates reduced from increased technical clustering.
+# and a horizontal zero line separates reduced from increased technical clustering;
+# the redundant color legend is removed because the x-axis already names each factor.
 fig5_jpg <- .ae_save_plot(
   p5, "figure-05-technical-neighbor-excess", figure_dir,
   preview_dir, fig5, params$plot_preview_dpi
@@ -594,7 +848,7 @@ fig5_jpg <- .ae_save_plot(
 knitr::include_graphics(fig5_jpg)
 ```
 
-在同一 `r manifest$anchor` 的 reference 背景内校正后，`r paste(technical_summary$technical_factor, sprintf("%+.3f", technical_summary$mean_delta), sep = " = ", collapse = "; ")`。负值表示 d1 减少了超出癌种构成所能解释的同技术邻居聚集，正值表示技术来源更集中。三个技术因子的均值均下降，是本轮支持 cohort-conditioned integration 最直接的正向结果。癌种一致率也从 `r fmt(direct_top_k_rate)` 降到 `r fmt(d1_top_k_rate)`，表明这种混合伴随去癌种中心化。由于 `cancer_type` 只是粗粒度锚点，现有数据还无法区分“保留共享肿瘤状态的有目的融合”与“无选择混合”。技术 excess 下降可作为机制线索，但不足以断言 batch removal 已成功或生物信号已被抹平。
+当前数据结果显示，在同一 `r manifest$anchor` 的 reference 背景内校正后，`r paste(technical_summary$technical_factor, sprintf("%+.3f", technical_summary$mean_delta), sep = " = ", collapse = "; ")`。负值表示 d1 减少了超出癌种构成所能解释的同技术邻居聚集，正值表示技术来源更集中。三个技术因子的均值均下降，是本轮支持 cohort-conditioned integration 最直接的正向结果。癌种一致率也从 `r fmt(direct_top_k_rate)` 降到 `r fmt(d1_top_k_rate)`，表明这种混合伴随去癌种中心化。由于 `cancer_type` 只是粗粒度锚点，现有数据还无法区分“保留共享肿瘤状态的有目的融合”与“无选择混合”。技术 excess 下降可作为机制线索，但不足以断言 batch removal 已成功或生物信号已被抹平。
 
 ## module 贡献集中度
 
@@ -607,13 +861,17 @@ fig6 <- list(
   bar_width = 0.72,
   legend_position = "none"
 )
-module_top$module_id <- factor(
+module_top$module_label <- .ae_resolve_module_labels(
   module_top$module_id,
-  levels = rev(module_top$module_id)
+  data_profile$resolution_audit
+)
+module_top$module_label <- factor(
+  module_top$module_label,
+  levels = rev(module_top$module_label)
 )
 p6 <- ggplot2::ggplot(
   module_top,
-  ggplot2::aes(x = .data$variance_share, y = .data$module_id)
+  ggplot2::aes(x = .data$variance_share, y = .data$module_label)
 ) +
   ggplot2::geom_col(
     width = fig6$bar_width,
@@ -636,7 +894,7 @@ fig6_jpg <- .ae_save_plot(
 knitr::include_graphics(fig6_jpg)
 ```
 
-方差贡献最高的 module 为 `r as.character(module_top$module_id[1])`（`r fmt_pct(module_top$variance_share[1])`），前 10 个 modules 合计 `r fmt_pct(module_concentration_top10)`。d1 block 宽度为 `r paste(range(module_diagnostics$block_width), collapse = "–")`，距离计算已按 block 宽度和 module 数等权，因此这种集中度来自概率输出分布，并非“列更多自动权重更大”。如果 retrieval/readout 收益也主要集中于这些 modules，cohort congress 应表述为少数高贡献 bank 成员的作用，不能归为 150 个 modules 的均匀集体效应。
+当前数据的 module 结果显示，方差贡献最高的 module 为 `r as.character(module_top$module_id[1])`（`r fmt_pct(module_top$variance_share[1])`），前 10 个 modules 合计 `r fmt_pct(module_concentration_top10)`。图中的历史 `Undefined|cohort` 仅在显示层替换为已核验真实 tissue，底层 module ID、模型路径与审计哈希不变。d1 block 宽度为 `r paste(range(module_diagnostics$block_width), collapse = "–")`，距离计算已按 block 宽度和 module 数等权，因此这种集中度来自概率输出分布，并非“列更多自动权重更大”。**这种贡献差异提示，如果 retrieval/readout 收益也集中于同一批 modules，cohort congress 应表述为少数高贡献 bank 成员的作用，不能归为全部 modules 的均匀集体效应。**
 
 ## 输入信息压缩与可恢复性
 
@@ -711,11 +969,11 @@ Null-Perm 的资格状态为 **`r null_perm_status`**。36 个 query cohorts 的
 
 ## 讨论与分析
 
-d1 对旧癌种标签的 top-k/MRR 平均 retrieval 差为 `r fmt(retrieval_mean_delta)`，低于 Direct；总体癌种 readout 差为 `r fmt(readout_delta)`，方向同样为负。全训练比例的癌种学习曲线差为 `r fmt(learning_delta$estimate[match(1, learning_delta$requested_fraction)])`，增加训练数据未能消除差距。对于恢复旧癌种标签这一任务，Direct-GSClassifier 是更简单、效果更好的表示。CCS 则希望用多队列证据重表达同一份低输入 feature，发现不必等同于传统癌种的 pan-cancer states。在这一目标下，癌种可恢复性下降可能是去中心化的预期表现，不能直接视为负面结局。
+本次结果显示，d1 对旧癌种标签的 top-k/MRR 平均 retrieval 差为 `r fmt(retrieval_mean_delta)`，低于 Direct；总体癌种 readout 差为 `r fmt(readout_delta)`，方向同样为负。全训练比例的癌种学习曲线差为 `r fmt(learning_delta$estimate[match(1, learning_delta$requested_fraction)])`，增加训练数据未能消除差距。对于恢复旧癌种标签这一任务，Direct-GSClassifier 是更简单、效果更好的表示。CCS 则希望用多队列证据重表达同一份低输入 feature，发现不必等同于传统癌种的 pan-cancer states。在这一目标下，癌种可恢复性下降可能是去中心化的预期表现，不能直接视为负面结局。
 
-三个技术来源 excess 同向下降，是本次最强的正向结果：`r paste(technical_summary$technical_factor, sprintf("%+.3f", technical_summary$mean_delta), sep = " = ", collapse = "; ")`。`d1` 的 CKA、距离相关和局部 Jaccard 也显示 cohort bank 对原表示进行了非平凡重表达。综合来看，**`d1` 伴随去癌种中心化和技术边界减弱，但本轮实验尚未测量新状态的有用性。** 这既不能证明 CCS 已经成功，也不能让与研究目标不等价的癌种分类决定整体结论。
+当前数据结果显示，三个技术来源 excess 同向下降：`r paste(technical_summary$technical_factor, sprintf("%+.3f", technical_summary$mean_delta), sep = " = ", collapse = "; ")`，这是本次最强的正向结果。`d1` 的 CKA、距离相关和局部 Jaccard 也显示 cohort bank 对原表示进行了非平凡重表达。综合来看，**`d1` 伴随去癌种中心化和技术边界减弱，但本轮实验尚未测量新状态的有用性。** 这既不能证明 CCS 已经成功，也不能让与研究目标不等价的癌种分类决定整体结论。
 
-这项分析有四项局限。reference `d1` 被保守标记为 `in_sample`，本报告确认的是 filtered query 对冻结 bank 的外部泛化，不将 reference 内部几何视为无泄漏性能。Excel cancer_type 虽未用于冻结 bank 训练，但部分癌种与 cohort/assay 高度绑定；技术 excess 的背景校正只能缓解这一混杂，不能将其完全消除。本轮唯一的独立生物锚点是 `r manifest$anchor`，未纳入 pathway/TME state、独立分子表型、outcome 或 `d2`/`d3`/metaCCS 稳定性，尚不能判断去癌种中心化后得到的是有用新结构还是无选择混合。项目负责人也没有预先指定与新状态目标一致的最小重要差异，因此本报告不以零差异或任意事后阈值判定 `d1`“胜出”或“失败”。
+当前数据中，reference/query 分别为 `r manifest$reference_sample_count` / `r manifest$query_sample_count` 个样本，这一不对称规模构成本报告的第一项不确定性。reference `d1` 被保守标记为 `in_sample`，本报告确认的是 filtered query 对冻结 bank 的外部泛化，不将 reference 内部几何视为无泄漏性能。Excel cancer_type 虽未用于冻结 bank 训练，但部分癌种与 cohort/assay 高度绑定；技术 excess 的背景校正只能缓解这一混杂，不能将其完全消除。本轮唯一的独立生物锚点是 `r manifest$anchor`，未纳入 pathway/TME state、独立分子表型、outcome 或 `d2`/`d3`/metaCCS 稳定性，尚不能判断去癌种中心化后得到的是有用新结构还是无选择混合。项目负责人也没有预先指定与新状态目标一致的最小重要差异，因此本报告不以零差异或任意事后阈值判定 `d1`“胜出”或“失败”。
 
 后续分析可沿三条路径推进。在冻结 `d1` 上加入独立于癌种标签的 pathway score、TME state 或多组学表型，并用 leave-one-cohort-out 检验共享状态可读性；若 `d1` 在技术 excess 不升高的同时提高这些锚点的外部一致性，即可支持有目的重表达。进入 `d2`/`d3`/metaCCS 层后，可评估跨 seed/重采样的 cluster Jaccard、ARI、状态 split/merge 和 lineage-conditioned biology；共享状态能够重现，并在具体 lineage 内保留可解释的差异实现，才支持“虚拟元肿瘤—新亚型”。还需对从小规模到完整 bank 的多档冻结 modules 构建嵌套 scaling 曲线，同时报告状态重现性、外部锚点效用、module 边际增益与 effective rank；只有增加队列后出现非冗余且可重复的收益，才能支持“少量 feature 可随 cohort evidence scaling”。
 
@@ -744,6 +1002,7 @@ d1 对旧癌种标签的 top-k/MRR 平均 retrieval 差为 `r fmt(retrieval_mean
 | 近似搜索门禁 | ✅ | Direct/d1 recall = `r fmt(annoy_recall_direct)` / `r fmt(annoy_recall_d1)` |
 | 配对学习曲线 | ✅ | 两表示共享 cohort subset/test hashes，lambda 预算一致 |
 | Null-Perm 资格 | ✅ | 恒定 cohort 内锚点标记为 not_eligible |
-| 图表质量 | ✅ | `r length(list.files(figure_dir, pattern = "[.]pdf$"))` 张矢量 PDF + PDF 派生 JPG，英文轴、外置图例、色盲友好配色 |
+| tissue 恢复 | ✅ | `r remapped_cohort_count` 个 cohort / `r remapped_sample_count` 个样本完成映射，剩余 Undefined = `r unresolved_sample_count` |
+| 图表质量 | ✅ | `r 3L` 张数据审计图 + `r 7L` 张消融结果图均交付矢量 PDF 与 PDF 派生 JPG，英文轴、外置图例、色盲友好配色 |
 | 结果解读 | ✅ | 每个图表附近均绑定当前 cohort/指标/数值与可证伪后续 |
 | 数字可追溯 | ✅ | 内联数值来自 `r length(required_results)` 个正式 RDS 对象及其明确计算链 |

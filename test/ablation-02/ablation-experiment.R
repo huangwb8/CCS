@@ -10,6 +10,13 @@ source(file.path("test", "ablation-02", "ablation-test-data.R"))
 source(file.path("R", "ablation.R"))
 
 output_dir <- file.path("test", "ablation-02", "tmp", "ablation-experiment")
+dir.create(output_dir, recursive = TRUE, showWarnings = FALSE)
+
+# Preserve the complete data audit before any display threshold is applied in Rmd.
+saveRDS(
+  ablation_data_profile,
+  file.path(output_dir, "data-profile.rds")
+)
 
 ablation_result <- ablation(
   object = resCCS,

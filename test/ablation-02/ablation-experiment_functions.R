@@ -86,6 +86,47 @@
     utils::head(n)
 }
 
+.ae_profile_value <- function(profile, item) {
+  profile$overview$value[match(item, profile$overview$item)]
+}
+
+.ae_complete_source_profile <- function(profile) {
+  grid <- expand.grid(
+    tissue = sort(unique(profile$tissue_totals$tissue)),
+    source_system = sort(unique(profile$source_profile$source_system)),
+    stringsAsFactors = FALSE
+  )
+  complete <- merge(
+    grid,
+    profile$source_profile,
+    by = c("tissue", "source_system"),
+    all.x = TRUE,
+    sort = FALSE
+  )
+  complete$sample_count[is.na(complete$sample_count)] <- 0L
+  complete$tissue_fraction[is.na(complete$tissue_fraction)] <- 0
+  complete
+}
+
+.ae_resolve_module_labels <- function(module_ids, resolution_audit) {
+  bank_tissue <- sub("[|].*$", "", module_ids)
+  cohort <- sub("^[^|]*[|]", "", module_ids)
+  mapped_tissue <- resolution_audit$resolved_tissue[
+    match(cohort, resolution_audit$cohort)
+  ]
+  display_tissue <- ifelse(
+    bank_tissue == "Undefined" & !is.na(mapped_tissue),
+    mapped_tissue,
+    bank_tissue
+  )
+  paste(display_tissue, cohort, sep = "|")
+}
+
+.ae_find_source_line <- function(path, pattern) {
+  lines <- readLines(path, warn = FALSE)
+  match(TRUE, grepl(pattern, lines, fixed = TRUE))
+}
+
 .ae_save_plot <- function(plot, file_stem, figure_dir, preview_dir, figure_params, dpi) {
   pdf_path <- file.path(figure_dir, paste0(file_stem, ".pdf"))
   jpg_path <- file.path(preview_dir, paste0(file_stem, ".jpg"))
