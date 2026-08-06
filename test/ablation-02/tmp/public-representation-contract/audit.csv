@@ -1,0 +1,5 @@
+"k","top1_label_match","top_k_label_rate","mrr","representation","evidence_level","anchor","reference_sample_count","query_sample_count","config_hash"
+1,0.775,0.775,0.8625,"Direct-GSClassifier","confirmatory","cancer_type",80,40,"4d076da1f4af2f1d043f7a745a57eac9"
+3,0.775,0.783333333333333,0.8625,"Direct-GSClassifier","confirmatory","cancer_type",80,40,"4d076da1f4af2f1d043f7a745a57eac9"
+1,0.75,0.75,0.804166666666667,"Cohort-d1","confirmatory","cancer_type",80,40,"4d076da1f4af2f1d043f7a745a57eac9"
+3,0.75,0.708333333333333,0.804166666666667,"Cohort-d1","confirmatory","cancer_type",80,40,"4d076da1f4af2f1d043f7a745a57eac9"
