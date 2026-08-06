@@ -2,31 +2,34 @@
 #'
 #' @description
 #' Evaluate the frozen CCS representation without retraining cohort submodels.
-#' Direct features are reconstructed with GSClassifier's native preprocessing
-#' contract and the exact feature support stored in the frozen models.
-#' The function implements the cohort-representation, cohort-axis scaling,
-#' tissue-first and end-to-end metaCCS experiments defined by the CCS layered
-#' ablation plans. All
-#' stochastic operations are paired across comparison groups and recorded in
-#' an audit table.
+#' The default `"representation"` experiment reconstructs the complete native
+#' GSClassifier input, re-encodes filtered cohorts with the frozen model bank,
+#' and compares Direct-GSClassifier with Cohort-d1 on independent
+#' query-to-reference retrieval, grouped linear readout, paired learning curves,
+#' null controls, and feature-type reconstruction. Explicit requests for the
+#' legacy scaling, tissue-first, and metaCCS experiments remain available during
+#' the API transition. All stochastic operations are paired across comparison
+#' groups and recorded in an audit table.
 #'
 #' @param object A `CCS` object containing the frozen d1 representation.
 #' @param data Raw RNA expression data. A tissue/cohort nested list is preferred;
 #'   each leaf can be an expression matrix or a list containing `expr`.
 #' @param metadata Optional sample annotation with sample, cohort, tissue and
 #'   biological-label columns. Common CCS column names are recognized.
-#' @param experiment One or more of `"cohort"`, `"scaling"`,
-#'   `"tissue_first"` and `"metaccs"`.
+#' @param experiment `"representation"` by default. The deprecated single value
+#'   `"cohort"` maps to `"representation"` with a warning. Explicit legacy
+#'   requests may contain one or more of `"cohort"`, `"scaling"`,
+#'   `"tissue_first"`, and `"metaccs"`; `"representation"` cannot be mixed with
+#'   legacy experiments.
 #' @param output.dir Independent output directory. Existing CCS products are
 #'   never overwritten.
-#' @param params Named nested list recursively merged onto
-#'   `.ablation_default_params(seed)`. Callers may provide only the leaves they
-#'   want to change, for example
-#'   `list(general = list(rank = 25L), scaling = list(gate = list(enforce = TRUE)))`.
-#'   The canonical top-level groups are `general`, `cohort`, `scaling`,
-#'   `tissue_first`, and `metaccs`. Existing flat parameter names remain accepted
-#'   and are normalized to this schema; unknown or ambiguous duplicate fields are
-#'   rejected before computation.
+#' @param params Named nested list. For `"representation"`, values are merged
+#'   onto `.ablation_representation_default_params(seed)` under `comparison`,
+#'   `provenance`, `anchors`, `geometry`, `validation`, `controls`, `tradeoffs`,
+#'   and `output`. For explicit legacy experiments, values are merged onto
+#'   `.ablation_default_params(seed)` under `general`, `cohort`, `scaling`,
+#'   `tissue_first`, and `metaccs`; existing flat legacy names remain accepted.
+#'   Unknown fields are rejected before computation.
 #'
 #'   Shared representation, validation, and metric settings:
 #'
@@ -222,199 +225,75 @@ ablation <- function(
     object,
     data,
     metadata = NULL,
+    experiment = "representation",
+    output.dir = file.path(getwd(), "ccs-ablation"),
+    params = list(),
+    seed = 20260727,
+    verbose = TRUE
+) {
+  experiment <- unique(as.character(experiment))
+  legacy_only <- c("scaling", "tissue_first", "metaccs")
+  unknown <- setdiff(experiment, c("representation", "cohort", legacy_only))
+  if (length(unknown) > 0) {
+    stop(
+      "ablation: unknown experiment(s): ",
+      paste(unknown, collapse = ", "),
+      ".",
+      call. = FALSE
+    )
+  }
+
+  if (identical(experiment, "cohort")) {
+    warning(
+      "ablation: experiment = 'cohort' is deprecated; using 'representation'.",
+      call. = FALSE
+    )
+    experiment <- "representation"
+  }
+  if ("representation" %in% experiment && length(experiment) > 1) {
+    stop(
+      "ablation: representation cannot be mixed with legacy downstream experiments.",
+      call. = FALSE
+    )
+  }
+  if (identical(experiment, "representation")) {
+    return(.ablation_run_representation(
+      object = object,
+      data = data,
+      metadata = metadata,
+      output.dir = output.dir,
+      params = params,
+      seed = seed,
+      verbose = verbose
+    ))
+  }
+
+  # Preserve explicitly requested downstream legacy experiments during the
+  # transition. A mixed legacy request that includes cohort keeps its original
+  # Gate-1 dependency rather than silently changing historical behavior.
+  .ablation_legacy(
+    object = object,
+    data = data,
+    metadata = metadata,
+    experiment = experiment,
+    output.dir = output.dir,
+    params = params,
+    seed = seed,
+    verbose = verbose
+  )
+}
+
+
+.ablation_legacy <- function(
+    object,
+    data,
+    metadata = NULL,
     experiment = c("cohort", "scaling", "tissue_first", "metaccs"),
     output.dir = file.path(getwd(), "ccs-ablation"),
     params = list(),
     seed = 20260727,
     verbose = TRUE
 ) {
-  # Test
-  if (FALSE) {
-    # Purpose: Exercise all four ablation experiments with one aligned synthetic CCS fixture.
-    # Input: Generated expression, tissue/cohort models, frozen d1 probabilities, and metadata.
-    # Parameters: Small paired repeats cover every stochastic path without a production-scale run.
-    # Output: A CCSAblation result containing cohort, scaling, tissue_first, and metaccs results.
-    luckyBase::Plus.library(c("CCS", "digest"))
-    set.seed(101)
-
-    sample_ids <- sprintf("S%03d", seq_len(48))
-    cohort <- rep(paste0("C", 1:4), each = 12)
-    tissue <- rep(c("T1", "T1", "T2", "T2"), each = 12)
-    biology <- rep(rep(c("B1", "B2"), each = 6), 4)
-
-    expr <- matrix(
-      stats::rnorm(4 * length(sample_ids)),
-      nrow = 4,
-      dimnames = list(paste0("g", 1:4), sample_ids)
-    )
-    expr["g1", biology == "B1"] <- expr["g1", biology == "B1"] + 1
-    expr["g4", biology == "B2"] <- expr["g4", biology == "B2"] + 1
-
-    data <- list(
-      T1 = list(
-        C1 = list(
-          expr = expr[, cohort == "C1", drop = FALSE],
-          subtype = biology[cohort == "C1"]
-        ),
-        C2 = list(
-          expr = expr[, cohort == "C2", drop = FALSE],
-          subtype = biology[cohort == "C2"]
-        )
-      ),
-      T2 = list(
-        C3 = list(
-          expr = expr[, cohort == "C3", drop = FALSE],
-          subtype = biology[cohort == "C3"]
-        ),
-        C4 = list(
-          expr = expr[, cohort == "C4", drop = FALSE],
-          subtype = biology[cohort == "C4"]
-        )
-      )
-    )
-
-    tsp_features <- apply(
-      utils::combn(rownames(expr), 2),
-      2,
-      paste,
-      collapse = ":"
-    )
-    tsp <- vapply(strsplit(tsp_features, ":", fixed = TRUE), function(pair) {
-      as.integer(expr[pair[1], ] >= expr[pair[2], ])
-    }, integer(length(sample_ids)))
-    rownames(tsp) <- sample_ids
-
-    # Give each frozen cohort model explicit TSP support. Tissue unions differ so
-    # metaCCS can verify that Direct follows the matching tissue model space.
-    module_features <- list(
-      `T1|C1` = tsp_features[c(1, 2)],
-      `T1|C2` = tsp_features[c(3, 4)],
-      `T2|C3` = tsp_features[c(5, 6)],
-      `T2|C4` = tsp_features[c(3, 6)]
-    )
-    module_ids <- names(module_features)
-    d1 <- do.call(cbind, lapply(seq_along(module_ids), function(i) {
-      feature_index <- match(module_features[[i]][1], tsp_features)
-      score <- stats::plogis(
-        tsp[, feature_index] + stats::rnorm(nrow(tsp), 0, 0.1)
-      )
-      block <- cbind(`1` = score, `2` = 1 - score)
-      colnames(block) <- paste(module_ids[i], colnames(block), sep = "|")
-      block
-    }))
-    rownames(d1) <- sample_ids
-
-    make_test_model <- function(features) {
-      class_model <- list(
-        bst = NULL,
-        breakVec = c(0, 0.5, 1),
-        genes = features
-      )
-      list(
-        Repeat = list(),
-        Model = list(list(`1` = class_model, `2` = class_model))
-      )
-    }
-    models <- list(
-      T1 = list(
-        C1 = make_test_model(module_features$`T1|C1`),
-        C2 = make_test_model(module_features$`T1|C2`)
-      ),
-      T2 = list(
-        C3 = make_test_model(module_features$`T2|C3`),
-        C4 = make_test_model(module_features$`T2|C4`)
-      )
-    )
-
-    object <- methods::new(
-      "CCS",
-      Repeat = list(
-        method = "GSClassifier",
-        geneSet = list(A = c("g1", "g2"), B = c("g3", "g4")),
-        geneAnnotation = data.frame(ENSEMBL = rownames(expr)),
-        geneid = "ensembl",
-        seed = 101,
-        model.dir = ""
-      ),
-      Model = models,
-      Data = list(
-        Probability = list(
-          d1 = d1,
-          d2 = matrix(0, length(sample_ids), 4),
-          d3 = matrix(0, length(sample_ids), 2)
-        ),
-        CCS = stats::setNames(
-          rep(1:2, length.out = length(sample_ids)),
-          sample_ids
-        ),
-        CancerType = stats::setNames(tissue, sample_ids)
-      )
-    )
-
-    metadata <- data.frame(
-      sample_id = sample_ids,
-      cohort = cohort,
-      tissue = tissue,
-      biology = biology,
-      stringsAsFactors = FALSE
-    )
-    experiment <- c("cohort", "scaling", "tissue_first", "metaccs")
-    output.dir <- file.path(tempdir(), "ccs-ablation-example")
-    params <- list(
-      general = list(
-        rank = 3L,
-        k = 3L,
-        n_folds = 2L,
-        bootstrap = 5L,
-        probe = FALSE,
-        fidelity_samples = length(sample_ids),
-        dr = list(
-          method = "UWOT",
-          dimension = c(3L, 2L),
-          n_neighbors = 5L,
-          min_dist = 0.1,
-          spread = 1,
-          set_op_mix_ratio = 1,
-          metric = "euclidean",
-          n_threads = 1L
-        ),
-        cluster = list(eps = 0.5, minPts = 3L),
-        cover = TRUE
-      ),
-      cohort = list(
-        rank_sensitivity = c(2L, 3L),
-        geometry_samples = length(sample_ids),
-        distance_pairs = 100L,
-        mechanism_samples = 24L,
-        rp_seeds = c(701L, 702L),
-        permutation_seeds = c(801L, 802L)
-      ),
-      scaling = list(
-        counts = c(2L, 4L),
-        sequences = 2L,
-        embedding_counts = c(2L, 4L),
-        embedding_sequences = 2L,
-        embedding_seeds = c(901L, 902L),
-        subsample_fraction = 1,
-        gate = list(enforce = FALSE)
-      ),
-      tissue_first = list(
-        seeds = c(1001L, 1002L),
-        subsample_fraction = 1
-      ),
-      metaccs = list(
-        resample_seeds = 1101L,
-        umap_seeds = c(1201L, 1202L),
-        subsample_fraction = 1,
-        parameter_mode = "fixed",
-        direct_feature_mode = "tissue_model_union",
-        retain_assignments = TRUE
-      )
-    )
-    seed <- 1301L
-    verbose <- FALSE
-  }
-
   # Step 1: Validate the public inputs and merge user overrides into reproducible defaults.
   if (!methods::is(object, "CCS")) {
     stop("ablation: object must be a CCS object.", call. = FALSE)
@@ -1310,7 +1189,12 @@ ablation <- function(
 
 # Use whole cohorts as validation units and greedily balance sample counts across folds.
 # A cohort never appears in both training and test data, preventing cohort leakage.
-.ablation_grouped_folds <- function(cohort, n_folds = Inf, seed = 20260727) {
+.ablation_grouped_folds <- function(
+    cohort,
+    n_folds = Inf,
+    seed = 20260727,
+    label = NULL
+) {
   sizes <- sort(table(cohort), decreasing = TRUE)
   n_groups <- length(sizes)
   n_folds <- if (is.finite(n_folds)) min(as.integer(n_folds), n_groups) else n_groups
@@ -1324,8 +1208,39 @@ ablation <- function(
   fold_load <- numeric(n_folds)
   group_fold <- integer(n_groups)
   names(group_fold) <- ordered
+
+  label_table <- NULL
+  label_load <- NULL
+  if (!is.null(label)) {
+    if (length(label) != length(cohort)) {
+      stop("ablation: label and cohort must have the same length.", call. = FALSE)
+    }
+    valid <- !is.na(label) & nzchar(as.character(label))
+    label_table <- table(
+      factor(as.character(cohort[valid]), levels = ordered),
+      as.character(label[valid])
+    )
+    label_load <- matrix(
+      0,
+      nrow = n_folds,
+      ncol = ncol(label_table),
+      dimnames = list(seq_len(n_folds), colnames(label_table))
+    )
+  }
+
   for (group in ordered) {
-    fold <- which.min(fold_load)
+    if (is.null(label_table) || ncol(label_table) == 0) {
+      fold <- which.min(fold_load)
+    } else {
+      group_labels <- label_table[group, , drop = TRUE]
+      label_total <- pmax(colSums(label_table), 1)
+      label_cost <- vapply(seq_len(n_folds), function(i) {
+        sum(((label_load[i, ] + group_labels)^2) / label_total)
+      }, numeric(1))
+      load_cost <- (fold_load + as.numeric(sizes[group])) / sum(sizes)
+      fold <- which.min(label_cost + load_cost)
+      label_load[fold, ] <- label_load[fold, ] + group_labels
+    }
     group_fold[group] <- fold
     fold_load[fold] <- fold_load[fold] + sizes[group]
   }
@@ -3807,4 +3722,1784 @@ ablation <- function(
     mean(sample(values, replace = TRUE))
   )
   stats::quantile(draws, c(0.025, 0.975), names = FALSE, na.rm = TRUE)
+}
+
+
+# Predict one frozen cohort module from a precomputed Direct-GSClassifier matrix.
+# Reusing the shared 529-feature matrix avoids repeating geneMatch/trainDataProc_X
+# for every model while remaining numerically identical to callEnsemble().
+.ablation_predict_module_from_direct <- function(direct, model, module_id) {
+  direct <- as.matrix(direct)
+  repeats <- model$Model
+  if (length(repeats) == 0) {
+    stop("ablation: frozen module has no ensemble repeats.", call. = FALSE)
+  }
+  classes <- sort(unique(unlist(lapply(repeats, names), use.names = FALSE)))
+  if (length(classes) == 0) {
+    stop("ablation: frozen module has no class models.", call. = FALSE)
+  }
+
+  probability <- vapply(classes, function(class_id) {
+    repeat_probability <- vapply(repeats, function(repeat_model) {
+      class_model <- repeat_model[[class_id]]
+      if (is.null(class_model) || length(class_model) <= 1) {
+        return(rep(0, nrow(direct)))
+      }
+      features <- class_model$bst$feature_names
+      if (length(features) == 0) {
+        features <- class_model$genes
+      }
+      missing <- setdiff(features, colnames(direct))
+      if (length(missing) > 0) {
+        stop(
+          "ablation: Direct matrix is missing frozen features for ",
+          module_id,
+          ": ",
+          paste(missing, collapse = ", "),
+          ".",
+          call. = FALSE
+        )
+      }
+      as.numeric(stats::predict(
+        class_model$bst,
+        direct[, features, drop = FALSE]
+      ))
+    }, numeric(nrow(direct)))
+    if (is.null(dim(repeat_probability))) {
+      repeat_probability
+    } else {
+      apply(repeat_probability, 1, stats::median)
+    }
+  }, numeric(nrow(direct)))
+
+  probability <- matrix(
+    probability,
+    nrow = nrow(direct),
+    dimnames = list(
+      rownames(direct),
+      paste(module_id, classes, sep = "|")
+    )
+  )
+  if (any(!is.finite(probability))) {
+    stop("ablation: frozen module prediction contains non-finite values.", call. = FALSE)
+  }
+  probability
+}
+
+
+# Encode one or more frozen cohort modules from the shared Direct matrix.
+# PSOCK is used for cross-platform parallelism; workers only read frozen models
+# and return isolated module blocks, while the main process owns column ordering.
+.ablation_encode_d1_from_direct <- function(
+    object,
+    direct,
+    module_manifest = .ablation_module_manifest(object),
+    module_ids = module_manifest$modules$module_id,
+    numCores = 1L,
+    verbose = TRUE
+) {
+  direct <- as.matrix(direct)
+  available <- module_manifest$modules$module_id
+  module_ids <- as.character(module_ids)
+  unknown <- setdiff(module_ids, available)
+  if (length(unknown) > 0) {
+    stop(
+      "ablation: unknown frozen module(s): ",
+      paste(unknown, collapse = ", "),
+      ".",
+      call. = FALSE
+    )
+  }
+  module_ids <- available[available %in% module_ids]
+  numCores <- min(as.integer(numCores), length(module_ids))
+  if (!is.finite(numCores) || numCores < 1) {
+    stop("ablation: numCores must be a positive integer.", call. = FALSE)
+  }
+
+  path_map <- .ablation_model_path_map(object)
+  missing_paths <- module_ids[!module_ids %in% names(path_map)]
+  if (length(missing_paths) > 0) {
+    stop(
+      "ablation: modelFit.rds is missing for module(s): ",
+      paste(missing_paths, collapse = ", "),
+      ".",
+      call. = FALSE
+    )
+  }
+  worker <- function(module_id) {
+    model <- readRDS(path_map[[module_id]])
+    .ablation_predict_module_from_direct(direct, model, module_id)
+  }
+
+  if (verbose) {
+    luckyBase::LuckyVerbose(
+      "ablation: encoding ",
+      length(module_ids),
+      " frozen modules with ",
+      numCores,
+      " worker(s)..."
+    )
+  }
+  if (numCores == 1L) {
+    blocks <- lapply(module_ids, worker)
+  } else {
+    cluster <- parallel::makePSOCKcluster(numCores)
+    on.exit(parallel::stopCluster(cluster), add = TRUE)
+    parallel::clusterEvalQ(
+      cluster,
+      suppressPackageStartupMessages(library(xgboost))
+    )
+    parallel::clusterExport(
+      cluster,
+      c(
+        "direct",
+        "path_map",
+        ".ablation_predict_module_from_direct"
+      ),
+      envir = environment()
+    )
+    blocks <- parallel::parLapply(cluster, module_ids, function(module_id) {
+      model <- readRDS(path_map[[module_id]])
+      .ablation_predict_module_from_direct(direct, model, module_id)
+    })
+  }
+  names(blocks) <- module_ids
+
+  encoded <- do.call(cbind, blocks)
+  expected_columns <- colnames(object@Data$Probability$d1)[
+    unlist(module_manifest$blocks[module_ids], use.names = FALSE)
+  ]
+  missing_columns <- setdiff(expected_columns, colnames(encoded))
+  if (length(missing_columns) > 0) {
+    stop(
+      "ablation: encoded d1 is missing expected probability columns.",
+      call. = FALSE
+    )
+  }
+  encoded <- encoded[, expected_columns, drop = FALSE]
+  rownames(encoded) <- rownames(direct)
+  encoded
+}
+
+
+# Standardize d1 on the reference boundary and give every cohort module equal
+# total squared-distance weight, independent of whether its block has 3 or 4 columns.
+.ablation_module_balanced_transform <- function(reference, query, blocks) {
+  reference <- as.matrix(reference)
+  query <- as.matrix(query)
+  if (!identical(colnames(reference), colnames(query))) {
+    stop("ablation: reference and query d1 columns must be identical.", call. = FALSE)
+  }
+  block_columns <- unlist(blocks, use.names = FALSE)
+  if (!setequal(block_columns, seq_len(ncol(reference)))) {
+    stop("ablation: d1 blocks must cover every column exactly once.", call. = FALSE)
+  }
+  if (anyDuplicated(block_columns)) {
+    stop("ablation: d1 blocks must not overlap.", call. = FALSE)
+  }
+
+  center <- colMeans(reference)
+  scale <- apply(reference, 2, stats::sd)
+  scale[!is.finite(scale) | scale == 0] <- 1
+  reference_scaled <- sweep(sweep(reference, 2, center, "-"), 2, scale, "/")
+  query_scaled <- sweep(sweep(query, 2, center, "-"), 2, scale, "/")
+
+  weights <- numeric(ncol(reference))
+  for (block in blocks) {
+    weights[block] <- 1 / sqrt(length(block) * length(blocks))
+  }
+  list(
+    reference = sweep(reference_scaled, 2, weights, "*"),
+    query = sweep(query_scaled, 2, weights, "*"),
+    center = center,
+    scale = scale,
+    weights = weights,
+    distance = "module_balanced_standardized_euclidean"
+  )
+}
+
+
+# Evaluate each query only against a separate reference atlas. This avoids the
+# held-out-fold bug where cohort mixing is necessarily zero inside one test cohort.
+.ablation_query_reference_retrieval <- function(
+    reference,
+    query,
+    reference_metadata,
+    query_metadata,
+    label_column,
+    technical_columns = character(),
+    k = c(5L, 15L, 30L),
+    search = c("exact", "annoy"),
+    seed = 20260727,
+    n_trees = 50L,
+    search_k = -1L
+) {
+  reference <- as.matrix(reference)
+  query <- as.matrix(query)
+  search <- match.arg(search)
+  k <- sort(unique(as.integer(k)))
+  if (any(k < 1) || max(k) >= nrow(reference)) {
+    stop("ablation: retrieval k must be between 1 and n_reference - 1.", call. = FALSE)
+  }
+  if (!identical(colnames(reference), colnames(query))) {
+    stop("ablation: retrieval matrices must have identical columns.", call. = FALSE)
+  }
+  if (nrow(reference_metadata) != nrow(reference) ||
+      nrow(query_metadata) != nrow(query)) {
+    stop("ablation: retrieval metadata does not align with matrices.", call. = FALSE)
+  }
+  required <- c("sample_id", "cohort", label_column)
+  if (!all(required %in% colnames(reference_metadata)) ||
+      !all(required %in% colnames(query_metadata))) {
+    stop("ablation: retrieval metadata is missing required columns.", call. = FALSE)
+  }
+  technical_columns <- intersect(
+    technical_columns,
+    intersect(colnames(reference_metadata), colnames(query_metadata))
+  )
+
+  max_k <- max(k)
+  candidate_k <- min(nrow(reference), max(max_k * 5L, max_k + 20L))
+  if (search == "exact") {
+    neighbor_id <- matrix(NA_integer_, nrow(query), max_k)
+    neighbor_distance <- matrix(NA_real_, nrow(query), max_k)
+    for (i in seq_len(nrow(query))) {
+      eligible <- reference_metadata$cohort != query_metadata$cohort[i]
+      if (sum(eligible) < max_k) {
+        stop(
+          "ablation: fewer than max(k) cross-cohort reference samples for query ",
+          query_metadata$sample_id[i],
+          ".",
+          call. = FALSE
+        )
+      }
+      distance <- sqrt(rowSums(
+        (sweep(reference[eligible, , drop = FALSE], 2, query[i, ], "-"))^2
+      ))
+      eligible_rows <- which(eligible)
+      selected <- order(distance)[seq_len(max_k)]
+      neighbor_id[i, ] <- eligible_rows[selected]
+      neighbor_distance[i, ] <- distance[selected]
+    }
+  } else {
+    set.seed(seed)
+    index <- new(RcppAnnoy::AnnoyEuclidean, ncol(reference))
+    index$setSeed(as.integer(seed))
+    for (i in seq_len(nrow(reference))) {
+      index$addItem(i - 1L, reference[i, ])
+    }
+    index$build(as.integer(n_trees))
+    neighbor_id <- matrix(NA_integer_, nrow(query), max_k)
+    neighbor_distance <- matrix(NA_real_, nrow(query), max_k)
+    for (i in seq_len(nrow(query))) {
+      found <- index$getNNsByVectorList(
+        query[i, ],
+        as.integer(candidate_k),
+        as.integer(search_k),
+        TRUE
+      )
+      ids <- as.integer(found$item) + 1L
+      distances <- as.numeric(found$distance)
+      keep <- reference_metadata$cohort[ids] != query_metadata$cohort[i]
+      ids <- ids[keep]
+      distances <- distances[keep]
+      if (length(ids) < max_k) {
+        stop(
+          "ablation: Annoy returned fewer than max(k) cross-cohort neighbors.",
+          call. = FALSE
+        )
+      }
+      neighbor_id[i, ] <- ids[seq_len(max_k)]
+      neighbor_distance[i, ] <- distances[seq_len(max_k)]
+    }
+  }
+
+  neighbor_rows <- lapply(seq_len(nrow(query)), function(i) {
+    data.frame(
+      query_sample = query_metadata$sample_id[i],
+      query_cohort = query_metadata$cohort[i],
+      query_label = as.character(query_metadata[[label_column]][i]),
+      neighbor_rank = seq_len(max_k),
+      reference_sample = reference_metadata$sample_id[neighbor_id[i, ]],
+      reference_cohort = reference_metadata$cohort[neighbor_id[i, ]],
+      reference_label = as.character(reference_metadata[[label_column]][neighbor_id[i, ]]),
+      distance = neighbor_distance[i, ],
+      stringsAsFactors = FALSE
+    )
+  })
+  neighbors <- do.call(rbind, neighbor_rows)
+  neighbors$label_match <- neighbors$query_label == neighbors$reference_label
+  for (column in technical_columns) {
+    query_value <- rep(query_metadata[[column]], each = max_k)
+    reference_value <- reference_metadata[[column]][as.vector(t(neighbor_id))]
+    neighbors[[paste0(column, "_match")]] <- query_value == reference_value
+  }
+
+  first_match <- vapply(seq_len(nrow(query)), function(i) {
+    hit <- which(neighbor_id[i, ] > 0 &
+      as.character(reference_metadata[[label_column]][neighbor_id[i, ]]) ==
+        as.character(query_metadata[[label_column]][i]))
+    if (length(hit) == 0) NA_integer_ else hit[1]
+  }, integer(1))
+  per_sample <- do.call(rbind, lapply(k, function(k_i) {
+    rows <- neighbors$neighbor_rank <= k_i
+    selected <- neighbors[rows, , drop = FALSE]
+    label_rate <- stats::aggregate(
+      label_match ~ query_sample,
+      data = selected,
+      FUN = mean
+    )
+    result <- data.frame(
+      sample_id = query_metadata$sample_id,
+      cohort = query_metadata$cohort,
+      label = as.character(query_metadata[[label_column]]),
+      k = k_i,
+      top1_label_match = as.numeric(
+        neighbors$label_match[neighbors$neighbor_rank == 1]
+      ),
+      top_k_label_rate = label_rate$label_match[
+        match(query_metadata$sample_id, label_rate$query_sample)
+      ],
+      mrr = ifelse(is.na(first_match), 0, 1 / first_match),
+      stringsAsFactors = FALSE
+    )
+    for (column in technical_columns) {
+      match_column <- paste0(column, "_match")
+      observed <- stats::aggregate(
+        selected[[match_column]],
+        by = list(query_sample = selected$query_sample),
+        FUN = function(x) {
+          x <- x[!is.na(x)]
+          if (length(x) == 0) NA_real_ else mean(x)
+        }
+      )
+      expected <- vapply(seq_len(nrow(query_metadata)), function(i) {
+        pool <- as.character(reference_metadata[[label_column]]) ==
+          as.character(query_metadata[[label_column]][i]) &
+          reference_metadata$cohort != query_metadata$cohort[i]
+        reference_value <- as.character(reference_metadata[[column]][pool])
+        query_value <- as.character(query_metadata[[column]][i])
+        valid <- !is.na(reference_value) & nzchar(reference_value) &
+          !is.na(query_value) & nzchar(query_value)
+        if (!any(valid)) {
+          NA_real_
+        } else {
+          mean(reference_value[valid] == query_value)
+        }
+      }, numeric(1))
+      observed_rate <- observed$x[
+        match(query_metadata$sample_id, observed$query_sample)
+      ]
+      result[[paste0(column, "_match_rate")]] <- observed_rate
+      result[[paste0(column, "_expected_rate")]] <- expected
+      result[[paste0(column, "_match_excess")]] <- observed_rate - expected
+    }
+    result
+  }))
+
+  summary <- stats::aggregate(
+    cbind(top1_label_match, top_k_label_rate, mrr) ~ k,
+    data = per_sample,
+    FUN = mean
+  )
+  list(
+    neighbors = neighbors,
+    per_sample = per_sample,
+    summary = summary,
+    search = search,
+    k = k
+  )
+}
+
+
+# Quantify approximate-neighbor fidelity on the exact same query/reference task.
+.ablation_validate_neighbor_search <- function(
+    reference,
+    query,
+    reference_metadata,
+    query_metadata,
+    label_column,
+    k,
+    query_samples = 30L,
+    n_trees = 50L,
+    search_k = -1L,
+    seed = 20260727
+) {
+  query_samples <- min(as.integer(query_samples), nrow(query))
+  if (query_samples < 1) {
+    stop("ablation: neighbor validation requires query samples.", call. = FALSE)
+  }
+  rows <- if (query_samples == nrow(query)) {
+    seq_len(nrow(query))
+  } else {
+    .ablation_stratified_sample(query_metadata, query_samples, seed)
+  }
+  exact <- .ablation_query_reference_retrieval(
+    reference,
+    query[rows, , drop = FALSE],
+    reference_metadata,
+    query_metadata[rows, , drop = FALSE],
+    label_column = label_column,
+    k = k,
+    search = "exact",
+    seed = seed
+  )
+  approximate <- .ablation_query_reference_retrieval(
+    reference,
+    query[rows, , drop = FALSE],
+    reference_metadata,
+    query_metadata[rows, , drop = FALSE],
+    label_column = label_column,
+    k = k,
+    search = "annoy",
+    seed = seed,
+    n_trees = n_trees,
+    search_k = search_k
+  )
+  exact_sets <- split(
+    exact$neighbors$reference_sample,
+    exact$neighbors$query_sample
+  )
+  approximate_sets <- split(
+    approximate$neighbors$reference_sample,
+    approximate$neighbors$query_sample
+  )
+  recall <- vapply(names(exact_sets), function(sample_id) {
+    length(intersect(exact_sets[[sample_id]], approximate_sets[[sample_id]])) /
+      length(exact_sets[[sample_id]])
+  }, numeric(1))
+  list(
+    recall = mean(recall),
+    per_sample_recall = recall,
+    query_sample_count = length(rows),
+    k = max(as.integer(k)),
+    n_trees = n_trees,
+    search_k = search_k,
+    seed = seed
+  )
+}
+
+
+# Null-Perm has no label-level power when every query cohort has a constant anchor.
+.ablation_null_perm_eligibility <- function(metadata, label_column) {
+  if (!all(c("cohort", label_column) %in% colnames(metadata))) {
+    stop("ablation: Null-Perm metadata is missing cohort or anchor.", call. = FALSE)
+  }
+  label_count <- vapply(
+    split(as.character(metadata[[label_column]]), metadata$cohort),
+    function(x) length(unique(x[!is.na(x) & nzchar(x)])),
+    integer(1)
+  )
+  eligible <- names(label_count)[label_count > 1]
+  list(
+    status = if (length(eligible) > 0) "eligible" else "not_eligible",
+    eligible_cohorts = eligible,
+    cohort_label_count = label_count,
+    reason = if (length(eligible) > 0) {
+      NA_character_
+    } else {
+      "anchor_is_constant_within_every_query_cohort"
+    }
+  )
+}
+
+
+# Confirmatory conclusions require both a genuinely independent anchor and d1
+# generated without exposing the query sample to its own frozen cohort model.
+.ablation_evidence_level <- function(
+    query_metadata,
+    anchor_role,
+    provenance_column = "d1_provenance"
+) {
+  if (!provenance_column %in% colnames(query_metadata)) {
+    stop("ablation: query metadata is missing d1 provenance.", call. = FALSE)
+  }
+  provenance <- unique(as.character(query_metadata[[provenance_column]]))
+  qualified <- all(provenance %in% c("external_frozen", "out_of_fold"))
+  independent <- identical(anchor_role, "independent")
+  reasons <- c(
+    if (!independent) "anchor_is_not_independent",
+    if (!qualified) "query_d1_provenance_is_not_external_or_out_of_fold"
+  )
+  list(
+    level = if (qualified && independent) "confirmatory" else "descriptive",
+    qualified_provenance = qualified,
+    anchor_role = anchor_role,
+    provenance = provenance,
+    reasons = reasons
+  )
+}
+
+
+# Defaults are grouped by the scientific question so configuration changes are
+# auditable and downstream legacy parameters cannot leak into representation tests.
+.ablation_representation_default_params <- function(seed = 20260727) {
+  list(
+    comparison = list(
+      module_ids = NULL,
+      direct_group = "Direct-GSClassifier",
+      cohort_group = "Cohort-d1"
+    ),
+    provenance = list(
+      external_cohorts = NULL,
+      max_reference_samples = Inf,
+      max_query_samples = Inf,
+      require_external = TRUE
+    ),
+    anchors = list(
+      primary = "cancer_type",
+      primary_role = "independent",
+      bank_aligned = "tissue",
+      technical = c("assay_type", "platform_id", "source_system"),
+      min_reference_cohorts = 2L
+    ),
+    geometry = list(
+      k = c(5L, 15L, 30L),
+      search = "annoy",
+      n_trees = 50L,
+      search_k = 5000L,
+      exact_validation_queries = 30L,
+      min_annoy_recall = 0.8,
+      geometry_samples = 5000L,
+      distance_pairs = 100000L
+    ),
+    validation = list(
+      enabled = TRUE,
+      learning_fractions = c(0.1, 0.25, 0.5, 1),
+      repeats = 3L,
+      inner_folds = 3L,
+      lambda = c(0.1, 1, 10),
+      nrounds = 50L,
+      min_class_n = 20L,
+      numCores = 1L
+    ),
+    controls = list(
+      null_rp = TRUE,
+      null_rp_rank = 100L,
+      null_rp_seeds = seed + seq_len(3L),
+      null_perm = TRUE
+    ),
+    tradeoffs = list(
+      decoder = TRUE,
+      decoder_rank = 50L,
+      decoder_lambda = 1,
+      decoder_max_reference_samples = 10000L,
+      decoder_max_query_samples = 5000L
+    ),
+    output = list(
+      cover = FALSE,
+      cache_external_d1 = TRUE
+    )
+  )
+}
+
+
+.ablation_resolve_representation_config <- function(seed, params) {
+  default <- .ablation_representation_default_params(seed)
+  .ablation_validate_override(default, params, path = "params")
+  config <- .ablation_merge_lists(default, params)
+  if (length(config$geometry$k) == 0 || any(config$geometry$k < 1)) {
+    stop("ablation: geometry$k must contain positive integers.", call. = FALSE)
+  }
+  if (!config$geometry$search %in% c("exact", "annoy")) {
+    stop("ablation: geometry$search must be exact or annoy.", call. = FALSE)
+  }
+  if (config$anchors$min_reference_cohorts < 1) {
+    stop("ablation: anchors$min_reference_cohorts must be positive.", call. = FALSE)
+  }
+  for (field in c("max_reference_samples", "max_query_samples")) {
+    value <- config$provenance[[field]]
+    if (length(value) != 1 || (!is.infinite(value) && value < 1)) {
+      stop("ablation: provenance sample caps must be positive or Inf.", call. = FALSE)
+    }
+  }
+  config
+}
+
+
+.ablation_limit_metadata <- function(metadata, size, seed) {
+  if (!is.finite(size) || nrow(metadata) <= size) {
+    return(metadata)
+  }
+  metadata[.ablation_stratified_sample(metadata, as.integer(size), seed), , drop = FALSE]
+}
+
+
+# Prepare disjoint reference/query matrices. Existing d1 is used only for the
+# reference atlas; every filtered query is re-encoded through the frozen bank.
+.ablation_prepare_representation_input <- function(
+    object,
+    data,
+    metadata,
+    config,
+    output.dir,
+    seed,
+    verbose
+) {
+  module_manifest <- .ablation_module_manifest(object)
+  feature_manifest <- .ablation_frozen_feature_manifest(object, module_manifest)
+  module_ids <- config$comparison$module_ids
+  if (is.null(module_ids)) {
+    module_ids <- module_manifest$modules$module_id
+  }
+  module_ids <- as.character(module_ids)
+  unknown_modules <- setdiff(module_ids, module_manifest$modules$module_id)
+  if (length(unknown_modules) > 0) {
+    stop(
+      "ablation: comparison$module_ids contains unknown modules: ",
+      paste(unknown_modules, collapse = ", "),
+      ".",
+      call. = FALSE
+    )
+  }
+  module_ids <- module_manifest$modules$module_id[
+    module_manifest$modules$module_id %in% module_ids
+  ]
+
+  flattened <- .ablation_flatten_expression(data)
+  metadata <- .ablation_prepare_metadata(metadata, flattened$metadata, object)
+  metadata$cohort_key <- paste(metadata$tissue, metadata$cohort, sep = "/")
+  filtered <- config$provenance$external_cohorts
+  if (is.null(filtered)) {
+    filtered <- as.character(object@Data$filtered.cohort)
+  }
+  filtered <- intersect(filtered, unique(metadata$cohort_key))
+  if (config$provenance$require_external && length(filtered) == 0) {
+    stop("ablation: no filtered external cohorts are available.", call. = FALSE)
+  }
+
+  d1 <- as.matrix(object@Data$Probability$d1)
+  expression_ids <- colnames(flattened$expr)
+  reference_ids <- Reduce(intersect, list(
+    rownames(d1),
+    expression_ids,
+    metadata$sample_id[!metadata$cohort_key %in% filtered]
+  ))
+  query_ids <- intersect(
+    expression_ids,
+    metadata$sample_id[metadata$cohort_key %in% filtered]
+  )
+  if (length(reference_ids) < 3 || length(query_ids) < 1) {
+    stop("ablation: reference or external query samples are unavailable.", call. = FALSE)
+  }
+
+  reference_metadata <- metadata[match(reference_ids, metadata$sample_id), , drop = FALSE]
+  query_metadata <- metadata[match(query_ids, metadata$sample_id), , drop = FALSE]
+  reference_metadata <- .ablation_limit_metadata(
+    reference_metadata,
+    config$provenance$max_reference_samples,
+    seed
+  )
+  query_metadata <- .ablation_limit_metadata(
+    query_metadata,
+    config$provenance$max_query_samples,
+    seed + 1L
+  )
+  reference_ids <- reference_metadata$sample_id
+  query_ids <- query_metadata$sample_id
+  reference_metadata$d1_provenance <- "in_sample"
+  query_metadata$d1_provenance <- "external_frozen"
+
+  if (verbose) {
+    luckyBase::LuckyVerbose(
+      "ablation: building Direct-GSClassifier for ",
+      length(reference_ids),
+      " reference and ",
+      length(query_ids),
+      " external query samples..."
+    )
+  }
+  all_ids <- c(reference_ids, query_ids)
+  direct <- .ablation_gsclassifier_matrix(
+    object,
+    flattened$expr[, all_ids, drop = FALSE],
+    feature_manifest
+  )
+  reference_direct <- direct[reference_ids, , drop = FALSE]
+  query_direct <- direct[query_ids, , drop = FALSE]
+
+  expected_columns <- colnames(d1)[
+    unlist(module_manifest$blocks[module_ids], use.names = FALSE)
+  ]
+  reference_d1 <- d1[reference_ids, expected_columns, drop = FALSE]
+  model_paths <- .ablation_model_path_map(object)[module_ids]
+  model_info <- file.info(unname(model_paths))[, c("size", "mtime"), drop = FALSE]
+  cache_key <- digest::digest(
+    list(
+      query_ids = query_ids,
+      direct = query_direct,
+      module_ids = module_ids,
+      model_paths = model_paths,
+      model_info = model_info
+    ),
+    algo = "md5"
+  )
+  cache_path <- file.path(output.dir, "external-d1-cache.rds")
+  query_d1 <- NULL
+  if (config$output$cache_external_d1 && file.exists(cache_path)) {
+    cache <- readRDS(cache_path)
+    if (identical(cache$key, cache_key)) {
+      query_d1 <- cache$d1
+      if (verbose) {
+        luckyBase::LuckyVerbose("ablation: using verified external d1 cache.")
+      }
+    }
+  }
+  if (is.null(query_d1)) {
+    query_d1 <- .ablation_encode_d1_from_direct(
+      object = object,
+      direct = query_direct,
+      module_manifest = module_manifest,
+      module_ids = module_ids,
+      numCores = config$validation$numCores,
+      verbose = verbose
+    )
+    if (config$output$cache_external_d1) {
+      saveRDS(list(key = cache_key, d1 = query_d1), cache_path)
+    }
+  }
+
+  selected_blocks <- lapply(module_ids, function(module_id) {
+    module_columns <- colnames(d1)[module_manifest$blocks[[module_id]]]
+    match(module_columns, expected_columns)
+  })
+  names(selected_blocks) <- module_ids
+  list(
+    reference_direct = reference_direct,
+    query_direct = query_direct,
+    reference_d1 = reference_d1,
+    query_d1 = query_d1,
+    reference_metadata = reference_metadata,
+    query_metadata = query_metadata,
+    module_manifest = module_manifest,
+    selected_blocks = selected_blocks,
+    selected_module_ids = module_ids,
+    feature_manifest = feature_manifest,
+    excluded_duplicate_samples = flattened$excluded_duplicate_samples,
+    cache_key = cache_key,
+    filtered_cohorts = filtered
+  )
+}
+
+
+.ablation_native_geometry <- function(prepared, transformed, config, seed) {
+  metadata <- prepared$reference_metadata
+  rows <- seq_len(nrow(metadata))
+  if (length(rows) > config$geometry$geometry_samples) {
+    rows <- .ablation_stratified_sample(
+      metadata,
+      config$geometry$geometry_samples,
+      seed
+    )
+  }
+  direct <- transformed$direct$reference[rows, , drop = FALSE]
+  d1 <- transformed$d1$reference[rows, , drop = FALSE]
+  local_k <- min(max(config$geometry$k), length(rows) - 1L)
+  metrics <- data.frame(
+    metric_name = c(
+      "linear_cka",
+      "distance_spearman",
+      "knn_jaccard",
+      "direct_effective_rank",
+      "d1_effective_rank"
+    ),
+    metric_value = c(
+      .ablation_linear_cka(direct, d1),
+      .ablation_distance_spearman(
+        direct,
+        d1,
+        config$geometry$distance_pairs,
+        seed
+      ),
+      .ablation_knn_jaccard(direct, d1, local_k),
+      .ablation_effective_rank(direct),
+      .ablation_effective_rank(d1)
+    ),
+    sample_count = length(rows),
+    stringsAsFactors = FALSE
+  )
+
+  raw_d1 <- prepared$reference_d1[rows, , drop = FALSE]
+  module_diagnostics <- do.call(rbind, lapply(
+    names(prepared$selected_blocks),
+    function(module_id) {
+      block <- prepared$selected_blocks[[module_id]]
+      values <- raw_d1[, block, drop = FALSE]
+      data.frame(
+        module_id = module_id,
+        block_width = length(block),
+        mean_probability = mean(values),
+        mean_column_variance = mean(apply(values, 2, stats::var)),
+        mean_row_sum = mean(rowSums(values)),
+        row_sum_close_one = mean(abs(rowSums(values) - 1) < 1e-6),
+        stringsAsFactors = FALSE
+      )
+    }
+  ))
+  module_diagnostics$variance_share <-
+    module_diagnostics$mean_column_variance /
+    sum(module_diagnostics$mean_column_variance)
+  list(
+    metrics = metrics,
+    module_diagnostics = module_diagnostics,
+    d1_probability_contract = list(
+      value_range = range(raw_d1),
+      row_sum_range = range(unlist(lapply(
+        prepared$selected_blocks,
+        function(block) rowSums(raw_d1[, block, drop = FALSE])
+      ), use.names = FALSE)),
+      all_blocks_simplex = all(module_diagnostics$row_sum_close_one == 1),
+      distance = transformed$d1$distance
+    )
+  )
+}
+
+
+.ablation_bind_retrieval <- function(results) {
+  neighbors <- do.call(rbind, lapply(names(results), function(name) {
+    data <- results[[name]]$neighbors
+    data$representation <- name
+    data
+  }))
+  per_sample <- do.call(rbind, lapply(names(results), function(name) {
+    data <- results[[name]]$per_sample
+    data$representation <- name
+    data
+  }))
+  summary <- do.call(rbind, lapply(names(results), function(name) {
+    data <- results[[name]]$summary
+    data$representation <- name
+    data
+  }))
+  by_cohort <- stats::aggregate(
+    cbind(top1_label_match, top_k_label_rate, mrr) ~ representation + cohort + k,
+    data = per_sample,
+    FUN = mean
+  )
+
+  direct <- per_sample[
+    per_sample$representation == "Direct-GSClassifier",
+    ,
+    drop = FALSE
+  ]
+  cohort <- per_sample[
+    per_sample$representation == "Cohort-d1",
+    ,
+    drop = FALSE
+  ]
+  paired <- merge(
+    cohort,
+    direct,
+    by = c("sample_id", "cohort", "label", "k"),
+    suffixes = c("_d1", "_direct")
+  )
+  for (metric in c("top1_label_match", "top_k_label_rate", "mrr")) {
+    paired[[paste0("delta_", metric)]] <-
+      paired[[paste0(metric, "_d1")]] - paired[[paste0(metric, "_direct")]]
+  }
+  list(
+    neighbors = neighbors,
+    per_sample = per_sample,
+    summary = summary,
+    by_cohort = by_cohort,
+    paired = paired
+  )
+}
+
+
+.ablation_run_representation <- function(
+    object,
+    data,
+    metadata,
+    output.dir,
+    params,
+    seed,
+    verbose
+) {
+  if (!methods::is(object, "CCS")) {
+    stop("ablation: object must be a CCS object.", call. = FALSE)
+  }
+  config <- .ablation_resolve_representation_config(seed, params)
+  if (dir.exists(output.dir) && length(list.files(output.dir)) > 0 &&
+      !config$output$cover) {
+    stop(
+      "ablation: output.dir is not empty; set params$output$cover = TRUE.",
+      call. = FALSE
+    )
+  }
+  dir.create(output.dir, recursive = TRUE, showWarnings = FALSE)
+
+  prepared <- .ablation_prepare_representation_input(
+    object,
+    data,
+    metadata,
+    config,
+    output.dir,
+    seed,
+    verbose
+  )
+  anchor <- config$anchors$primary
+  if (!anchor %in% colnames(prepared$reference_metadata) ||
+      !anchor %in% colnames(prepared$query_metadata)) {
+    stop("ablation: primary anchor is missing from metadata.", call. = FALSE)
+  }
+  reference_cohort_count <- vapply(
+    split(
+      prepared$reference_metadata$cohort,
+      prepared$reference_metadata[[anchor]]
+    ),
+    function(x) length(unique(x)),
+    integer(1)
+  )
+  eligible_labels <- names(reference_cohort_count)[
+    reference_cohort_count >= config$anchors$min_reference_cohorts
+  ]
+  keep_query <- as.character(prepared$query_metadata[[anchor]]) %in% eligible_labels
+  prepared$query_metadata <- prepared$query_metadata[keep_query, , drop = FALSE]
+  prepared$query_direct <- prepared$query_direct[keep_query, , drop = FALSE]
+  prepared$query_d1 <- prepared$query_d1[keep_query, , drop = FALSE]
+  if (nrow(prepared$query_metadata) == 0) {
+    stop("ablation: no external query has an eligible reference anchor.", call. = FALSE)
+  }
+
+  direct_scaled <- .ablation_scale_train_apply(
+    prepared$reference_direct,
+    prepared$query_direct
+  )
+  d1_scaled <- .ablation_module_balanced_transform(
+    prepared$reference_d1,
+    prepared$query_d1,
+    prepared$selected_blocks
+  )
+  transformed <- list(
+    direct = list(
+      reference = direct_scaled$train,
+      query = direct_scaled$test,
+      center = direct_scaled$center,
+      scale = direct_scaled$scale,
+      distance = "standardized_euclidean"
+    ),
+    d1 = d1_scaled
+  )
+  native_geometry <- .ablation_native_geometry(prepared, transformed, config, seed)
+
+  retrieval_results <- list(
+    `Direct-GSClassifier` = .ablation_query_reference_retrieval(
+      transformed$direct$reference,
+      transformed$direct$query,
+      prepared$reference_metadata,
+      prepared$query_metadata,
+      label_column = anchor,
+      technical_columns = config$anchors$technical,
+      k = config$geometry$k,
+      search = config$geometry$search,
+      seed = seed,
+      n_trees = config$geometry$n_trees,
+      search_k = config$geometry$search_k
+    ),
+    `Cohort-d1` = .ablation_query_reference_retrieval(
+      transformed$d1$reference,
+      transformed$d1$query,
+      prepared$reference_metadata,
+      prepared$query_metadata,
+      label_column = anchor,
+      technical_columns = config$anchors$technical,
+      k = config$geometry$k,
+      search = config$geometry$search,
+      seed = seed,
+      n_trees = config$geometry$n_trees,
+      search_k = config$geometry$search_k
+    )
+  )
+  search_validation <- if (config$geometry$search == "annoy") {
+    validation <- list(
+      `Direct-GSClassifier` = .ablation_validate_neighbor_search(
+        transformed$direct$reference,
+        transformed$direct$query,
+        prepared$reference_metadata,
+        prepared$query_metadata,
+        label_column = anchor,
+        k = max(config$geometry$k),
+        query_samples = config$geometry$exact_validation_queries,
+        n_trees = config$geometry$n_trees,
+        search_k = config$geometry$search_k,
+        seed = seed + 1000L
+      ),
+      `Cohort-d1` = .ablation_validate_neighbor_search(
+        transformed$d1$reference,
+        transformed$d1$query,
+        prepared$reference_metadata,
+        prepared$query_metadata,
+        label_column = anchor,
+        k = max(config$geometry$k),
+        query_samples = config$geometry$exact_validation_queries,
+        n_trees = config$geometry$n_trees,
+        search_k = config$geometry$search_k,
+        seed = seed + 1000L
+      )
+    )
+    recall <- vapply(validation, `[[`, numeric(1), "recall")
+    if (any(recall < config$geometry$min_annoy_recall)) {
+      stop(
+        "ablation: Annoy recall is below geometry$min_annoy_recall: ",
+        paste(names(recall), round(recall, 3), sep = "=", collapse = ", "),
+        ". Increase n_trees/search_k or use exact search.",
+        call. = FALSE
+      )
+    }
+    validation
+  } else {
+    list(status = "not_required", search = "exact")
+  }
+  retrieval <- .ablation_bind_retrieval(retrieval_results)
+  retrieval$search_validation <- search_validation
+  evidence <- .ablation_evidence_level(
+    prepared$query_metadata,
+    config$anchors$primary_role
+  )
+  null_perm <- if (config$controls$null_perm) {
+    .ablation_null_perm_eligibility(prepared$query_metadata, anchor)
+  } else {
+    list(status = "not_run", reason = "disabled")
+  }
+  null_rp <- if (config$controls$null_rp) {
+    rp_rank <- min(
+      as.integer(config$controls$null_rp_rank),
+      ncol(transformed$direct$reference)
+    )
+    rp_results <- lapply(config$controls$null_rp_seeds, function(rp_seed) {
+      projection <- .ablation_projection_matrix(
+        ncol(transformed$direct$reference),
+        rp_rank,
+        rp_seed
+      )
+      .ablation_query_reference_retrieval(
+        transformed$direct$reference %*% projection,
+        transformed$direct$query %*% projection,
+        prepared$reference_metadata,
+        prepared$query_metadata,
+        label_column = anchor,
+        technical_columns = config$anchors$technical,
+        k = config$geometry$k,
+        search = config$geometry$search,
+        seed = rp_seed,
+        n_trees = config$geometry$n_trees,
+        search_k = config$geometry$search_k
+      )
+    })
+    names(rp_results) <- as.character(config$controls$null_rp_seeds)
+    rp_summary <- do.call(rbind, lapply(seq_along(rp_results), function(i) {
+      data <- rp_results[[i]]$summary
+      data$seed <- config$controls$null_rp_seeds[i]
+      data
+    }))
+    list(
+      status = "complete",
+      rank = rp_rank,
+      seeds = config$controls$null_rp_seeds,
+      results = rp_results,
+      summary = rp_summary
+    )
+  } else {
+    list(status = "not_run", reason = "disabled")
+  }
+  controls <- list(
+    null_rp = null_rp,
+    null_perm = null_perm
+  )
+  if (config$validation$enabled) {
+    readout_results <- list(
+      `Direct-GSClassifier` = .ablation_linear_readout(
+        train = prepared$reference_direct,
+        test = prepared$query_direct,
+        train_metadata = prepared$reference_metadata,
+        test_metadata = prepared$query_metadata,
+        label_column = anchor,
+        lambda = config$validation$lambda,
+        inner_folds = config$validation$inner_folds,
+        nrounds = config$validation$nrounds,
+        numCores = config$validation$numCores,
+        seed = seed + 20000L,
+        blocks = NULL
+      ),
+      `Cohort-d1` = .ablation_linear_readout(
+        train = prepared$reference_d1,
+        test = prepared$query_d1,
+        train_metadata = prepared$reference_metadata,
+        test_metadata = prepared$query_metadata,
+        label_column = anchor,
+        lambda = config$validation$lambda,
+        inner_folds = config$validation$inner_folds,
+        nrounds = config$validation$nrounds,
+        numCores = config$validation$numCores,
+        seed = seed + 20000L,
+        blocks = prepared$selected_blocks
+      )
+    )
+    overall <- do.call(rbind, lapply(names(readout_results), function(name) {
+      data <- readout_results[[name]]$overall
+      data$representation <- name
+      data$selected_lambda <- readout_results[[name]]$selected_lambda
+      data
+    }))
+    by_cohort <- do.call(rbind, lapply(names(readout_results), function(name) {
+      data <- readout_results[[name]]$by_cohort
+      data$representation <- name
+      data
+    }))
+    predictions <- do.call(rbind, lapply(names(readout_results), function(name) {
+      data <- readout_results[[name]]$predictions
+      data$representation <- name
+      data
+    }))
+    direct_cohort <- by_cohort[
+      by_cohort$representation == "Direct-GSClassifier",
+      ,
+      drop = FALSE
+    ]
+    d1_cohort <- by_cohort[
+      by_cohort$representation == "Cohort-d1",
+      ,
+      drop = FALSE
+    ]
+    paired_by_cohort <- merge(
+      d1_cohort,
+      direct_cohort,
+      by = "cohort",
+      suffixes = c("_d1", "_direct")
+    )
+    for (metric in c("accuracy", "balanced_accuracy", "macro_auroc")) {
+      paired_by_cohort[[paste0("delta_", metric)]] <-
+        paired_by_cohort[[paste0(metric, "_d1")]] -
+        paired_by_cohort[[paste0(metric, "_direct")]]
+    }
+    readout <- list(
+      status = "complete",
+      results = readout_results,
+      overall = overall,
+      by_cohort = by_cohort,
+      paired_by_cohort = paired_by_cohort,
+      predictions = predictions
+    )
+    learning_curve <- .ablation_learning_curve(
+      representations = list(
+        `Direct-GSClassifier` = list(
+          train = prepared$reference_direct,
+          test = prepared$query_direct,
+          blocks = NULL
+        ),
+        `Cohort-d1` = list(
+          train = prepared$reference_d1,
+          test = prepared$query_d1,
+          blocks = prepared$selected_blocks
+        )
+      ),
+      train_metadata = prepared$reference_metadata,
+      test_metadata = prepared$query_metadata,
+      label_column = anchor,
+      fractions = config$validation$learning_fractions,
+      repeats = config$validation$repeats,
+      lambda = config$validation$lambda,
+      inner_folds = config$validation$inner_folds,
+      nrounds = config$validation$nrounds,
+      numCores = config$validation$numCores,
+      seed = seed + 30000L
+    )
+  } else {
+    readout <- list(status = "not_run", reason = "disabled")
+    learning_curve <- list(status = "not_run", reason = "disabled")
+  }
+
+  feature_counts <- table(factor(
+    prepared$feature_manifest$feature_manifest$feature_type,
+    levels = c("single_bin", "gene_pair", "set_pair")
+  ))
+  decoder <- if (config$tradeoffs$decoder) {
+    decoder_reference_metadata <- .ablation_limit_metadata(
+      prepared$reference_metadata,
+      config$tradeoffs$decoder_max_reference_samples,
+      seed + 40000L
+    )
+    decoder_query_metadata <- .ablation_limit_metadata(
+      prepared$query_metadata,
+      config$tradeoffs$decoder_max_query_samples,
+      seed + 40001L
+    )
+    reference_rows <- match(
+      decoder_reference_metadata$sample_id,
+      prepared$reference_metadata$sample_id
+    )
+    query_rows <- match(
+      decoder_query_metadata$sample_id,
+      prepared$query_metadata$sample_id
+    )
+    decoded <- .ablation_decode_direct_features(
+      reference_d1 = prepared$reference_d1[reference_rows, , drop = FALSE],
+      query_d1 = prepared$query_d1[query_rows, , drop = FALSE],
+      reference_direct = prepared$reference_direct[reference_rows, , drop = FALSE],
+      query_direct = prepared$query_direct[query_rows, , drop = FALSE],
+      feature_manifest = prepared$feature_manifest$feature_manifest,
+      blocks = prepared$selected_blocks,
+      rank = config$tradeoffs$decoder_rank,
+      lambda = config$tradeoffs$decoder_lambda
+    )
+    decoded$reference_sample_count <- length(reference_rows)
+    decoded$query_sample_count <- length(query_rows)
+    decoded
+  } else {
+    list(status = "not_run", reason = "disabled")
+  }
+  tradeoffs <- list(
+    status = "complete",
+    feature_type_count = feature_counts,
+    d1_probability_contract = native_geometry$d1_probability_contract,
+    module_diagnostics = native_geometry$module_diagnostics,
+    excluded_duplicate_samples = prepared$excluded_duplicate_samples,
+    decoder = decoder
+  )
+  manifest <- list(
+    version = 3L,
+    created = format(Sys.time(), "%Y-%m-%dT%H:%M:%S%z"),
+    seed = seed,
+    experiment = "representation",
+    groups = c("Direct-GSClassifier", "Cohort-d1"),
+    reference_sample_count = nrow(prepared$reference_metadata),
+    query_sample_count = nrow(prepared$query_metadata),
+    reference_cohort_count = length(unique(prepared$reference_metadata$cohort)),
+    query_cohort_count = length(unique(prepared$query_metadata$cohort)),
+    direct_feature_count = ncol(prepared$reference_direct),
+    tsp_feature_count = length(prepared$feature_manifest$tsp_features),
+    d1_feature_count = ncol(prepared$reference_d1),
+    module_count = length(prepared$selected_blocks),
+    external_cohorts = prepared$filtered_cohorts,
+    anchor = anchor,
+    anchor_role = config$anchors$primary_role,
+    evidence_level = evidence$level,
+    evidence_reasons = evidence$reasons,
+    direct_distance = transformed$direct$distance,
+    d1_distance = transformed$d1$distance,
+    cache_key = prepared$cache_key,
+    config = config,
+    config_hash = digest::digest(config, algo = "md5")
+  )
+
+  audit <- retrieval$summary
+  audit$evidence_level <- evidence$level
+  audit$anchor <- anchor
+  audit$reference_sample_count <- nrow(prepared$reference_metadata)
+  audit$query_sample_count <- nrow(prepared$query_metadata)
+  audit$config_hash <- manifest$config_hash
+
+  saveRDS(manifest, file.path(output.dir, "manifest.rds"))
+  saveRDS(native_geometry, file.path(output.dir, "native_geometry.rds"))
+  saveRDS(retrieval, file.path(output.dir, "retrieval.rds"))
+  saveRDS(readout, file.path(output.dir, "readout.rds"))
+  saveRDS(learning_curve, file.path(output.dir, "learning_curve.rds"))
+  saveRDS(tradeoffs, file.path(output.dir, "tradeoffs.rds"))
+  utils::write.csv(audit, file.path(output.dir, "audit.csv"), row.names = FALSE)
+
+  structure(
+    list(
+      call = match.call(),
+      experiment = "representation",
+      evidence_level = evidence$level,
+      evidence = evidence,
+      manifest = manifest,
+      native_geometry = native_geometry,
+      retrieval = retrieval,
+      readout = readout,
+      learning_curve = learning_curve,
+      tradeoffs = tradeoffs,
+      controls = controls,
+      output.dir = normalizePath(output.dir, winslash = "/", mustWork = TRUE)
+    ),
+    class = "CCSAblation"
+  )
+}
+
+
+.ablation_readout_transform <- function(train, test, blocks = NULL) {
+  if (is.null(blocks)) {
+    scaled <- .ablation_scale_train_apply(train, test)
+    return(list(train = scaled$train, test = scaled$test))
+  }
+  balanced <- .ablation_module_balanced_transform(train, test, blocks)
+  list(train = balanced$reference, test = balanced$query)
+}
+
+
+.ablation_xgb_linear_predict <- function(
+    train,
+    test,
+    train_label,
+    classes,
+    lambda,
+    nrounds,
+    numCores,
+    seed
+) {
+  encoded <- match(as.character(train_label), classes) - 1L
+  class_n <- table(encoded)
+  weight <- as.numeric(1 / class_n[as.character(encoded)])
+  weight <- weight / mean(weight)
+  dtrain <- xgboost::xgb.DMatrix(
+    data = as.matrix(train),
+    label = encoded,
+    weight = weight
+  )
+  set.seed(seed)
+  if (length(classes) == 2L) {
+    fit <- xgboost::xgboost(
+      data = dtrain,
+      booster = "gblinear",
+      updater = "coord_descent",
+      feature_selector = "cyclic",
+      objective = "binary:logistic",
+      nrounds = as.integer(nrounds),
+      eta = 0.1,
+      lambda = lambda,
+      alpha = 0,
+      nthread = as.integer(numCores),
+      verbose = 0
+    )
+    positive <- as.numeric(stats::predict(fit, as.matrix(test)))
+    probability <- cbind(1 - positive, positive)
+  } else {
+    fit <- xgboost::xgboost(
+      data = dtrain,
+      booster = "gblinear",
+      updater = "coord_descent",
+      feature_selector = "cyclic",
+      objective = "multi:softprob",
+      num_class = length(classes),
+      nrounds = as.integer(nrounds),
+      eta = 0.1,
+      lambda = lambda,
+      alpha = 0,
+      nthread = as.integer(numCores),
+      verbose = 0
+    )
+    probability <- matrix(
+      stats::predict(fit, as.matrix(test)),
+      ncol = length(classes),
+      byrow = TRUE
+    )
+  }
+  colnames(probability) <- classes
+  rownames(probability) <- rownames(test)
+  list(
+    fit = fit,
+    probability = probability,
+    prediction = classes[max.col(probability, ties.method = "first")]
+  )
+}
+
+
+.ablation_classification_metrics <- function(truth, prediction, probability, classes) {
+  truth <- as.character(truth)
+  prediction <- as.character(prediction)
+  recalls <- vapply(classes, function(class_id) {
+    rows <- truth == class_id
+    if (!any(rows)) NA_real_ else mean(prediction[rows] == class_id)
+  }, numeric(1))
+  auc <- vapply(seq_along(classes), function(i) {
+    .ablation_binary_auc(as.integer(truth == classes[i]), probability[, i])
+  }, numeric(1))
+  data.frame(
+    sample_count = length(truth),
+    class_count = length(unique(truth)),
+    accuracy = mean(prediction == truth),
+    balanced_accuracy = mean(recalls, na.rm = TRUE),
+    macro_auroc = mean(auc, na.rm = TRUE),
+    stringsAsFactors = FALSE
+  )
+}
+
+
+# Tune one deterministic linear probe inside grouped reference folds, then fit
+# once on all reference samples and evaluate only the untouched external query.
+.ablation_linear_readout <- function(
+    train,
+    test,
+    train_metadata,
+    test_metadata,
+    label_column,
+    lambda = c(0.1, 1, 10),
+    inner_folds = 3L,
+    nrounds = 50L,
+    numCores = 1L,
+    seed = 20260727,
+    blocks = NULL
+) {
+  train <- as.matrix(train)
+  test <- as.matrix(test)
+  if (nrow(train) != nrow(train_metadata) || nrow(test) != nrow(test_metadata)) {
+    stop("ablation: readout metadata does not align with matrices.", call. = FALSE)
+  }
+  if (!label_column %in% colnames(train_metadata) ||
+      !label_column %in% colnames(test_metadata)) {
+    stop("ablation: readout label is missing from metadata.", call. = FALSE)
+  }
+  train_label <- as.character(train_metadata[[label_column]])
+  test_label <- as.character(test_metadata[[label_column]])
+  valid_train <- !is.na(train_label) & nzchar(train_label)
+  classes <- sort(unique(train_label[valid_train]))
+  valid_test <- !is.na(test_label) & test_label %in% classes
+  train <- train[valid_train, , drop = FALSE]
+  train_metadata <- train_metadata[valid_train, , drop = FALSE]
+  train_label <- train_label[valid_train]
+  test <- test[valid_test, , drop = FALSE]
+  test_metadata <- test_metadata[valid_test, , drop = FALSE]
+  test_label <- test_label[valid_test]
+  if (length(classes) < 2 || nrow(test) < 2) {
+    stop("ablation: readout requires at least two train/test classes.", call. = FALSE)
+  }
+
+  fold <- .ablation_grouped_folds(
+    train_metadata$cohort,
+    n_folds = inner_folds,
+    seed = seed,
+    label = train_label
+  )
+  lambda <- sort(unique(as.numeric(lambda)))
+  cv_rows <- lapply(seq_along(lambda), function(lambda_index) {
+    fold_score <- vapply(sort(unique(fold)), function(fold_id) {
+      inner_train <- fold != fold_id
+      inner_test <- fold == fold_id
+      fold_classes <- sort(unique(train_label[inner_train]))
+      eligible_test <- inner_test & train_label %in% fold_classes
+      if (length(fold_classes) < 2 || sum(eligible_test) < 2) {
+        return(NA_real_)
+      }
+      transformed <- .ablation_readout_transform(
+        train[inner_train, , drop = FALSE],
+        train[eligible_test, , drop = FALSE],
+        blocks
+      )
+      prediction <- .ablation_xgb_linear_predict(
+        transformed$train,
+        transformed$test,
+        train_label[inner_train],
+        fold_classes,
+        lambda[lambda_index],
+        nrounds,
+        numCores,
+        seed + lambda_index * 100L + fold_id
+      )
+      metrics <- .ablation_classification_metrics(
+        train_label[eligible_test],
+        prediction$prediction,
+        prediction$probability,
+        fold_classes
+      )
+      metrics$balanced_accuracy
+    }, numeric(1))
+    data.frame(
+      lambda = lambda[lambda_index],
+      balanced_accuracy = mean(fold_score, na.rm = TRUE),
+      estimable_folds = sum(is.finite(fold_score)),
+      stringsAsFactors = FALSE
+    )
+  })
+  inner_cv <- do.call(rbind, cv_rows)
+  eligible_lambda <- inner_cv$estimable_folds > 0 &
+    is.finite(inner_cv$balanced_accuracy)
+  if (!any(eligible_lambda)) {
+    stop("ablation: no lambda is estimable in grouped inner CV.", call. = FALSE)
+  }
+  ranking <- order(
+    -inner_cv$balanced_accuracy[eligible_lambda],
+    -inner_cv$lambda[eligible_lambda]
+  )
+  selected_lambda <- inner_cv$lambda[eligible_lambda][ranking[1]]
+
+  transformed <- .ablation_readout_transform(train, test, blocks)
+  final <- .ablation_xgb_linear_predict(
+    transformed$train,
+    transformed$test,
+    train_label,
+    classes,
+    selected_lambda,
+    nrounds,
+    numCores,
+    seed + 10000L
+  )
+  predictions <- data.frame(
+    sample_id = test_metadata$sample_id,
+    cohort = test_metadata$cohort,
+    true_label = test_label,
+    predicted_label = final$prediction,
+    max_probability = apply(final$probability, 1, max),
+    stringsAsFactors = FALSE
+  )
+  overall <- .ablation_classification_metrics(
+    test_label,
+    final$prediction,
+    final$probability,
+    classes
+  )
+  by_cohort <- do.call(rbind, lapply(
+    split(seq_len(nrow(predictions)), predictions$cohort),
+    function(rows) {
+      metric <- .ablation_classification_metrics(
+        test_label[rows],
+        final$prediction[rows],
+        final$probability[rows, , drop = FALSE],
+        classes
+      )
+      metric$cohort <- predictions$cohort[rows[1]]
+      metric
+    }
+  ))
+  rownames(by_cohort) <- NULL
+  list(
+    status = "complete",
+    selected_lambda = selected_lambda,
+    inner_cv = inner_cv,
+    predictions = predictions,
+    probability = final$probability,
+    overall = overall,
+    by_cohort = by_cohort,
+    classes = classes,
+    fold = fold,
+    train_sample_hash = digest::digest(sort(train_metadata$sample_id), algo = "md5"),
+    test_sample_hash = digest::digest(sort(test_metadata$sample_id), algo = "md5")
+  )
+}
+
+
+.ablation_sample_training_cohorts <- function(metadata, label_column, fraction, seed) {
+  cohort_label <- stats::aggregate(
+    metadata[[label_column]],
+    by = list(cohort = metadata$cohort),
+    FUN = function(x) names(sort(table(x), decreasing = TRUE))[1]
+  )
+  colnames(cohort_label)[2] <- "label"
+  set.seed(seed)
+  selected <- unlist(lapply(split(cohort_label$cohort, cohort_label$label), function(x) {
+    target <- min(length(x), max(2L, ceiling(length(x) * fraction)))
+    sample(x, target)
+  }), use.names = FALSE)
+  sort(unique(selected))
+}
+
+
+# Build paired curves over shared cohort subsets. Each representation is tuned
+# independently inside the same subset, preserving equal search budgets.
+.ablation_learning_curve <- function(
+    representations,
+    train_metadata,
+    test_metadata,
+    label_column,
+    fractions,
+    repeats,
+    lambda,
+    inner_folds,
+    nrounds,
+    numCores,
+    seed
+) {
+  rows <- list()
+  index <- 1L
+  test_hash <- digest::digest(sort(test_metadata$sample_id), algo = "md5")
+  for (fraction_index in seq_along(fractions)) {
+    fraction <- fractions[fraction_index]
+    for (repeat_id in seq_len(as.integer(repeats))) {
+      subset_seed <- seed + fraction_index * 1000L + repeat_id
+      cohorts <- .ablation_sample_training_cohorts(
+        train_metadata,
+        label_column,
+        fraction,
+        subset_seed
+      )
+      train_rows <- train_metadata$cohort %in% cohorts
+      subset_hash <- digest::digest(cohorts, algo = "md5")
+      for (representation in names(representations)) {
+        input <- representations[[representation]]
+        fit <- .ablation_linear_readout(
+          train = input$train[train_rows, , drop = FALSE],
+          test = input$test,
+          train_metadata = train_metadata[train_rows, , drop = FALSE],
+          test_metadata = test_metadata,
+          label_column = label_column,
+          lambda = lambda,
+          inner_folds = inner_folds,
+          nrounds = nrounds,
+          numCores = numCores,
+          seed = subset_seed,
+          blocks = input$blocks
+        )
+        rows[[index]] <- data.frame(
+          representation = representation,
+          requested_fraction = fraction,
+          realized_cohort_fraction = length(cohorts) /
+            length(unique(train_metadata$cohort)),
+          repeat_id = repeat_id,
+          train_cohort_count = length(cohorts),
+          train_sample_count = sum(train_rows),
+          selected_lambda = fit$selected_lambda,
+          accuracy = fit$overall$accuracy,
+          balanced_accuracy = fit$overall$balanced_accuracy,
+          macro_auroc = fit$overall$macro_auroc,
+          cohort_subset_hash = subset_hash,
+          test_sample_hash = test_hash,
+          stringsAsFactors = FALSE
+        )
+        index <- index + 1L
+      }
+    }
+  }
+  metrics <- do.call(rbind, rows)
+  direct <- metrics[metrics$representation == "Direct-GSClassifier", , drop = FALSE]
+  d1 <- metrics[metrics$representation == "Cohort-d1", , drop = FALSE]
+  paired <- merge(
+    direct,
+    d1,
+    by = c("requested_fraction", "repeat_id"),
+    suffixes = c("_direct", "_d1")
+  )
+  paired$delta_balanced_accuracy <-
+    paired$balanced_accuracy_d1 - paired$balanced_accuracy_direct
+  paired$delta_macro_auroc <- paired$macro_auroc_d1 - paired$macro_auroc_direct
+  list(
+    status = "complete",
+    metrics = metrics,
+    paired = paired,
+    test_sample_hash = test_hash
+  )
+}
+
+
+# Decode the complete Direct feature contract from d1 and evaluate each feature
+# type with its native loss. The decoder is trained only on the reference atlas.
+.ablation_decode_direct_features <- function(
+    reference_d1,
+    query_d1,
+    reference_direct,
+    query_direct,
+    feature_manifest,
+    blocks,
+    rank = 50L,
+    lambda = 1
+) {
+  reference_d1 <- as.matrix(reference_d1)
+  query_d1 <- as.matrix(query_d1)
+  reference_direct <- as.matrix(reference_direct)
+  query_direct <- as.matrix(query_direct)
+  if (!identical(colnames(reference_direct), colnames(query_direct))) {
+    stop("ablation: decoder Direct columns must be identical.", call. = FALSE)
+  }
+  feature_manifest <- feature_manifest[
+    match(colnames(reference_direct), feature_manifest$feature),
+    ,
+    drop = FALSE
+  ]
+  if (any(is.na(feature_manifest$feature_type))) {
+    stop("ablation: decoder feature manifest is incomplete.", call. = FALSE)
+  }
+
+  balanced <- .ablation_module_balanced_transform(
+    reference_d1,
+    query_d1,
+    blocks
+  )
+  rank <- min(
+    as.integer(rank),
+    ncol(balanced$reference),
+    nrow(balanced$reference) - 1L
+  )
+  if (rank < 1) {
+    stop("ablation: decoder rank is not estimable.", call. = FALSE)
+  }
+  if (rank < min(dim(balanced$reference))) {
+    pca <- irlba::prcomp_irlba(
+      balanced$reference,
+      n = rank,
+      center = FALSE,
+      scale. = FALSE
+    )
+  } else {
+    pca <- stats::prcomp(
+      balanced$reference,
+      center = FALSE,
+      scale. = FALSE,
+      rank. = rank
+    )
+  }
+  rotation <- pca$rotation[, seq_len(rank), drop = FALSE]
+  z_reference <- balanced$reference %*% rotation
+  z_query <- balanced$query %*% rotation
+
+  outcome_center <- colMeans(reference_direct)
+  centered_outcome <- sweep(reference_direct, 2, outcome_center, "-")
+  penalty <- diag(lambda, ncol(z_reference))
+  coefficient <- solve(
+    crossprod(z_reference) + penalty,
+    crossprod(z_reference, centered_outcome)
+  )
+  predicted <- sweep(z_query %*% coefficient, 2, outcome_center, "+")
+  colnames(predicted) <- colnames(query_direct)
+  rownames(predicted) <- rownames(query_direct)
+
+  mean_finite <- function(x) {
+    x <- x[is.finite(x)]
+    if (length(x) == 0) NA_real_ else mean(x)
+  }
+  per_feature <- do.call(rbind, lapply(seq_len(ncol(query_direct)), function(i) {
+    truth <- query_direct[, i]
+    estimate <- predicted[, i]
+    type <- feature_manifest$feature_type[i]
+    balanced_accuracy <- NA_real_
+    brier <- NA_real_
+    spearman <- NA_real_
+    mae <- NA_real_
+    rmse <- NA_real_
+    if (type == "gene_pair") {
+      probability <- pmin(1, pmax(0, estimate))
+      call <- as.integer(probability >= 0.5)
+      recalls <- vapply(c(0, 1), function(class_id) {
+        rows <- truth == class_id
+        if (!any(rows)) NA_real_ else mean(call[rows] == class_id)
+      }, numeric(1))
+      balanced_accuracy <- mean_finite(recalls)
+      brier <- mean((probability - truth)^2)
+    } else if (type == "single_bin") {
+      spearman <- suppressWarnings(stats::cor(truth, estimate, method = "spearman"))
+      mae <- mean(abs(estimate - truth))
+    } else if (type == "set_pair") {
+      spearman <- suppressWarnings(stats::cor(truth, estimate, method = "spearman"))
+      rmse <- sqrt(mean((estimate - truth)^2))
+    }
+    data.frame(
+      feature = feature_manifest$feature[i],
+      feature_type = type,
+      balanced_accuracy = balanced_accuracy,
+      brier = brier,
+      spearman = spearman,
+      mae = mae,
+      rmse = rmse,
+      stringsAsFactors = FALSE
+    )
+  }))
+  summary <- do.call(rbind, lapply(split(per_feature, per_feature$feature_type), function(data) {
+    data.frame(
+      feature_type = data$feature_type[1],
+      feature_count = nrow(data),
+      balanced_accuracy = mean_finite(data$balanced_accuracy),
+      brier = mean_finite(data$brier),
+      spearman = mean_finite(data$spearman),
+      mae = mean_finite(data$mae),
+      rmse = mean_finite(data$rmse),
+      stringsAsFactors = FALSE
+    )
+  }))
+  rownames(summary) <- NULL
+  list(
+    status = "complete",
+    rank = rank,
+    lambda = lambda,
+    per_feature = per_feature,
+    summary = summary,
+    prediction = predicted
+  )
 }
