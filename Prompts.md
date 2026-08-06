@@ -1,8 +1,22 @@
-# 升级
+# Common
 
-test\ablation\ablation.R 可以替换 R\ablation.R 了，然后 DESCRIPTION 升级版本号为 0.8.2。安装并更新本设备的CCS包。git commit，描述语言为英文。不发布 git release。
+```
+用 git-commit skill生成commit。所有更新内容包含在1个commit里，分点罗列清楚即可。
+```
 
 # 日常
+
+---
+
+test\ablation-02 分析优化：
+
+- data_all里，有一个组织类型是 undefined 。其实，里面有一些数据集可能对应了真实的
+
+---
+
+test\pre-train-info 分析优化：
+
+- 结果里，有一些 tissue=undefined 的。其实，这些是历史遗留问题，因为当时由于某些原因，没有特别指定它们的组织类型；但它们其实也是有组织类型的。现在，在本分析中的xlsx结果文件中，我希望你给它们分配真实的tissue类型。
 
 ---
 
