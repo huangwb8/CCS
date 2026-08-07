@@ -1,6 +1,6 @@
 # Ablation 02 执行顺序
 
-该目录按文件名前缀表达推荐执行顺序。主分析分为数据审计与消融实验两个阶段，契约测试从 `10` 开始，避免与主分析阶段混淆。
+该目录按文件名前缀表达推荐执行顺序。主分析分为数据审计与消融实验两个阶段；契约测试集中在 `tests/` 中，从 `10` 开始，避免与主分析阶段混淆。
 
 ## 主分析
 
@@ -17,16 +17,16 @@
 
 ## 契约测试
 
-按以下顺序运行可先覆盖轻量内部合同，再进入依赖真实数据的集成合同：
+`tests/` 中的脚本按以下顺序运行，可先覆盖轻量内部合同，再进入依赖真实数据的集成合同：
 
 ```powershell
-Rscript test/ablation-02/10-test-ablation-data-contract.R
-Rscript test/ablation-02/11-test-ablation-representation.R
-Rscript test/ablation-02/12-test-ablation-readout.R
-Rscript test/ablation-02/13-test-ablation-decoder.R
-Rscript test/ablation-02/14-test-ablation-real-encoder.R
-Rscript test/ablation-02/15-test-ablation-public-representation.R
-Rscript test/ablation-02/16-test-ablation-public-readout.R
+Rscript test/ablation-02/tests/10-test-ablation-data-contract.R
+Rscript test/ablation-02/tests/11-test-ablation-representation.R
+Rscript test/ablation-02/tests/12-test-ablation-readout.R
+Rscript test/ablation-02/tests/13-test-ablation-decoder.R
+Rscript test/ablation-02/tests/14-test-ablation-real-encoder.R
+Rscript test/ablation-02/tests/15-test-ablation-public-representation.R
+Rscript test/ablation-02/tests/16-test-ablation-public-readout.R
 ```
 
 `10`、`14`、`15`、`16` 需要项目约定的真实数据与冻结模型路径；可通过 `CCS_DATA_ROOT`、`CCS_SYNC_ROOT`、`CCS_ABLATION_MODEL_ROOT` 等环境变量覆盖机器默认路径。

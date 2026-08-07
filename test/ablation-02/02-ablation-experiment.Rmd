@@ -218,15 +218,15 @@ direct_top_k_rate <- retrieval$summary$top_k_label_rate[
 ]
 ```
 
-本报告围绕一个明确问题展开：冻结 cohort bank 将同一份 `r manifest$direct_feature_count` 维 GSClassifier 原生输入转换为 d1 后，旧癌种标签的可恢复性、技术来源聚集和输入信息可恢复性发生了什么变化。`cancer_type` 用于外部核查，不是 CCS 必须优化的目标。分析限于 d1；d2、d3、metaCCS、normCCS 和 ICI response 不用于反向证明 d1，癌种可恢复性也不替代对新状态效用的直接评价。
+本报告关注一个具体问题：冻结的 cohort bank 将同一份 `r manifest$direct_feature_count` 维 GSClassifier 原生输入重编码为 d1 后，旧癌种标签是否仍易于恢复、样本是否仍按技术来源聚集，以及原始输入信息还能恢复到什么程度。`cancer_type` 只作为外部核查锚点，并非 CCS 必须优化的目标。本分析仅讨论 d1；不借助 d2、d3、metaCCS、normCCS 或 ICI response 为 d1 反向背书，也不以癌种可恢复性代替对新状态实际效用的直接评估。
 
-**核心结论：本次结果不支持 d1 更适合恢复旧癌种标签，也不足以否定 CCS 的新分型目标。** 在 k = `r params$display_k` 时，癌种一致率由 Direct 的 `r fmt(direct_top_k_rate)` 降至 d1 的 `r fmt(d1_top_k_rate)`，线性 readout balanced accuracy 从 `r fmt(readout_direct$balanced_accuracy)` 降至 `r fmt(readout_d1$balanced_accuracy)`，全训练学习曲线差为 `r fmt(learning_delta$estimate[match(1, learning_delta$requested_fraction)])`。d1 **去强化了癌种主导的几何结构**，三个技术因子的邻居 excess 也均有下降，符合 feature 经多 cohort 模型重表达的设计方向。由于实验尚未测量新状态的稳定性、跨癌种生物意义或临床任务效用，这些结果只能为理解 CCS 核心假设提供机制线索，不能据此断言“过度混合已被证实”。
+**核心结论：本次结果不支持 d1 比 Direct 更适合恢复旧癌种标签，但也不足以否定 CCS 的新分型目标。** 在 k = `r params$display_k` 时，癌种一致率从 Direct 的 `r fmt(direct_top_k_rate)` 降至 d1 的 `r fmt(d1_top_k_rate)`，线性 readout balanced accuracy 从 `r fmt(readout_direct$balanced_accuracy)` 降至 `r fmt(readout_d1$balanced_accuracy)`，使用全部训练数据时的学习曲线差为 `r fmt(learning_delta$estimate[match(1, learning_delta$requested_fraction)])`。与此同时，d1 **弱化了由癌种主导的几何结构**，三个技术因子的邻居 excess 也均有下降，方向上符合多 cohort 模型对原始 feature 进行重表达的设计预期。由于本实验尚未评估新状态的稳定性、跨癌种生物学意义或临床任务效用，这些结果只能为理解 CCS 的核心假设提供机制线索，不能据此认定“过度混合已得到证实”。
 
 ## 数据概览
 
-### 表示实验的数据合同
+### 实验数据与表示定义
 
-原始 filtered 集合包含 `r length(data_profile$filtered_key_audit$cohort_key)` 个 cohorts。其中，`r manifest$query_cohort_count` 个 cohorts 的 cancer_type 在 reference 中至少覆盖 `r manifest$config$anchors$min_reference_cohorts` 个 cohort，共形成 `r manifest$query_sample_count` 个确认性 query。reference atlas 含 `r manifest$reference_sample_count` 个可唯一对齐样本、`r manifest$reference_cohort_count` 个 cohort。所有 query 的 d1 provenance 均为 `external_frozen`，独立锚点来自 Excel 证据层中的 `r manifest$anchor`，本轮证据等级为 **`r manifest$evidence_level`**。Direct-GSClassifier 使用 `r manifest$direct_feature_count` 个真实冻结特征，其中 ordinary gene-pair 为 `r manifest$tsp_feature_count` 个；Cohort-d1 使用 `r manifest$module_count` 个冻结 modules、`r manifest$d1_feature_count` 个概率输出列。
+原始 filtered 集合包含 `r length(data_profile$filtered_key_audit$cohort_key)` 个 cohort。其中，`r manifest$query_cohort_count` 个 cohort 的 cancer_type 在 reference 中至少覆盖 `r manifest$config$anchors$min_reference_cohorts` 个 cohort，共得到 `r manifest$query_sample_count` 个确认性 query。reference atlas 包含 `r manifest$reference_sample_count` 个可唯一对齐的样本，来自 `r manifest$reference_cohort_count` 个 cohort。所有 query 的 d1 provenance 均为 `external_frozen`；独立锚点取自 Excel 证据层中的 `r manifest$anchor`，本轮证据等级为 **`r manifest$evidence_level`**。Direct-GSClassifier 使用 `r manifest$direct_feature_count` 个真实冻结特征，其中包含 `r manifest$tsp_feature_count` 个 ordinary gene-pair；Cohort-d1 则由 `r manifest$module_count` 个冻结 module 产生 `r manifest$d1_feature_count` 个概率输出列。
 
 ```{r data-overview-table}
 # Purpose: Expose the exact data and representation contract used by all analyses.
@@ -263,7 +263,7 @@ overview_table <- data.frame(
 render_dt(overview_table, pageLength = 10)
 ```
 
-这些计数明确了比较对象：同一批表达样本的两种表示，`r manifest$tsp_feature_count` 个 gene-pair 子集不等同于完整 GSClassifier 基线。`r length(tradeoffs$excluded_duplicate_samples)` 个跨 cohort 重复 sample IDs 被整体排除，以免同名样本在 reference/query 对齐中形成伪配对。完整数据构成、tissue 恢复和来源异质性见第一阶段 `r data_report_html_name`。
+这些计数界定了本次比较的对象：同一批表达样本在两种表示下的结果。需要强调的是，`r manifest$tsp_feature_count` 个 gene-pair 只是完整 GSClassifier 输入的一个子集，不能等同于完整基线。另有 `r length(tradeoffs$excluded_duplicate_samples)` 个跨 cohort 重复的 sample ID 被整体排除，避免同名样本在 reference/query 对齐时被误当作配对。完整的数据构成、tissue 恢复结果和来源异质性见第一阶段报告 `r data_report_html_name`。
 
 ## 关键函数、参数与源代码位置
 
@@ -278,9 +278,9 @@ render_dt(overview_table, pageLength = 10)
 | 配对学习曲线 | `.ablation_learning_curve()` | `r paste(100 * manifest$config$validation$learning_fractions, collapse = "/")`% × `r manifest$config$validation$repeats` repeats | 区分小样本归纳偏置与信息上限 | `R/ablation.R:` `r find_source_line(".ablation_learning_curve <- function")` |
 | 信息损失 | `.ablation_decode_direct_features()` | rank = `r tradeoffs$decoder$rank`；ridge lambda = `r tradeoffs$decoder$lambda` | 按 feature type 量化 d1 无法恢复的原生输入 | `R/ablation.R:` `r find_source_line(".ablation_decode_direct_features <- function")` |
 
-Annoy 使用 `r manifest$config$geometry$n_trees` 棵树和 `r manifest$config$geometry$search_k` 的 search budget。与 exact kNN 对照后，Direct 和 d1 的邻居 recall 分别为 `r fmt(annoy_recall_direct)` 与 `r fmt(annoy_recall_d1)`，均通过预设的 `r fmt(manifest$config$geometry$min_annoy_recall)` 门槛，后续 top-k 差异不受近似检索误差主导。
+Annoy 配置为 `r manifest$config$geometry$n_trees` 棵树，search budget 为 `r manifest$config$geometry$search_k`。与 exact kNN 对照后，Direct 和 d1 的邻居 recall 分别为 `r fmt(annoy_recall_direct)` 和 `r fmt(annoy_recall_d1)`，均高于预设门槛 `r fmt(manifest$config$geometry$min_annoy_recall)`。因此，后续观察到的 top-k 差异不太可能由近似检索误差主导。
 
-## 判读框架：d1 不是癌种复原器
+## d1 与癌种标签的判读边界
 
 在 CCS 的 feature–cohort 融合中，新样本的 `cohort_id` 不作为输入标签；多个冻结队列模型 $F_m$ 分别从各自的队列视角读取同一份样本特征 $X$：
 
@@ -288,7 +288,7 @@ $$
 d1(X)=\{F_1(X),F_2(X),\ldots,F_M(X)\}.
 $$
 
-d1 由样本内 feature pattern 和冻结在模型参数中的 cohort-derived prior 共同构成，可理解为“多个队列对新样本的证据向量”，而非 Direct-GSClassifier 的无损复制。这一设计允许新状态跨越传统癌种边界，也解释了少量可部署 feature 如何通过增加队列证据来 scaling。该概念与项目内的 [CCS 方法学讨论](../../docs/关于CCS框架的讨论.md) 及论文中“low-input features + cohort consensus + transferable states”的口径一致。
+d1 同时编码样本内的 feature pattern 和固化在模型参数中的 cohort-derived prior，因此更适合被理解为“多个队列对新样本给出的证据向量”，而不是 Direct-GSClassifier 的无损副本。这种设计使新状态有可能跨越传统癌种边界，也为少量可部署 feature 如何随队列证据增加而扩展提供了解释。该概念与项目内的 [CCS 方法学讨论](../../docs/关于CCS框架的讨论.md)，以及论文中“low-input features + cohort consensus + transferable states”的表述一致。
 
 | 本报告的观察 | 能支持的判断 | 不能支持的判断 |
 |---|---|---|
@@ -297,7 +297,7 @@ d1 由样本内 feature pattern 和冻结在模型参数中的 cohort-derived pr
 | Direct feature 不能完全重建 | d1 实施了有损、有方向的压缩 | 丢失的一定是下游任务所需信息 |
 | 本轮未测 d2/d3/metaCCS/outcome | 现有证据只能约束 d1 的机制解读 | CCS 新状态发现、临床分层或 cohort-axis scaling 已胜出/失败 |
 
-癌种结构仍可作为保护指标。当前 CCS 论文认为 lineage-restricted 与 broadly shared states 并存，且下游机制具有 lineage-dependent realization。癌种可恢复性下降可能反映预期内的“去癌种中心化”，但不能单独作为成功指标。要支持这一解释，还需证明新状态在未见 cohort 中稳定，具有跨癌种共享生物信号，并保留可复现的 lineage-conditioned 差异。
+癌种结构仍应作为一项保护性参照。当前 CCS 论文认为，lineage-restricted states 与 broadly shared states 可以并存，下游机制也可能表现出 lineage-dependent realization。癌种可恢复性下降或许反映了预期中的“去癌种中心化”，但不能单独用来判定方法成功。要让这一解释成立，还需要证明新状态在未见 cohort 中保持稳定，携带跨癌种共享的生物信号，并保留可复现的 lineage-conditioned 差异。
 
 ## d1 对原生空间的改写
 
@@ -348,7 +348,7 @@ fig1_jpg <- .ae_save_plot(
 knitr::include_graphics(fig1_jpg)
 ```
 
-当前数据的几何结果显示，两种表示的 global alignment 为 CKA = `r fmt(metric_value("linear_cka"))`，随机抽样距离排序相关为 `r fmt(metric_value("distance_spearman"))`，局部邻居 Jaccard 为 `r fmt(metric_value("knn_jaccard"))`。这三项指标说明 cohort-model bank 实质性改写了 Direct 的全局与局部结构，且全局与局部的一致性差异并不相同。该差异是 CCS 产生新证据几何的必要条件，但不足以判断改写方向是否有益；还需结合技术边界减弱、新状态稳定性、跨癌种共享生物锚点与任务效用评价，癌种检索和 readout 不能单独给出结论。
+本次几何结果显示，两种表示的 global alignment 为 CKA = `r fmt(metric_value("linear_cka"))`，随机抽样距离的排序相关为 `r fmt(metric_value("distance_spearman"))`，局部邻居 Jaccard 为 `r fmt(metric_value("knn_jaccard"))`。三项指标处于不同水平，表明 cohort-model bank 不仅改写了 Direct 的整体结构，对局部邻域的影响程度也有所不同。形成新的证据空间是 CCS 实现新分型的必要条件，但这些指标本身无法判断改写是否有益。还需结合技术边界是否减弱、新状态是否稳定、跨癌种生物锚点是否共享以及实际任务效用来评估；仅凭癌种检索和 readout 不能下结论。
 
 ## 外部癌种标签检索
 
@@ -413,7 +413,7 @@ fig2_jpg <- .ae_save_plot(
 knitr::include_graphics(fig2_jpg)
 ```
 
-在 k = `r params$display_k` 时，当前数据结果显示 Cohort-d1 相对 Direct 的样本级 top-k 癌种一致率平均差为 **`r fmt(retrieval_mean_delta)`**，MRR 平均差为 `r fmt(retrieval_mrr_delta)`。d1 的局部几何受传统癌种标签的主导较弱，这一结果本身不能说明生物效用下降。Top 3 正向 cohorts 依次是 `r retrieval_top$cohort[1]`、`r retrieval_top$cohort[2]` 与 `r retrieval_top$cohort[3]`；癌种可恢复性下降最明显的是 **`r retrieval_bottom$cohort[1]`**（`r fmt(retrieval_bottom$estimate[1])`）。**这种 cohort 间差异提示，cohort bank 对 lineage 信号的重加权具有异质性。** 后续需要检查这些 cohort 是否对应可复现的共享状态，不能仅凭癌种检索下降收紧 d1 的适用范围。
+本次结果显示，在 k = `r params$display_k` 时，Cohort-d1 相比 Direct 的样本级 top-k 癌种一致率平均差为 **`r fmt(retrieval_mean_delta)`**，MRR 平均差为 `r fmt(retrieval_mrr_delta)`。这表明传统癌种标签对 d1 局部几何的主导作用较弱，但不能由此直接推断其生物学效用下降。正向差值最大的三个 cohort 依次为 `r retrieval_top$cohort[1]`、`r retrieval_top$cohort[2]` 和 `r retrieval_top$cohort[3]`；癌种可恢复性下降幅度最大的是 **`r retrieval_bottom$cohort[1]`**（`r fmt(retrieval_bottom$estimate[1])`）。**cohort 之间并不一致，说明 cohort bank 对 lineage 信号的重加权具有明显异质性。** 在据此收缩 d1 的适用范围之前，还需确认这些 cohort 是否对应可复现的共享状态。
 
 ```{r retrieval-top-table}
 # Purpose: Expose the strongest external retrieval gains and losses with sample counts.
@@ -430,7 +430,7 @@ render_dt(
 )
 ```
 
-该表给出了 lineage 重加权在具体 query cohort 中的表现：`r retrieval_top$cohort[1]` 与 `r retrieval_bottom$cohort[1]` 方向相反，cohort bank 对不同癌种的平滑程度并不相同。下一步可将这两组按 assay/source 分层，检验 d1 邻居在 pathway score、TME state 或其他非癌种锚点上是否更一致。若跨 cohort 状态一致性提高，且 Annoy/exact recall 继续高于 `r fmt(manifest$config$geometry$min_annoy_recall)`，即可支持“有目的重构”，无须要求癌种 top-k 转为正向。
+该表进一步展示了 lineage 重加权在具体 query cohort 中的差异。`r retrieval_top$cohort[1]` 与 `r retrieval_bottom$cohort[1]` 的方向相反，说明 cohort bank 对不同癌种的重加权强度和方向并不一致。下一步可分别按 assay/source 对这两类 cohort 分层，检验 d1 邻居在 pathway score、TME state 或其他非癌种锚点上是否更加一致。若跨 cohort 的状态一致性提高，且 Annoy/exact recall 仍高于 `r fmt(manifest$config$geometry$min_annoy_recall)`，便更支持这是“有目的的结构重构”，而不必要求癌种 top-k 差值转为正向。
 
 ## 外部癌种线性 readout
 
@@ -478,7 +478,7 @@ fig3_jpg <- .ae_save_plot(
 knitr::include_graphics(fig3_jpg)
 ```
 
-使用全部 reference cohorts 时，当前数据结果显示 Direct-GSClassifier 的外部 balanced accuracy 为 `r fmt(readout_direct$balanced_accuracy)`，Cohort-d1 为 `r fmt(readout_d1$balanced_accuracy)`，配对总体差为 **`r fmt(readout_delta)`**，d1 明显低于 Direct。d1 的最佳 readout cohort 为 `r readout_top$cohort[1]`（差 `r fmt(readout_top$delta_balanced_accuracy[1])`），最差为 `r readout_bottom$cohort[1]`（差 `r fmt(readout_bottom$delta_balanced_accuracy[1])`）。该比较使用 `r manifest$config$validation$inner_folds`-fold grouped CV，两种表示采用相同的预处理和调参预算。结果不支持“d1 让低复杂度模型更容易利用旧癌种标签”这一狭义主张；同一表示是否更容易读出 ICI response、pathway state 或新的 pan-cancer subtype，尚无法从本实验判断。
+本次 readout 结果显示，使用全部 reference cohort 时，Direct-GSClassifier 的外部 balanced accuracy 为 `r fmt(readout_direct$balanced_accuracy)`，Cohort-d1 为 `r fmt(readout_d1$balanced_accuracy)`；配对总体差为 **`r fmt(readout_delta)`**，说明 d1 明显低于 Direct。d1 表现最好的 readout cohort 是 `r readout_top$cohort[1]`（差值 `r fmt(readout_top$delta_balanced_accuracy[1])`），表现最差的是 `r readout_bottom$cohort[1]`（差值 `r fmt(readout_bottom$delta_balanced_accuracy[1])`）。该比较采用 `r manifest$config$validation$inner_folds`-fold grouped CV，两种表示使用相同的预处理流程和调参预算，保证了比较口径一致。结果不支持“d1 能让低复杂度模型更容易利用旧癌种标签”这一狭义主张；至于它是否更有利于读出 ICI response、pathway state 或新的 pan-cancer subtype，本实验尚无法回答。
 
 ## 癌种 readout 的样本效率
 
@@ -550,7 +550,7 @@ fig4_jpg <- .ae_save_plot(
 knitr::include_graphics(fig4_jpg)
 ```
 
-当前数据的学习曲线结果显示，在 10%、25%、50% 和 100% reference cohorts 下，d1-minus-Direct 的癌种 balanced-accuracy 差依次为 `r paste(vapply(manifest$config$validation$learning_fractions, function(f) fmt(learning_delta$estimate[match(f, learning_delta$requested_fraction)]), character(1)), collapse = ", ")`。阴影给出 `r manifest$config$validation$repeats` 次配对重复的近似 95% CI（均值 ± 1.96 SE）。训练比例增加后，负向差值仍未消失，表明 d1 对旧癌种标签的去强化并非仅由小样本估计造成。每个比例的两种表示共享 cohort subset hash 与外部 query hash，可排除训练组成或测试样本漂移对曲线差的影响。该曲线仅评价 cancer-type readout 的样本效率，不能据此认定 d1 对所有新分型任务都存在“过度压缩”。
+本次学习曲线结果显示，在使用 10%、25%、50% 和 100% reference cohort 时，d1 相对 Direct 的癌种 balanced-accuracy 差依次为 `r paste(vapply(manifest$config$validation$learning_fractions, function(f) fmt(learning_delta$estimate[match(f, learning_delta$requested_fraction)]), character(1)), collapse = ", ")`。阴影表示 `r manifest$config$validation$repeats` 次配对重复得到的近似 95% CI（均值 ± 1.96 SE）。随着训练比例增加，负向差值始终没有消失，说明 d1 对旧癌种标签的弱化并非只是小样本估计造成的。每个比例下，两种表示均共享 cohort subset hash 和外部 query hash，因此曲线差异也不能归因于训练组成或测试样本漂移。需要注意的是，这条曲线只衡量 cancer-type readout 的样本效率，不能据此认定 d1 对所有新分型任务都存在“过度压缩”。
 
 ## 技术来源与癌种锚点的联合评估
 
@@ -614,9 +614,9 @@ fig5_jpg <- .ae_save_plot(
 knitr::include_graphics(fig5_jpg)
 ```
 
-当前数据结果显示，在同一 `r manifest$anchor` 的 reference 背景内校正后，`r paste(technical_summary$technical_factor, sprintf("%+.3f", technical_summary$mean_delta), sep = " = ", collapse = "; ")`。负值表示 d1 减少了超出癌种构成所能解释的同技术邻居聚集，正值表示技术来源更集中。三个技术因子的均值均下降，是本轮支持 cohort-conditioned integration 最直接的正向结果。癌种一致率也从 `r fmt(direct_top_k_rate)` 降到 `r fmt(d1_top_k_rate)`，表明这种混合伴随去癌种中心化。由于 `cancer_type` 只是粗粒度锚点，现有数据还无法区分“保留共享肿瘤状态的有目的融合”与“无选择混合”。技术 excess 下降可作为机制线索，但不足以断言 batch removal 已成功或生物信号已被抹平。
+本次结果显示，在同一 `r manifest$anchor` 的 reference 背景内校正后，三个技术因子的均值差分别为：`r paste(technical_summary$technical_factor, sprintf("%+.3f", technical_summary$mean_delta), sep = " = ", collapse = "; ")`。负值表示 d1 减少了超出癌种构成所能解释的同技术邻居聚集，正值则表示技术来源更加集中。三个因子的均值都在下降，这是本轮实验中支持 cohort-conditioned integration 最直接的正向证据。与此同时，癌种一致率也从 `r fmt(direct_top_k_rate)` 降至 `r fmt(d1_top_k_rate)`，表明技术边界减弱与去癌种中心化同时发生。由于 `cancer_type` 只是粗粒度锚点，现有数据仍无法区分“保留共享肿瘤状态的有目的融合”和“无选择混合”。因此，technical excess 的下降可作为机制线索，但不足以断言 batch removal 已经成功，也不能反向认定生物信号已被抹平。
 
-## module 贡献集中度
+## module 贡献的集中程度
 
 ```{r figure-module-concentration, interp_check=TRUE}
 # ==== Figure 6: d1 module variance concentration (user-adjustable parameters) ====
@@ -660,7 +660,7 @@ fig6_jpg <- .ae_save_plot(
 knitr::include_graphics(fig6_jpg)
 ```
 
-当前数据的 module 结果显示，方差贡献最高的 module 为 `r as.character(module_top$module_id[1])`（`r fmt_pct(module_top$variance_share[1])`），前 10 个 modules 合计 `r fmt_pct(module_concentration_top10)`。图中的历史 `Undefined|cohort` 仅在显示层替换为已核验真实 tissue，底层 module ID、模型路径与审计哈希不变。d1 block 宽度为 `r paste(range(module_diagnostics$block_width), collapse = "–")`，距离计算已按 block 宽度和 module 数等权，因此这种集中度来自概率输出分布，并非“列更多自动权重更大”。**这种贡献差异提示，如果 retrieval/readout 收益也集中于同一批 modules，cohort congress 应表述为少数高贡献 bank 成员的作用，不能归为全部 modules 的均匀集体效应。**
+本次 module 分析结果显示，方差贡献最高的是 `r as.character(module_top$module_id[1])`（`r fmt_pct(module_top$variance_share[1])`），前 10 个 module 合计贡献 `r fmt_pct(module_concentration_top10)`。图中历史遗留的 `Undefined|cohort` 只在显示层被替换为已核验的真实 tissue，底层 module ID、模型路径和审计哈希均未改变。d1 block 的宽度范围为 `r paste(range(module_diagnostics$block_width), collapse = "–")`；距离计算已经按 block 宽度和 module 数做等权处理。这表明观察到的集中度来自概率输出分布，而不是“列数越多，权重自然越大”。**如果 retrieval/readout 的收益也集中在同一批 module 上，cohort congress 的作用就应归因于少数高贡献的 bank 成员，而不宜描述为所有 module 的均匀集体效应。**
 
 ## 输入信息压缩与可恢复性
 
@@ -729,19 +729,25 @@ fig7_jpg <- .ae_save_plot(
 knitr::include_graphics(fig7_jpg)
 ```
 
-从外部 query 重建完整 Direct 输入时，gene-pair balanced accuracy 为 `r fmt(decoder_summary$balanced_accuracy[decoder_summary$feature_type == "gene_pair"])`、Brier 为 `r fmt(decoder_summary$brier[decoder_summary$feature_type == "gene_pair"])`；single-bin 的 Spearman/MAE 为 `r fmt(decoder_summary$spearman[decoder_summary$feature_type == "single_bin"])` / `r fmt(decoder_summary$mae[decoder_summary$feature_type == "single_bin"])`；唯一 set-pair 的 Spearman/RMSE 为 `r fmt(decoder_summary$spearman[decoder_summary$feature_type == "set_pair"])` / `r fmt(decoder_summary$rmse[decoder_summary$feature_type == "set_pair"])`。这些数值说明 d1 是有损且有方向的重表达，无法作为 Direct feature 的可逆容器。这一信息瓶颈符合 CCS 从低输入 feature 构建队列证据并产生新状态的设计。其代价取决于被压缩的是队列/癌种捷径，还是新状态与下游任务所需信息。后续需要将 decoder 最差的 gene-pairs 和 single-bins 对齐 pathway、TME 与 outcome 锚点，不能只检查它们是否集中于癌种 readout 最差的 cohorts。
+使用 d1 重建外部 query 的完整 Direct 输入时，gene-pair 的 balanced accuracy 为 `r fmt(decoder_summary$balanced_accuracy[decoder_summary$feature_type == "gene_pair"])`，Brier 为 `r fmt(decoder_summary$brier[decoder_summary$feature_type == "gene_pair"])`。single-bin 的 Spearman/MAE 为 `r fmt(decoder_summary$spearman[decoder_summary$feature_type == "single_bin"])` / `r fmt(decoder_summary$mae[decoder_summary$feature_type == "single_bin"])`；唯一一个 set-pair 的 Spearman/RMSE 为 `r fmt(decoder_summary$spearman[decoder_summary$feature_type == "set_pair"])` / `r fmt(decoder_summary$rmse[decoder_summary$feature_type == "set_pair"])`。这些结果表明，d1 是一种有损且有方向的重表达，不能被视为 Direct feature 的可逆容器。这一信息瓶颈符合 CCS 从少量输入 feature 构建队列证据、进而产生新状态的设计思路。真正需要判断的是：被压缩的究竟是队列/癌种捷径，还是新状态和下游任务所需的信息。下一步应将 decoder 表现最差的 gene-pair 和 single-bin 与 pathway、TME 和 outcome 锚点对齐，而不能只检查它们是否集中在癌种 readout 表现最差的 cohort 中。
 
-Null-Perm 的资格状态为 **`r null_perm_status`**。36 个 query cohorts 的 cancer_type 在各 cohort 内恒定，样本内置换无法检验该锚点，因此没有生成形式完整却无检验力的伪对照。三组 Null-RP 在 k = `r params$display_k` 的癌种一致率范围为 `r fmt(null_rp_top_k_range[1])`–`r fmt(null_rp_top_k_range[2])`，均高于 d1 的 `r fmt(d1_top_k_rate)`。该结果不支持“任意投影都会同等程度去癌种中心化”，d1 的 lineage 重写与 cohort-model bank 的特定映射有关。Null-RP 仅说明 d1 不利于恢复癌种；cohort bank 对新状态发现是否必要，仍需使用与目标一致的 Null 对照和状态/任务指标判断。
+Null-Perm 的资格状态为 **`r null_perm_status`**。36 个 query cohort 的 cancer_type 在各自 cohort 内保持不变，样本内置换无法检验这一锚点，因此本报告没有生成形式完整却缺乏检验力的伪对照。在 k = `r params$display_k` 时，三组 Null-RP 的癌种一致率介于 `r fmt(null_rp_top_k_range[1])` 和 `r fmt(null_rp_top_k_range[2])` 之间，均高于 d1 的 `r fmt(d1_top_k_rate)`。这不支持“任意投影都会以相同程度去癌种中心化”的解释，说明 d1 对 lineage 的改写与 cohort-model bank 的特定映射有关。不过，Null-RP 只能说明 d1 不利于恢复癌种；cohort bank 对发现新状态是否必要，仍需依靠与研究目标一致的 Null 对照及状态/任务指标来判断。
 
 ## 讨论与分析
 
-本次结果显示，d1 对旧癌种标签的 top-k/MRR 平均 retrieval 差为 `r fmt(retrieval_mean_delta)`，低于 Direct；总体癌种 readout 差为 `r fmt(readout_delta)`，方向同样为负。全训练比例的癌种学习曲线差为 `r fmt(learning_delta$estimate[match(1, learning_delta$requested_fraction)])`，增加训练数据未能消除差距。对于恢复旧癌种标签这一任务，Direct-GSClassifier 是更简单、效果更好的表示。CCS 则希望用多队列证据重表达同一份低输入 feature，发现不必等同于传统癌种的 pan-cancer states。在这一目标下，癌种可恢复性下降可能是去中心化的预期表现，不能直接视为负面结局。
+本次结果显示，在旧癌种标签恢复任务中，d1 的 top-k/MRR 平均 retrieval 差为 `r fmt(retrieval_mean_delta)`，总体癌种 readout 差为 `r fmt(readout_delta)`，两者相对 Direct 均为负值。即使使用全部训练数据，癌种学习曲线差仍为 `r fmt(learning_delta$estimate[match(1, learning_delta$requested_fraction)])`，说明增加训练数据并未消除差距。因此，在恢复旧癌种标签这一任务上，Direct-GSClassifier 是更简单、表现也更好的表示。CCS 的目标则是用多队列证据重表达同一份低输入 feature，从中发现不必与传统癌种一一对应的 pan-cancer state。按这一目标理解，癌种可恢复性下降可能是去中心化的预期表现，不能直接视为负面结果。
 
-当前数据结果显示，三个技术来源 excess 同向下降：`r paste(technical_summary$technical_factor, sprintf("%+.3f", technical_summary$mean_delta), sep = " = ", collapse = "; ")`，这是本次最强的正向结果。`d1` 的 CKA、距离相关和局部 Jaccard 也显示 cohort bank 对原表示进行了非平凡重表达。综合来看，**`d1` 伴随去癌种中心化和技术边界减弱，但本轮实验尚未测量新状态的有用性。** 这既不能证明 CCS 已经成功，也不能让与研究目标不等价的癌种分类决定整体结论。
+三个技术来源的 excess 同向下降：`r paste(technical_summary$technical_factor, sprintf("%+.3f", technical_summary$mean_delta), sep = " = ", collapse = "; ")`，这是本次实验中最强的正向结果。`d1` 的 CKA、距离相关和局部 Jaccard 也表明，cohort bank 对原始表示进行了实质性改写。综合来看，**`d1` 同时表现出癌种中心化减弱和技术边界弱化，但本轮实验尚未检验新状态是否真正有用。** 因此，这些结果既不足以证明 CCS 已经成功，也不应让与研究目标并不等价的癌种分类结果主导整体判断。
 
-当前数据中，reference/query 分别为 `r manifest$reference_sample_count` / `r manifest$query_sample_count` 个样本，这一不对称规模构成本报告的第一项不确定性。reference `d1` 被保守标记为 `in_sample`，本报告确认的是 filtered query 对冻结 bank 的外部泛化，不将 reference 内部几何视为无泄漏性能。Excel cancer_type 虽未用于冻结 bank 训练，但部分癌种与 cohort/assay 高度绑定；技术 excess 的背景校正只能缓解这一混杂，不能将其完全消除。本轮唯一的独立生物锚点是 `r manifest$anchor`，未纳入 pathway/TME state、独立分子表型、outcome 或 `d2`/`d3`/metaCCS 稳定性，尚不能判断去癌种中心化后得到的是有用新结构还是无选择混合。项目负责人也没有预先指定与新状态目标一致的最小重要差异，因此本报告不以零差异或任意事后阈值判定 `d1`“胜出”或“失败”。
+当前 reference/query 的样本量分别为 `r manifest$reference_sample_count` / `r manifest$query_sample_count`，两者规模不对称，是本报告首先需要考虑的不确定性。reference `d1` 被保守标记为 `in_sample`，因此本报告确认的是 filtered query 对冻结 bank 的外部泛化，不把 reference 内部几何当作无泄漏的性能证据。Excel cancer_type 虽未参与冻结 bank 的训练，但部分癌种与 cohort/assay 高度绑定；technical excess 的背景校正只能减轻这种混杂，无法将其完全消除。
 
-后续分析可沿三条路径推进。在冻结 `d1` 上加入独立于癌种标签的 pathway score、TME state 或多组学表型，并用 leave-one-cohort-out 检验共享状态可读性；若 `d1` 在技术 excess 不升高的同时提高这些锚点的外部一致性，即可支持有目的重表达。进入 `d2`/`d3`/metaCCS 层后，可评估跨 seed/重采样的 cluster Jaccard、ARI、状态 split/merge 和 lineage-conditioned biology；共享状态能够重现，并在具体 lineage 内保留可解释的差异实现，才支持“虚拟元肿瘤—新亚型”。还需对从小规模到完整 bank 的多档冻结 modules 构建嵌套 scaling 曲线，同时报告状态重现性、外部锚点效用、module 边际增益与 effective rank；只有增加队列后出现非冗余且可重复的收益，才能支持“少量 feature 可随 cohort evidence scaling”。
+本轮唯一的独立生物锚点是 `r manifest$anchor`，尚未纳入 pathway/TME state、独立分子表型、outcome，也没有评估 `d2`/`d3`/metaCCS 的稳定性。因此，目前还无法判断去癌种中心化后得到的是有用的新结构，还是无选择的混合。项目负责人也未预先设定与新状态目标一致的最小重要差异，本报告因此不会用零差异或任意事后阈值判定 `d1`“胜出”或“失败”。
+
+后续分析可沿三条路径推进：
+
+- 在冻结的 `d1` 上加入独立于癌种标签的 pathway score、TME state 或多组学表型，并通过 leave-one-cohort-out 检验共享状态是否可读。若 `d1` 在 technical excess 不升高的同时改善这些锚点的外部一致性，便可支持“有目的的重表达”。
+- 进入 `d2`/`d3`/metaCCS 层后，评估不同 seed 和重采样条件下的 cluster Jaccard、ARI、状态 split/merge 以及 lineage-conditioned biology。只有共享状态能够重现，并在具体 lineage 中保留可解释的差异实现，才能支持“虚拟元肿瘤—新亚型”的判断。
+- 针对从小规模到完整 bank 的多档冻结 module 构建嵌套 scaling 曲线，同时报告状态重现性、外部锚点效用、module 边际增益和 effective rank。只有随着队列增加出现非冗余且可重复的收益，才能支持“少量 feature 可随 cohort evidence 扩展”的主张。
 
 ## 数字准确性验证
 
@@ -755,7 +761,7 @@ Null-Perm 的资格状态为 **`r null_perm_status`**。36 个 query cohorts 的
 | decoder 指标 | `tradeoffs$decoder$summary` | `tradeoffs.rds` |
 | Annoy exact recall | `retrieval$search_validation` | `retrieval.rds` |
 
-所有核心数值均由上述对象动态嵌入。两种表示的主差值统一定义为 Cohort-d1 减 Direct-GSClassifier；学习曲线中的 test sample hash 和 cohort subset hash 成对一致；图表展示均使用正式 PDF 转换的 JPG，没有另行渲染一套结果。
+所有核心数值均由上述对象动态嵌入。两种表示的主差值统一定义为 Cohort-d1 减 Direct-GSClassifier；学习曲线中的 test sample hash 与 cohort subset hash 均保持成对一致；图表则统一展示由正式 PDF 转换得到的 JPG，没有另行渲染第二套结果。
 
 ### 自检报告
 
