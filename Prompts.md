@@ -8,6 +8,17 @@
 
 ---
 
+test\ablation-02分析优化： 在目前测试数据里的32 gene signature下，评估随着cohort scaling，d1 vs.  Direct-GSClassifier TSP  的差异的变化趋势如何？这个问题还是很有意思的，因为d1是一个随着cohort会scalling的向量；但scalling后会加强还是削弱d1的优势暂时是未知的。我和reviewers们都对相关的趋势很感兴趣。你要优化分析代码以完成上述评估。请你：
+
+- 必要时可以优化 R\ablation.R 以达成目标（目前它有 "scaling" 的模式，但可能有缺陷或未激活，不一定可以完成任务）。
+- 最后记得在 docs\关于CCS框架的讨论.md 里记录你关于这方面的想法，特别是你的推测：如果gene signature不是32而是更大，比如2000之类的，你觉得相关的趋势会如何演化？
+
+注意事项：
+
+- 除了  test\ablation-02 、R\ablation.R 和 docs\关于CCS框架的讨论.md 可以修改，其它位置的文件都是严格只读的。
+
+---
+
 test\ablation-02分析优化： 我之前说， 代码重构一下，增强可读性。 可以有序号（比如 01 02），必要时可以有多个html/Rmd。这里的序号是指文件名要有序号。这样方便我知道代码的先后顺序。
 
 ---
