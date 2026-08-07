@@ -117,4 +117,4 @@ stopifnot(all(curve$paired$cohort_subset_hash_direct ==
 stopifnot(all(curve$paired$delta_balanced_accuracy >= -1))
 stopifnot(all(curve$paired$delta_balanced_accuracy <= 1))
 
-message("test-ablation-readout: all tests passed")
+message("12-test-ablation-readout: all tests passed")

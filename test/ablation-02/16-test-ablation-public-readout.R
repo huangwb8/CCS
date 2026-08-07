@@ -5,7 +5,7 @@
 # Parameters: One lambda, one full-data repeat, and one random-projection seed.
 # Output: Completed validation/control objects and persisted RDS artifacts.
 
-source(file.path("test", "ablation-02", "ablation-test-data.R"))
+source(file.path("test", "ablation-02", "01-ablation-test-data.R"))
 source(file.path("R", "ablation.R"))
 
 mini_data <- data_all[intersect(c("ACC", "STAD"), names(data_all))]
@@ -90,4 +90,4 @@ saved_curve <- readRDS(file.path(output_dir, "learning_curve.rds"))
 stopifnot(saved_readout$status == "complete")
 stopifnot(saved_curve$status == "complete")
 
-message("test-ablation-public-readout: all tests passed")
+message("16-test-ablation-public-readout: all tests passed")

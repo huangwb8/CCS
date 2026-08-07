@@ -2,10 +2,10 @@
 
 # Purpose: Verify that the real-data loader is self-contained and audit-ready.
 # Input: The PADv20240810 expression RDS, filtered resCCS, and BatchInfo workbook.
-# Parameters: Defaults declared by ablation-test-data.R; environment overrides are allowed.
+# Parameters: Defaults declared by 01-ablation-test-data.R; environment overrides are allowed.
 # Output: Assertions covering sample identity, provenance, labels, and external cohorts.
 
-source(file.path("test", "ablation-02", "ablation-test-data.R"))
+source(file.path("test", "ablation-02", "01-ablation-test-data.R"))
 
 required_objects <- c(
   "data_all",
@@ -118,4 +118,4 @@ stopifnot(setequal(
   ]
 ))
 
-message("test-ablation-data-contract: all tests passed")
+message("10-test-ablation-data-contract: all tests passed")

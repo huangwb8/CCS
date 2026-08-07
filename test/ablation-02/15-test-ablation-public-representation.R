@@ -5,7 +5,7 @@
 # Parameters: Three frozen modules, exact retrieval, and disabled readout for speed.
 # Output: A CCSAblation object plus the seven planned representation result files.
 
-source(file.path("test", "ablation-02", "ablation-test-data.R"))
+source(file.path("test", "ablation-02", "01-ablation-test-data.R"))
 source(file.path("R", "ablation.R"))
 
 mini_data <- data_all[intersect(c("ACC", "STAD"), names(data_all))]
@@ -79,4 +79,4 @@ expected_files <- c(
 )
 stopifnot(all(file.exists(file.path(output_dir, expected_files))))
 
-message("test-ablation-public-representation: all tests passed")
+message("15-test-ablation-public-representation: all tests passed")

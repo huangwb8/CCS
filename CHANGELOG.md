@@ -8,6 +8,7 @@
 
 ### Changed（变更）
 
+- 重构 `test/ablation-02` 的分析入口：用 `00`、`01`、`02` 文件名前缀明确环境、数据审计与消融实验顺序，将原单体报告拆分为同名的两组 R/Rmd/HTML，并将契约测试按 `10`–`16` 编号；新增目录 README 说明执行顺序与产物位置。
 - 优化 `test/pre-train-info` 的组织标签交付：对源合并 RDS 中 45 个历史 `Undefined` cohort，按各自原始组件 RDS 的顶层标签恢复 xlsx 中的 `tissue` 与 `cancer_type`，同时保留缓存层的源标签与逐行对齐证据。
 - 重新校准 `test/ablation-02` 的 d1 消融报告解读：将癌种标签明确为诊断锚点而非 CCS 优化目标，不再以癌种可恢复性下降单独宣判 d1 过度混合，并补充 feature–cohort 融合、新状态效用与 cohort-axis scaling 的证据边界。
 - 将预训练元数据流水线入口由 Windows 专用 PowerShell 脚本替换为跨平台 Python 编排器；外部 RDS、cBioPortal、UCSC Xena 与 GEO 路径改为命令行或环境变量配置，并支持 Windows Excel 或三平台 LibreOffice 公式重算。

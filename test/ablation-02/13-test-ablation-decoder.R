@@ -75,4 +75,4 @@ stopifnot(single_bin$mae < 0.5)
 stopifnot(set_pair$spearman > 0.9)
 stopifnot(set_pair$rmse < 0.5)
 
-message("test-ablation-decoder: all tests passed")
+message("13-test-ablation-decoder: all tests passed")

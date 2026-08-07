@@ -1,22 +1,18 @@
 #!/usr/bin/env Rscript
 
 # Purpose: Run the complete d1 vs Direct-GSClassifier ablation on real CCS data.
-# Input: Objects prepared by ablation-test-data.R and functions sourced from R/ablation.R.
+# Input: Objects prepared by 01-ablation-test-data.R and functions from R/ablation.R.
 # Parameters: External filtered cohorts, paired learning curves, nulls, and decoder settings.
-# Output: Full unfiltered result objects under tmp/ablation-experiment/.
+# Output: Full unfiltered result objects under the shared tmp/ablation-experiment/ cache.
 
 source(file.path("test", "ablation-02", "00.Environment.R"))
-source(file.path("test", "ablation-02", "ablation-test-data.R"))
+source(file.path("test", "ablation-02", "01-ablation-test-data.R"))
 source(file.path("R", "ablation.R"))
 
-output_dir <- file.path("test", "ablation-02", "tmp", "ablation-experiment")
-dir.create(output_dir, recursive = TRUE, showWarnings = FALSE)
-
-# Preserve the complete data audit before any display threshold is applied in Rmd.
-saveRDS(
-  ablation_data_profile,
-  file.path(output_dir, "data-profile.rds")
+output_dir <- file.path(
+  "test", "ablation-02", "tmp", "ablation-experiment"
 )
+dir.create(output_dir, recursive = TRUE, showWarnings = FALSE)
 
 ablation_result <- ablation(
   object = resCCS,
@@ -91,7 +87,7 @@ saveRDS(
 )
 
 luckyBase::LuckyVerbose(
-  "ablation-experiment: complete; evidence level = ",
+  "02-ablation-experiment: complete; evidence level = ",
   ablation_result$evidence_level,
   "; output = ",
   normalizePath(output_dir, winslash = "/", mustWork = TRUE)

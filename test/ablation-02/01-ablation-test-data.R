@@ -1,10 +1,10 @@
-# Purpose: Load the complete CCS expression atlas, frozen model, and technical metadata.
+# Purpose: Load and audit the complete CCS expression atlas, frozen model, and metadata.
 # Input: PADv20240810 expression RDS, one filtered resCCS, and the BatchInfo workbook.
 # Parameters: Environment variables can override machine-specific roots and model hash.
 # Output: Full data plus auditable reference/external partitions; no business filtering.
 
 luckyBase::Plus.library(c("CCS", "readxl", "digest"))
-source(file.path("test", "ablation-02", "ablation-test-data_functions.R"))
+source(file.path("test", "ablation-02", "01-ablation-test-data_functions.R"))
 
 # Step 1: Resolve cross-platform roots without embedding user-specific directories.
 sysname <- Sys.info()[["sysname"]]
@@ -237,8 +237,17 @@ ablation_data_profile <- .atd_build_data_profile(
   filtered_cohorts = filtered_cohorts
 )
 
+data_output_dir <- file.path(
+  "test", "ablation-02", "tmp", "ablation-experiment"
+)
+dir.create(data_output_dir, recursive = TRUE, showWarnings = FALSE)
+saveRDS(
+  ablation_data_profile,
+  file.path(data_output_dir, "data-profile.rds")
+)
+
 luckyBase::LuckyVerbose(
-  "ablation-test-data: loaded ",
+  "01-ablation-test-data: loaded ",
   nrow(ablation_metadata),
   " rows across ",
   nrow(cohort_summary),

@@ -227,4 +227,4 @@ stopifnot(identical(fold, .ablation_grouped_folds(
   label = anchor
 )))
 
-message("test-ablation-representation: all tests passed")
+message("11-test-ablation-representation: all tests passed")

@@ -5,7 +5,7 @@
 # Parameters: Sequential encoding to keep this contract test deterministic and light.
 # Output: Exact feature-contract and probability-parity assertions.
 
-source(file.path("test", "ablation-02", "ablation-test-data.R"))
+source(file.path("test", "ablation-02", "01-ablation-test-data.R"))
 source(file.path("R", "ablation.R"))
 
 module_manifest <- .ablation_module_manifest(resCCS)
@@ -46,4 +46,4 @@ stopifnot(identical(rownames(encoded), rownames(expected)))
 stopifnot(identical(colnames(encoded), colnames(expected)))
 stopifnot(max(abs(encoded - expected)) == 0)
 
-message("test-ablation-real-encoder: all tests passed")
+message("14-test-ablation-real-encoder: all tests passed")

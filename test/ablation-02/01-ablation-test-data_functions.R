@@ -1,4 +1,4 @@
-# Purpose: Keep tissue restoration and data profiling out of the loader script.
+# Purpose: Keep tissue restoration and data-profile helpers out of the loader script.
 # Input: Nested CCS expression data, the audited cohort-to-tissue map, and metadata.
 # Parameters: The historical source label defaults to "Undefined".
 # Output: Resolved data, provenance-preserving cohort keys, and full audit profiles.
@@ -212,4 +212,51 @@
     tissue_totals = tissue_totals,
     source_profile = source_profile
   )
+}
+
+.atd_profile_value <- function(profile, item) {
+  profile$overview$value[match(item, profile$overview$item)]
+}
+
+.atd_find_source_line <- function(path, pattern) {
+  lines <- readLines(path, warn = FALSE)
+  match(TRUE, grepl(pattern, lines, fixed = TRUE))
+}
+
+.atd_complete_source_profile <- function(profile) {
+  grid <- expand.grid(
+    tissue = sort(unique(profile$tissue_totals$tissue)),
+    source_system = sort(unique(profile$source_profile$source_system)),
+    stringsAsFactors = FALSE
+  )
+  complete <- merge(
+    grid,
+    profile$source_profile,
+    by = c("tissue", "source_system"),
+    all.x = TRUE,
+    sort = FALSE
+  )
+  complete$sample_count[is.na(complete$sample_count)] <- 0L
+  complete$tissue_fraction[is.na(complete$tissue_fraction)] <- 0
+  complete
+}
+
+.atd_save_plot <- function(
+    plot,
+    file_stem,
+    figure_dir,
+    preview_dir,
+    figure_params,
+    dpi
+) {
+  pdf_path <- file.path(figure_dir, paste0(file_stem, ".pdf"))
+  jpg_path <- file.path(preview_dir, paste0(file_stem, ".jpg"))
+  ggplot2::ggsave(
+    filename = pdf_path,
+    plot = plot,
+    width = figure_params$width_in,
+    height = figure_params$height_in,
+    device = grDevices::cairo_pdf
+  )
+  bensz_pdf_to_jpg(pdf_path, jpg_path, dpi = dpi)
 }
