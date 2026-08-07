@@ -31,6 +31,29 @@
 #'   `tissue_first`, and `metaccs`; existing flat legacy names remain accepted.
 #'   Unknown fields are rejected before computation.
 #'
+#'   Representation-specific cohort-bank scaling settings:
+#'
+#'   \describe{
+#'     \item{`scaling$enabled`}{Logical; when `TRUE`, evaluate nested frozen
+#'       cohort-model banks against a fixed Direct-GSClassifier baseline.
+#'       Default: `FALSE`.}
+#'     \item{`scaling$module_counts`}{Positive module counts evaluated along
+#'       every tissue-balanced nested sequence. Counts above the selected bank
+#'       size are capped. Default: `c(10L, 25L, 50L, 75L, 100L, 125L, 150L)`.}
+#'     \item{`scaling$sequences`}{Number of independently randomized,
+#'       tissue-balanced nested module sequences. Each sequence is the paired
+#'       uncertainty unit. Default: `10L`.}
+#'     \item{`scaling$direct_feature_type`}{Fixed Direct-GSClassifier feature
+#'       contract used throughout the curve: `"gene_pair"` for ordinary TSPs
+#'       or `"all"` for the complete native input. Default: `"gene_pair"`.}
+#'     \item{`scaling$lambda`}{Single pre-specified L2 penalty shared by Direct
+#'       and every d1 bank size. Fixing it avoids re-tuning the readout at every
+#'       point and isolates representation scaling. Default: `1`.}
+#'     \item{`scaling$bootstrap`}{Positive number of sequence-level bootstrap
+#'       draws used for pointwise intervals and trend summaries. Default:
+#'       `1000L`.}
+#'   }
+#'
 #'   Shared representation, validation, and metric settings:
 #'
 #'   \describe{
@@ -4273,6 +4296,14 @@ ablation <- function(
       min_class_n = 20L,
       numCores = 1L
     ),
+    scaling = list(
+      enabled = FALSE,
+      module_counts = c(10L, 25L, 50L, 75L, 100L, 125L, 150L),
+      sequences = 10L,
+      direct_feature_type = "gene_pair",
+      lambda = 1,
+      bootstrap = 1000L
+    ),
     controls = list(
       null_rp = TRUE,
       null_rp_rank = 100L,
@@ -4306,6 +4337,49 @@ ablation <- function(
   }
   if (config$anchors$min_reference_cohorts < 1) {
     stop("ablation: anchors$min_reference_cohorts must be positive.", call. = FALSE)
+  }
+  if (length(config$scaling$enabled) != 1 ||
+      !is.logical(config$scaling$enabled) ||
+      is.na(config$scaling$enabled)) {
+    stop("ablation: scaling$enabled must be TRUE or FALSE.", call. = FALSE)
+  }
+  if (length(config$scaling$module_counts) < 2 ||
+      any(!is.finite(config$scaling$module_counts)) ||
+      any(config$scaling$module_counts < 1) ||
+      any(config$scaling$module_counts != as.integer(config$scaling$module_counts))) {
+    stop(
+      "ablation: scaling$module_counts must contain at least two positive integers.",
+      call. = FALSE
+    )
+  }
+  if (length(config$scaling$sequences) != 1 ||
+      !is.finite(config$scaling$sequences) ||
+      config$scaling$sequences < 2 ||
+      config$scaling$sequences != as.integer(config$scaling$sequences)) {
+    stop("ablation: scaling$sequences must be an integer of at least two.", call. = FALSE)
+  }
+  if (length(config$scaling$direct_feature_type) != 1 ||
+      !config$scaling$direct_feature_type %in% c("gene_pair", "all")) {
+    stop(
+      "ablation: scaling$direct_feature_type must be gene_pair or all.",
+      call. = FALSE
+    )
+  }
+  if (length(config$scaling$lambda) != 1 ||
+      !is.finite(config$scaling$lambda) ||
+      config$scaling$lambda < 0) {
+    stop("ablation: scaling$lambda must be one non-negative value.", call. = FALSE)
+  }
+  if (length(config$scaling$bootstrap) != 1 ||
+      !is.finite(config$scaling$bootstrap) ||
+      config$scaling$bootstrap < 1) {
+    stop("ablation: scaling$bootstrap must be positive.", call. = FALSE)
+  }
+  if (config$scaling$enabled && !config$validation$enabled) {
+    stop(
+      "ablation: representation scaling requires validation$enabled = TRUE.",
+      call. = FALSE
+    )
   }
   for (field in c("max_reference_samples", "max_query_samples")) {
     value <- config$provenance[[field]]
@@ -4607,28 +4681,17 @@ ablation <- function(
 }
 
 
-.ablation_run_representation <- function(
+# Apply the shared external-query eligibility boundary once so full and
+# scaling-only representation runs cannot drift in sample composition.
+.ablation_prepare_representation_analysis <- function(
     object,
     data,
     metadata,
+    config,
     output.dir,
-    params,
     seed,
     verbose
 ) {
-  if (!methods::is(object, "CCS")) {
-    stop("ablation: object must be a CCS object.", call. = FALSE)
-  }
-  config <- .ablation_resolve_representation_config(seed, params)
-  if (dir.exists(output.dir) && length(list.files(output.dir)) > 0 &&
-      !config$output$cover) {
-    stop(
-      "ablation: output.dir is not empty; set params$output$cover = TRUE.",
-      call. = FALSE
-    )
-  }
-  dir.create(output.dir, recursive = TRUE, showWarnings = FALSE)
-
   prepared <- .ablation_prepare_representation_input(
     object,
     data,
@@ -4661,6 +4724,43 @@ ablation <- function(
   if (nrow(prepared$query_metadata) == 0) {
     stop("ablation: no external query has an eligible reference anchor.", call. = FALSE)
   }
+  list(prepared = prepared, anchor = anchor)
+}
+
+
+.ablation_run_representation <- function(
+    object,
+    data,
+    metadata,
+    output.dir,
+    params,
+    seed,
+    verbose
+) {
+  if (!methods::is(object, "CCS")) {
+    stop("ablation: object must be a CCS object.", call. = FALSE)
+  }
+  config <- .ablation_resolve_representation_config(seed, params)
+  if (dir.exists(output.dir) && length(list.files(output.dir)) > 0 &&
+      !config$output$cover) {
+    stop(
+      "ablation: output.dir is not empty; set params$output$cover = TRUE.",
+      call. = FALSE
+    )
+  }
+  dir.create(output.dir, recursive = TRUE, showWarnings = FALSE)
+
+  analysis <- .ablation_prepare_representation_analysis(
+    object = object,
+    data = data,
+    metadata = metadata,
+    config = config,
+    output.dir = output.dir,
+    seed = seed,
+    verbose = verbose
+  )
+  prepared <- analysis$prepared
+  anchor <- analysis$anchor
 
   direct_scaled <- .ablation_scale_train_apply(
     prepared$reference_direct,
@@ -4910,6 +5010,19 @@ ablation <- function(
     learning_curve <- list(status = "not_run", reason = "disabled")
   }
 
+  cohort_scaling <- if (config$scaling$enabled) {
+    .ablation_representation_scaling(
+      prepared = prepared,
+      config = config,
+      label_column = anchor,
+      seed = seed + 35000L,
+      verbose = verbose,
+      cache_path = file.path(output.dir, "cohort-scaling-fit-cache.rds")
+    )
+  } else {
+    list(status = "not_run", reason = "disabled")
+  }
+
   feature_counts <- table(factor(
     prepared$feature_manifest$feature_manifest$feature_type,
     levels = c("single_bin", "gene_pair", "set_pair")
@@ -4958,7 +5071,7 @@ ablation <- function(
     decoder = decoder
   )
   manifest <- list(
-    version = 3L,
+    version = 4L,
     created = format(Sys.time(), "%Y-%m-%dT%H:%M:%S%z"),
     seed = seed,
     experiment = "representation",
@@ -4971,6 +5084,12 @@ ablation <- function(
     tsp_feature_count = length(prepared$feature_manifest$tsp_features),
     d1_feature_count = ncol(prepared$reference_d1),
     module_count = length(prepared$selected_blocks),
+    gene_signature_count = unname(as.integer(feature_counts["single_bin"])),
+    scaling_direct_feature_count = if (config$scaling$enabled) {
+      cohort_scaling$metrics$direct_feature_count[1]
+    } else {
+      NA_integer_
+    },
     external_cohorts = prepared$filtered_cohorts,
     anchor = anchor,
     anchor_role = config$anchors$primary_role,
@@ -4995,6 +5114,7 @@ ablation <- function(
   saveRDS(retrieval, file.path(output.dir, "retrieval.rds"))
   saveRDS(readout, file.path(output.dir, "readout.rds"))
   saveRDS(learning_curve, file.path(output.dir, "learning_curve.rds"))
+  saveRDS(cohort_scaling, file.path(output.dir, "cohort_scaling.rds"))
   saveRDS(tradeoffs, file.path(output.dir, "tradeoffs.rds"))
   utils::write.csv(audit, file.path(output.dir, "audit.csv"), row.names = FALSE)
 
@@ -5009,6 +5129,7 @@ ablation <- function(
       retrieval = retrieval,
       readout = readout,
       learning_curve = learning_curve,
+      cohort_scaling = cohort_scaling,
       tradeoffs = tradeoffs,
       controls = controls,
       output.dir = normalizePath(output.dir, winslash = "/", mustWork = TRUE)
@@ -5162,56 +5283,68 @@ ablation <- function(
     label = train_label
   )
   lambda <- sort(unique(as.numeric(lambda)))
-  cv_rows <- lapply(seq_along(lambda), function(lambda_index) {
-    fold_score <- vapply(sort(unique(fold)), function(fold_id) {
-      inner_train <- fold != fold_id
-      inner_test <- fold == fold_id
-      fold_classes <- sort(unique(train_label[inner_train]))
-      eligible_test <- inner_test & train_label %in% fold_classes
-      if (length(fold_classes) < 2 || sum(eligible_test) < 2) {
-        return(NA_real_)
-      }
-      transformed <- .ablation_readout_transform(
-        train[inner_train, , drop = FALSE],
-        train[eligible_test, , drop = FALSE],
-        blocks
-      )
-      prediction <- .ablation_xgb_linear_predict(
-        transformed$train,
-        transformed$test,
-        train_label[inner_train],
-        fold_classes,
-        lambda[lambda_index],
-        nrounds,
-        numCores,
-        seed + lambda_index * 100L + fold_id
-      )
-      metrics <- .ablation_classification_metrics(
-        train_label[eligible_test],
-        prediction$prediction,
-        prediction$probability,
-        fold_classes
-      )
-      metrics$balanced_accuracy
-    }, numeric(1))
-    data.frame(
-      lambda = lambda[lambda_index],
-      balanced_accuracy = mean(fold_score, na.rm = TRUE),
-      estimable_folds = sum(is.finite(fold_score)),
+  if (length(lambda) == 1L) {
+    selected_lambda <- lambda
+    inner_cv <- data.frame(
+      lambda = lambda,
+      balanced_accuracy = NA_real_,
+      estimable_folds = 0L,
+      selection_mode = "fixed",
       stringsAsFactors = FALSE
     )
-  })
-  inner_cv <- do.call(rbind, cv_rows)
-  eligible_lambda <- inner_cv$estimable_folds > 0 &
-    is.finite(inner_cv$balanced_accuracy)
-  if (!any(eligible_lambda)) {
-    stop("ablation: no lambda is estimable in grouped inner CV.", call. = FALSE)
+  } else {
+    cv_rows <- lapply(seq_along(lambda), function(lambda_index) {
+      fold_score <- vapply(sort(unique(fold)), function(fold_id) {
+        inner_train <- fold != fold_id
+        inner_test <- fold == fold_id
+        fold_classes <- sort(unique(train_label[inner_train]))
+        eligible_test <- inner_test & train_label %in% fold_classes
+        if (length(fold_classes) < 2 || sum(eligible_test) < 2) {
+          return(NA_real_)
+        }
+        transformed <- .ablation_readout_transform(
+          train[inner_train, , drop = FALSE],
+          train[eligible_test, , drop = FALSE],
+          blocks
+        )
+        prediction <- .ablation_xgb_linear_predict(
+          transformed$train,
+          transformed$test,
+          train_label[inner_train],
+          fold_classes,
+          lambda[lambda_index],
+          nrounds,
+          numCores,
+          seed + lambda_index * 100L + fold_id
+        )
+        metrics <- .ablation_classification_metrics(
+          train_label[eligible_test],
+          prediction$prediction,
+          prediction$probability,
+          fold_classes
+        )
+        metrics$balanced_accuracy
+      }, numeric(1))
+      data.frame(
+        lambda = lambda[lambda_index],
+        balanced_accuracy = mean(fold_score, na.rm = TRUE),
+        estimable_folds = sum(is.finite(fold_score)),
+        selection_mode = "tuned",
+        stringsAsFactors = FALSE
+      )
+    })
+    inner_cv <- do.call(rbind, cv_rows)
+    eligible_lambda <- inner_cv$estimable_folds > 0 &
+      is.finite(inner_cv$balanced_accuracy)
+    if (!any(eligible_lambda)) {
+      stop("ablation: no lambda is estimable in grouped inner CV.", call. = FALSE)
+    }
+    ranking <- order(
+      -inner_cv$balanced_accuracy[eligible_lambda],
+      -inner_cv$lambda[eligible_lambda]
+    )
+    selected_lambda <- inner_cv$lambda[eligible_lambda][ranking[1]]
   }
-  ranking <- order(
-    -inner_cv$balanced_accuracy[eligible_lambda],
-    -inner_cv$lambda[eligible_lambda]
-  )
-  selected_lambda <- inner_cv$lambda[eligible_lambda][ranking[1]]
 
   transformed <- .ablation_readout_transform(train, test, blocks)
   final <- .ablation_xgb_linear_predict(
@@ -5365,6 +5498,316 @@ ablation <- function(
     status = "complete",
     metrics = metrics,
     paired = paired,
+    test_sample_hash = test_hash
+  )
+}
+
+
+# Summarize nested-bank contrasts with the randomized module sequence as the
+# uncertainty unit. Slopes are expressed per doubling of the cohort-module bank.
+.ablation_representation_scaling_summary <- function(metrics, bootstrap, seed) {
+  metric_names <- c(
+    "balanced_accuracy_direct",
+    "balanced_accuracy_d1",
+    "delta_balanced_accuracy",
+    "macro_auroc_direct",
+    "macro_auroc_d1",
+    "delta_macro_auroc"
+  )
+  point_parts <- lapply(seq_along(metric_names), function(metric_index) {
+    metric_name <- metric_names[metric_index]
+    do.call(rbind, lapply(
+      split(metrics, metrics$module_count),
+      function(data) {
+        values <- data[[metric_name]]
+        values <- values[is.finite(values)]
+        interval <- .ablation_bootstrap_mean(
+          values,
+          bootstrap,
+          seed + metric_index * 1000L + data$module_count[1]
+        )
+        data.frame(
+          module_count = data$module_count[1],
+          module_fraction = data$module_fraction[1],
+          d1_feature_count = data$d1_feature_count[1],
+          direct_feature_count = data$direct_feature_count[1],
+          metric_name = metric_name,
+          estimate = mean(values),
+          ci_low = interval[1],
+          ci_high = interval[2],
+          n_sequences = length(values),
+          stringsAsFactors = FALSE
+        )
+      }
+    ))
+  })
+  pointwise <- do.call(rbind, point_parts)
+  rownames(pointwise) <- NULL
+
+  delta_names <- c("delta_balanced_accuracy", "delta_macro_auroc")
+  sequence_trends <- do.call(rbind, lapply(
+    split(metrics, metrics$sequence_id),
+    function(data) {
+      data <- data[order(data$module_count), , drop = FALSE]
+      do.call(rbind, lapply(delta_names, function(metric_name) {
+        values <- data[[metric_name]]
+        keep <- is.finite(values)
+        fit <- stats::lm(values[keep] ~ log2(data$module_count[keep]))
+        data.frame(
+          sequence_id = data$sequence_id[1],
+          metric_name = metric_name,
+          slope_per_doubling = unname(stats::coef(fit)[2]),
+          endpoint_change = utils::tail(values[keep], 1) - values[keep][1],
+          spearman_rho = if (length(unique(values[keep])) == 1L) {
+            0
+          } else {
+            stats::cor(
+              data$module_count[keep],
+              values[keep],
+              method = "spearman"
+            )
+          },
+          stringsAsFactors = FALSE
+        )
+      }))
+    }
+  ))
+
+  statistic_names <- c(
+    "slope_per_doubling",
+    "endpoint_change",
+    "spearman_rho"
+  )
+  trend <- do.call(rbind, lapply(seq_along(delta_names), function(metric_index) {
+    metric_name <- delta_names[metric_index]
+    data <- sequence_trends[
+      sequence_trends$metric_name == metric_name,
+      ,
+      drop = FALSE
+    ]
+    do.call(rbind, lapply(seq_along(statistic_names), function(statistic_index) {
+      statistic <- statistic_names[statistic_index]
+      values <- data[[statistic]]
+      values <- values[is.finite(values)]
+      interval <- .ablation_bootstrap_mean(
+        values,
+        bootstrap,
+        seed + 10000L + metric_index * 1000L + statistic_index
+      )
+      data.frame(
+        metric_name = metric_name,
+        statistic = statistic,
+        estimate = mean(values),
+        ci_low = interval[1],
+        ci_high = interval[2],
+        n_sequences = length(values),
+        stringsAsFactors = FALSE
+      )
+    }))
+  }))
+  rownames(trend) <- NULL
+
+  list(
+    pointwise = pointwise,
+    sequence_trends = sequence_trends,
+    trend = trend
+  )
+}
+
+
+# Hold the external query set and Direct TSP contract fixed while expanding d1
+# through tissue-balanced nested cohort-module banks. Direct and the fixed-lambda
+# readout seed remain unchanged across the entire curve, so adjacent d1 changes
+# are not contaminated by a moving baseline or repeated model selection.
+.ablation_representation_scaling <- function(
+    prepared,
+    config,
+    label_column,
+    seed,
+    verbose,
+    cache_path = NULL
+) {
+  modules <- prepared$module_manifest$modules
+  modules <- modules[
+    match(prepared$selected_module_ids, modules$module_id),
+    ,
+    drop = FALSE
+  ]
+  counts <- sort(unique(pmin(
+    as.integer(config$scaling$module_counts),
+    nrow(modules)
+  )))
+  if (length(counts) < 2) {
+    stop(
+      "ablation: representation scaling needs at least two distinct module counts.",
+      call. = FALSE
+    )
+  }
+  sequences <- .ablation_nested_module_sequences(
+    modules,
+    config$scaling$sequences,
+    seed
+  )
+
+  direct_features <- if (config$scaling$direct_feature_type == "gene_pair") {
+    prepared$feature_manifest$tsp_features
+  } else {
+    prepared$feature_manifest$features
+  }
+  direct_columns <- match(direct_features, colnames(prepared$reference_direct))
+  if (anyNA(direct_columns)) {
+    stop(
+      "ablation: the fixed scaling baseline is missing Direct features.",
+      call. = FALSE
+    )
+  }
+  reference_direct <- prepared$reference_direct[, direct_columns, drop = FALSE]
+  query_direct <- prepared$query_direct[, direct_columns, drop = FALSE]
+  test_hash <- digest::digest(
+    sort(prepared$query_metadata$sample_id),
+    algo = "md5"
+  )
+  readout_seed <- seed + 50000L
+  fit_cache_key <- digest::digest(
+    list(
+      prepared_cache_key = prepared$cache_key,
+      scaling = config$scaling,
+      validation = config$validation[c("inner_folds", "nrounds", "numCores")],
+      label_column = label_column,
+      seed = seed,
+      test_hash = test_hash
+    ),
+    algo = "md5"
+  )
+  fit_cache <- list(key = fit_cache_key, direct = NULL, d1 = list())
+  if (!is.null(cache_path) && file.exists(cache_path)) {
+    cached <- readRDS(cache_path)
+    if (identical(cached$key, fit_cache_key)) {
+      fit_cache <- cached
+    }
+  }
+  save_fit_cache <- function() {
+    if (!is.null(cache_path)) {
+      saveRDS(fit_cache, cache_path)
+    }
+  }
+  direct_fit <- fit_cache$direct
+  if (is.null(direct_fit)) {
+    direct_result <- .ablation_linear_readout(
+      train = reference_direct,
+      test = query_direct,
+      train_metadata = prepared$reference_metadata,
+      test_metadata = prepared$query_metadata,
+      label_column = label_column,
+      lambda = config$scaling$lambda,
+      inner_folds = config$validation$inner_folds,
+      nrounds = config$validation$nrounds,
+      numCores = config$validation$numCores,
+      seed = readout_seed,
+      blocks = NULL
+    )
+    direct_fit <- list(
+      overall = direct_result$overall,
+      selected_lambda = direct_result$selected_lambda
+    )
+    fit_cache$direct <- direct_fit
+    save_fit_cache()
+  }
+
+  rows <- list()
+  index <- 1L
+  for (sequence_id in seq_along(sequences)) {
+    sequence_seed <- seed + sequence_id
+    module_order <- sequences[[sequence_id]]
+    if (verbose) {
+      luckyBase::LuckyVerbose(
+        "ablation: representation scaling sequence ",
+        sequence_id,
+        "/",
+        length(sequences),
+        "..."
+      )
+    }
+    for (module_count in counts) {
+      prefix_ids <- module_order[seq_len(module_count)]
+      module_ids <- modules$module_id[modules$module_id %in% prefix_ids]
+      selected_module_hash <- digest::digest(sort(module_ids), algo = "md5")
+      full_blocks <- prepared$selected_blocks[module_ids]
+      full_columns <- unlist(full_blocks, use.names = FALSE)
+      block_ends <- cumsum(lengths(full_blocks))
+      block_starts <- c(1L, utils::head(block_ends, -1L) + 1L)
+      blocks <- Map(seq.int, block_starts, block_ends)
+      names(blocks) <- module_ids
+      d1_fit <- fit_cache$d1[[selected_module_hash]]
+      if (is.null(d1_fit)) {
+        d1_result <- .ablation_linear_readout(
+          train = prepared$reference_d1[, full_columns, drop = FALSE],
+          test = prepared$query_d1[, full_columns, drop = FALSE],
+          train_metadata = prepared$reference_metadata,
+          test_metadata = prepared$query_metadata,
+          label_column = label_column,
+          lambda = config$scaling$lambda,
+          inner_folds = config$validation$inner_folds,
+          nrounds = config$validation$nrounds,
+          numCores = config$validation$numCores,
+          seed = readout_seed,
+          blocks = blocks
+        )
+        d1_fit <- list(
+          overall = d1_result$overall,
+          selected_lambda = d1_result$selected_lambda
+        )
+        fit_cache$d1[[selected_module_hash]] <- d1_fit
+        save_fit_cache()
+      }
+      rows[[index]] <- data.frame(
+        sequence_id = sprintf("S%03d", sequence_id),
+        module_sequence_seed = sequence_seed,
+        stochastic_seed = readout_seed,
+        module_count = module_count,
+        module_fraction = module_count / nrow(modules),
+        d1_feature_count = length(full_columns),
+        direct_feature_count = ncol(reference_direct),
+        balanced_accuracy_direct = direct_fit$overall$balanced_accuracy,
+        balanced_accuracy_d1 = d1_fit$overall$balanced_accuracy,
+        delta_balanced_accuracy = d1_fit$overall$balanced_accuracy -
+          direct_fit$overall$balanced_accuracy,
+        macro_auroc_direct = direct_fit$overall$macro_auroc,
+        macro_auroc_d1 = d1_fit$overall$macro_auroc,
+        delta_macro_auroc = d1_fit$overall$macro_auroc -
+          direct_fit$overall$macro_auroc,
+        selected_lambda_direct = direct_fit$selected_lambda,
+        selected_lambda_d1 = d1_fit$selected_lambda,
+        module_sequence_hash = digest::digest(module_order, algo = "md5"),
+        selected_module_hash = selected_module_hash,
+        test_sample_hash = test_hash,
+        stringsAsFactors = FALSE
+      )
+      index <- index + 1L
+    }
+  }
+  metrics <- do.call(rbind, rows)
+  rownames(metrics) <- NULL
+  summaries <- .ablation_representation_scaling_summary(
+    metrics,
+    config$scaling$bootstrap,
+    seed + 100000L
+  )
+  list(
+    status = "complete",
+    direct_group = if (config$scaling$direct_feature_type == "gene_pair") {
+      "Direct-GSClassifier-TSP"
+    } else {
+      "Direct-GSClassifier"
+    },
+    d1_group = "Cohort-d1",
+    direct_feature_type = config$scaling$direct_feature_type,
+    module_counts = counts,
+    sequences = sequences,
+    metrics = metrics,
+    pointwise = summaries$pointwise,
+    sequence_trends = summaries$sequence_trends,
+    trend = summaries$trend,
     test_sample_hash = test_hash
   )
 }

@@ -3,6 +3,74 @@
 # Parameters: Display k and technical columns selected by the Rmd.
 # Output: Tidy tables for figures and evidence-anchored prose.
 
+.ae_ablation_params <- function(filtered_cohorts, n_cores) {
+  list(
+    comparison = list(
+      module_ids = NULL,
+      direct_group = "Direct-GSClassifier",
+      cohort_group = "Cohort-d1"
+    ),
+    provenance = list(
+      external_cohorts = filtered_cohorts,
+      max_reference_samples = Inf,
+      max_query_samples = Inf,
+      require_external = TRUE
+    ),
+    anchors = list(
+      primary = "cancer_type",
+      primary_role = "independent",
+      bank_aligned = "tissue",
+      technical = c("assay_type", "platform_id", "source_system"),
+      min_reference_cohorts = 2L
+    ),
+    geometry = list(
+      k = c(5L, 15L, 30L),
+      search = "annoy",
+      n_trees = 75L,
+      search_k = 10000L,
+      exact_validation_queries = 30L,
+      min_annoy_recall = 0.90,
+      geometry_samples = 5000L,
+      distance_pairs = 100000L
+    ),
+    validation = list(
+      enabled = TRUE,
+      learning_fractions = c(0.10, 0.25, 0.50, 1.00),
+      repeats = 3L,
+      inner_folds = 3L,
+      lambda = c(0.1, 1, 10),
+      nrounds = 30L,
+      min_class_n = 20L,
+      numCores = n_cores
+    ),
+    scaling = list(
+      enabled = TRUE,
+      module_counts = c(10L, 25L, 50L, 75L, 100L, 125L, 150L),
+      sequences = 5L,
+      direct_feature_type = "gene_pair",
+      lambda = 1,
+      bootstrap = 2000L
+    ),
+    controls = list(
+      null_rp = TRUE,
+      null_rp_rank = 100L,
+      null_rp_seeds = 20260805L + seq_len(3L),
+      null_perm = TRUE
+    ),
+    tradeoffs = list(
+      decoder = TRUE,
+      decoder_rank = 50L,
+      decoder_lambda = 1,
+      decoder_max_reference_samples = 10000L,
+      decoder_max_query_samples = 5000L
+    ),
+    output = list(
+      cover = TRUE,
+      cache_external_d1 = TRUE
+    )
+  )
+}
+
 .ae_metric_long <- function(data, id_columns, metric_columns) {
   parts <- lapply(metric_columns, function(metric) {
     result <- data[, id_columns, drop = FALSE]

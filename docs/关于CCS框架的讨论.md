@@ -113,6 +113,24 @@ $$
 
 若评价样本或其标签参与了 cohort bank 训练，$F$ 还可能直接携带评价信息，此时不能用上述公式证明独立表示价值，必须改用 out-of-fold/out-of-cohort 预测。只有在冻结、无泄漏和公平对照成立后，才可以检验 CCS 是否把同一份 TSP 重表达为更适合有限样本学习、具有更好跨队列归纳偏置和更容易暴露稳定生物结构的空间。
 
+## cohort bank 扩张时 d1 优势如何演化
+
+这里需要区分两种容易混淆的 scaling。训练样本 scaling 改变 readout 可使用的 reference cohorts，但保持 d1 schema 不变；cohort-bank scaling 则固定 reference/query 样本和 Direct TSP，让进入 d1 的冻结 cohort modules 从少到多。只有第二种设计才能直接回答“d1 向量随 cohort congress 扩张后，相对 Direct TSP 的优势会加强还是削弱”。对于包含前 $M$ 个冻结模型的 bank，可写为：
+
+$$
+d1_M(X)=\{F_1(X),F_2(X),\ldots,F_M(X)\}.
+$$
+
+公平曲线必须满足四个条件：不同 $M$ 使用嵌套 module 集合；module 加入顺序按 tissue 平衡并进行多次随机重复；Direct TSP、reference/query 样本、调参预算和测试集保持固定；不确定性以 module sequence 为配对单位，而不是把同一 sequence 中的多个 bank size 当作独立观测。报告时应同时给出各 $M$ 的 d1–TSP 差值、bank 每翻倍的配对斜率、最小到最大 bank 的首末端变化，以及 sequence 间的方向一致性。
+
+在当前 32-gene signature 下，ordinary pairwise TSP 只有 $\binom{32}{2}=496$ 个，Direct 输入仍属于有限样本模型可以较好正则化的规模。随着 bank 扩张，d1 面临两股相反力量：新增 cohort models 可以提供更多互补先验、降低单一 cohort 决策的方差并暴露跨队列共识；同时也会增加相关输出、冲突证据和与目标无关的 cohort-specific directions。因而更合理的先验不是无限单调增益，而是“早期改善—边际收益递减—平台或下降”的饱和曲线。转折点取决于新增 cohort 是否带来独立证据、readout 样本量能否支撑增长后的 d1 维度，以及评价目标是否与 cohort submodels 学到的结构一致。
+
+2026-08-08 的当前测试结果与“改善后平台”一致。分析固定 24,487 个 reference、14,083 个 external query 和 496 个 Direct TSP，以 5 条 tissue-balanced nested sequences 将 bank 从 10 扩至 150 modules。Direct TSP 的 cancer-type balanced accuracy 固定为 0.191；d1 的 balanced accuracy 从 10 modules 的 0.141 增至 125 modules 的 0.161，在 150 modules 时为 0.160。相应 d1–TSP 差值从 −0.050 缩小到 −0.031，每翻倍斜率为 +0.00469（sequence bootstrap 95% CI +0.00045 至 +0.01176）；但 10→150 modules 的首末端变化为 +0.01888（95% CI −0.00120 至 +0.04462），区间仍跨零。macro-AUROC 的每翻倍斜率为 +0.01072（95% CI +0.00736 至 +0.01529），方向更一致。因而当前证据支持“bank 扩张整体削弱 d1 相对劣势，并在 125–150 modules 附近趋于平台”，不支持“d1 已经超过 Direct TSP”。由于只有 5 条 module sequences，且终点仍是旧癌种标签，这一趋势应视为机制性证据，而不是 CCS 新状态效用的确认性结论。
+
+趋势的符号还取决于评价终点。若终点是旧癌种标签，更大的 pan-cancer bank 可能进一步削弱 lineage 主导结构，使 d1–TSP 差值变得更负；这并不等价于新状态发现能力下降。若终点是跨癌种共享的 pathway、TME 或治疗反应，并且新增 cohort 提供互补证据，d1–TSP 差值则可能先上升后平台。任何“优势加强”都必须绑定具体 endpoint、外部 cohort 和最小重要差异，不能仅凭 d1 维度增长或旧癌种 readout 的方向判断。
+
+若 signature 扩大到约 2000 genes，完全枚举的 pairwise TSP 将达到 $\binom{2000}{2}=1{,}999{,}000$ 维。此时 raw Direct TSP 的相关性、距离集中、内存与有限样本估计负担都会急剧增加，而 cohort submodels 若各自只选择少量稳定 gene-pairs，d1 相当于把高维 TSP 经过外部 cohort 经验压缩为随 bank 线性增长的证据向量。因此，我的主要推测是：相较 32 genes，**d1 的有限样本相对优势更可能在 bank 扩张早期增强，并在更大的 bank size 后才进入平台期**；其来源是更强的正则化与外部先验复用，而不是 d1 创造了 TSP 中不存在的信息。这个优势不会自动成立：若 Direct arm 也获得等价的预训练 feature selection、稀疏正则化或低秩表示，差距会缩小；若新增 modules 高度重复、质量不均或携带平台捷径，d1 仍可能提前饱和甚至下降。2000-gene 情形因此应比较“经训练折内选择和正则化的 Direct TSP”与“冻结 d1”，而不是用未经筛选的近 200 万维矩阵人为制造一个弱基线。
+
 ## d1、d2、d3、metaCCS 与 normCCS 的角色
 
 当前 CCS 流程中的各层应严格区分：

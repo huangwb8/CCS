@@ -25,7 +25,7 @@ output:
 
 ```{r setup, include=FALSE}
 # Purpose: Load completed computation artifacts and prepare report-only summaries.
-# Input: Data audit from stage 01 plus seven products from 02-ablation-experiment.R.
+# Input: Data audit from stage 01 plus eight products from 02-ablation-experiment.R.
 # Parameters: Display thresholds from YAML params; no scientific winner threshold is invented.
 # Output: Traceable variables used by inline numbers, tables, and figures.
 knitr::opts_chunk$set(
@@ -55,6 +55,7 @@ required_results <- c(
     "retrieval.rds",
     "readout.rds",
     "learning_curve.rds",
+    "cohort_scaling.rds",
     "tradeoffs.rds",
     "ablation-result.rds"
   )
@@ -70,8 +71,12 @@ native_geometry <- readRDS(file.path(result_dir, "native_geometry.rds"))
 retrieval <- readRDS(file.path(result_dir, "retrieval.rds"))
 readout <- readRDS(file.path(result_dir, "readout.rds"))
 learning_curve <- readRDS(file.path(result_dir, "learning_curve.rds"))
+cohort_scaling <- readRDS(file.path(result_dir, "cohort_scaling.rds"))
 tradeoffs <- readRDS(file.path(result_dir, "tradeoffs.rds"))
 ablation_result <- readRDS(file.path(result_dir, "ablation-result.rds"))
+if (cohort_scaling$status != "complete") {
+  stop("The representation cohort-bank scaling result is incomplete.", call. = FALSE)
+}
 
 figure_dir <- "figures"
 dir.create(figure_dir, recursive = TRUE, showWarnings = FALSE)
@@ -172,6 +177,47 @@ learning_delta <- learning_curve$paired |>
     .groups = "drop"
   )
 
+scaling_ba <- cohort_scaling$pointwise[
+  cohort_scaling$pointwise$metric_name == "delta_balanced_accuracy",
+  ,
+  drop = FALSE
+]
+scaling_ba <- scaling_ba[order(scaling_ba$module_count), , drop = FALSE]
+scaling_slope <- cohort_scaling$trend[
+  cohort_scaling$trend$metric_name == "delta_balanced_accuracy" &
+    cohort_scaling$trend$statistic == "slope_per_doubling",
+  ,
+  drop = FALSE
+]
+scaling_endpoint <- cohort_scaling$trend[
+  cohort_scaling$trend$metric_name == "delta_balanced_accuracy" &
+    cohort_scaling$trend$statistic == "endpoint_change",
+  ,
+  drop = FALSE
+]
+scaling_rho <- cohort_scaling$trend[
+  cohort_scaling$trend$metric_name == "delta_balanced_accuracy" &
+    cohort_scaling$trend$statistic == "spearman_rho",
+  ,
+  drop = FALSE
+]
+scaling_first <- scaling_ba[1, , drop = FALSE]
+scaling_last <- scaling_ba[nrow(scaling_ba), , drop = FALSE]
+scaling_best <- scaling_ba[which.max(scaling_ba$estimate), , drop = FALSE]
+scaling_direction <- if (scaling_slope$ci_low > 0) {
+  "随 bank 扩大而整体上升，但是否形成首末端净改善仍取决于 endpoint CI"
+} else if (scaling_slope$ci_high < 0) {
+  "随 bank 扩大而整体下降，但是否形成首末端净恶化仍取决于 endpoint CI"
+} else {
+  "没有形成稳定的单调方向"
+}
+scaling_point <- function(metric_name, module_count) {
+  cohort_scaling$pointwise$estimate[
+    cohort_scaling$pointwise$metric_name == metric_name &
+      cohort_scaling$pointwise$module_count == module_count
+  ]
+}
+
 technical_columns <- manifest$config$anchors$technical
 technical_delta <- .ae_technical_delta(
   retrieval,
@@ -220,7 +266,7 @@ direct_top_k_rate <- retrieval$summary$top_k_label_rate[
 
 本报告关注一个具体问题：冻结的 cohort bank 将同一份 `r manifest$direct_feature_count` 维 GSClassifier 原生输入重编码为 d1 后，旧癌种标签是否仍易于恢复、样本是否仍按技术来源聚集，以及原始输入信息还能恢复到什么程度。`cancer_type` 只作为外部核查锚点，并非 CCS 必须优化的目标。本分析仅讨论 d1；不借助 d2、d3、metaCCS、normCCS 或 ICI response 为 d1 反向背书，也不以癌种可恢复性代替对新状态实际效用的直接评估。
 
-**核心结论：本次结果不支持 d1 比 Direct 更适合恢复旧癌种标签，但也不足以否定 CCS 的新分型目标。** 在 k = `r params$display_k` 时，癌种一致率从 Direct 的 `r fmt(direct_top_k_rate)` 降至 d1 的 `r fmt(d1_top_k_rate)`，线性 readout balanced accuracy 从 `r fmt(readout_direct$balanced_accuracy)` 降至 `r fmt(readout_d1$balanced_accuracy)`，使用全部训练数据时的学习曲线差为 `r fmt(learning_delta$estimate[match(1, learning_delta$requested_fraction)])`。与此同时，d1 **弱化了由癌种主导的几何结构**，三个技术因子的邻居 excess 也均有下降，方向上符合多 cohort 模型对原始 feature 进行重表达的设计预期。由于本实验尚未评估新状态的稳定性、跨癌种生物学意义或临床任务效用，这些结果只能为理解 CCS 的核心假设提供机制线索，不能据此认定“过度混合已得到证实”。
+**核心结论：本次结果不支持 d1 比 Direct 更适合恢复旧癌种标签，但也不足以否定 CCS 的新分型目标。** 在 k = `r params$display_k` 时，癌种一致率从 Direct 的 `r fmt(direct_top_k_rate)` 降至 d1 的 `r fmt(d1_top_k_rate)`，线性 readout balanced accuracy 从 `r fmt(readout_direct$balanced_accuracy)` 降至 `r fmt(readout_d1$balanced_accuracy)`，使用全部训练数据时的学习曲线差为 `r fmt(learning_delta$estimate[match(1, learning_delta$requested_fraction)])`。固定 `r manifest$tsp_feature_count` 个 TSP 后，bank 从 `r scaling_first$module_count` 扩至 `r scaling_last$module_count` 个 modules 的相对差值变化为 `r fmt(scaling_endpoint$estimate)`，其每翻倍趋势为 `r fmt(scaling_slope$estimate)`。与此同时，d1 **弱化了由癌种主导的几何结构**，三个技术因子的邻居 excess 也均有下降，方向上符合多 cohort 模型对原始 feature 进行重表达的设计预期。由于本实验尚未评估新状态的稳定性、跨癌种生物学意义或临床任务效用，这些结果只能为理解 CCS 的核心假设提供机制线索，不能据此认定“过度混合已得到证实”。
 
 ## 数据概览
 
@@ -231,7 +277,7 @@ direct_top_k_rate <- retrieval$summary$top_k_label_rate[
 ```{r data-overview-table}
 # Purpose: Expose the exact data and representation contract used by all analyses.
 # Input: manifest.rds.
-# Parameters: Ten visible rows; horizontal scrolling retained for audit fields.
+# Parameters: Eleven visible rows; horizontal scrolling retained for audit fields.
 # Output: Interactive data overview table.
 overview_table <- data.frame(
   item = c(
@@ -241,6 +287,7 @@ overview_table <- data.frame(
     "Reference cohorts",
     "External filtered cohorts",
     "Direct features",
+    "Gene signature size",
     "Ordinary gene-pairs",
     "d1 modules",
     "d1 output columns",
@@ -253,6 +300,7 @@ overview_table <- data.frame(
     manifest$reference_cohort_count,
     manifest$query_cohort_count,
     manifest$direct_feature_count,
+    manifest$gene_signature_count,
     manifest$tsp_feature_count,
     manifest$module_count,
     manifest$d1_feature_count,
@@ -260,10 +308,10 @@ overview_table <- data.frame(
   ),
   stringsAsFactors = FALSE
 )
-render_dt(overview_table, pageLength = 10)
+render_dt(overview_table, pageLength = 11)
 ```
 
-这些计数界定了本次比较的对象：同一批表达样本在两种表示下的结果。需要强调的是，`r manifest$tsp_feature_count` 个 gene-pair 只是完整 GSClassifier 输入的一个子集，不能等同于完整基线。另有 `r length(tradeoffs$excluded_duplicate_samples)` 个跨 cohort 重复的 sample ID 被整体排除，避免同名样本在 reference/query 对齐时被误当作配对。完整的数据构成、tissue 恢复结果和来源异质性见第一阶段报告 `r data_report_html_name`。
+这些计数界定了本次比较的对象：同一批表达样本在两种表示下的结果。主消融仍使用完整 `r manifest$direct_feature_count` 维 GSClassifier 输入；只有 cohort-bank scaling 为直接对应 32-gene 问题，才将固定基线限定为 `r manifest$tsp_feature_count` 个 ordinary TSP。另有 `r length(tradeoffs$excluded_duplicate_samples)` 个跨 cohort 重复的 sample ID 被整体排除，避免同名样本在 reference/query 对齐时被误当作配对。完整的数据构成、tissue 恢复结果和来源异质性见第一阶段报告 `r data_report_html_name`。
 
 ## 关键函数、参数与源代码位置
 
@@ -276,6 +324,7 @@ render_dt(overview_table, pageLength = 10)
 | d1 距离 | `.ablation_module_balanced_transform()` | module 等权标准化 Euclidean | d1 blocks 的行和不满足 simplex，故不伪用 Hellinger | `R/ablation.R:` `r find_source_line(".ablation_module_balanced_transform <- function")` |
 | 外部 readout | `.ablation_linear_readout()` | grouped `r manifest$config$validation$inner_folds`-fold CV；lambda = `r paste(manifest$config$validation$lambda, collapse = "/")` | 预处理与调参均在 reference 内完成，两臂预算一致 | `R/ablation.R:` `r find_source_line(".ablation_linear_readout <- function")` |
 | 配对学习曲线 | `.ablation_learning_curve()` | `r paste(100 * manifest$config$validation$learning_fractions, collapse = "/")`% × `r manifest$config$validation$repeats` repeats | 区分小样本归纳偏置与信息上限 | `R/ablation.R:` `r find_source_line(".ablation_learning_curve <- function")` |
+| cohort-bank scaling | `.ablation_representation_scaling()` | `r paste(cohort_scaling$module_counts, collapse = "/")` modules × `r manifest$config$scaling$sequences` nested sequences；固定 TSP baseline 与 lambda = `r manifest$config$scaling$lambda` | 将 d1 向量扩张与训练样本扩张分离，并以 sequence 为配对不确定性单位 | `R/ablation.R:` `r find_source_line(".ablation_representation_scaling <- function")` |
 | 信息损失 | `.ablation_decode_direct_features()` | rank = `r tradeoffs$decoder$rank`；ridge lambda = `r tradeoffs$decoder$lambda` | 按 feature type 量化 d1 无法恢复的原生输入 | `R/ablation.R:` `r find_source_line(".ablation_decode_direct_features <- function")` |
 
 Annoy 配置为 `r manifest$config$geometry$n_trees` 棵树，search budget 为 `r manifest$config$geometry$search_k`。与 exact kNN 对照后，Direct 和 d1 的邻居 recall 分别为 `r fmt(annoy_recall_direct)` 和 `r fmt(annoy_recall_d1)`，均高于预设门槛 `r fmt(manifest$config$geometry$min_annoy_recall)`。因此，后续观察到的 top-k 差异不太可能由近似检索误差主导。
@@ -295,7 +344,7 @@ d1 同时编码样本内的 feature pattern 和固化在模型参数中的 cohor
 | 癌种 top-k 与线性 readout 下降 | d1 弱化了旧癌种标签的可恢复性 | d1 没有新分型价值 |
 | assay/platform/source excess 下降 | d1 减少了超出癌种构成可解释范围的技术来源聚集 | batch removal 已经成功，或所有生物结构都被保留 |
 | Direct feature 不能完全重建 | d1 实施了有损、有方向的压缩 | 丢失的一定是下游任务所需信息 |
-| 本轮未测 d2/d3/metaCCS/outcome | 现有证据只能约束 d1 的机制解读 | CCS 新状态发现、临床分层或 cohort-axis scaling 已胜出/失败 |
+| 本轮未测 d2/d3/metaCCS/outcome | 现有证据只能约束 d1 与 cohort-bank scaling 的机制解读 | CCS 新状态发现或临床分层已胜出/失败 |
 
 癌种结构仍应作为一项保护性参照。当前 CCS 论文认为，lineage-restricted states 与 broadly shared states 可以并存，下游机制也可能表现出 lineage-dependent realization。癌种可恢复性下降或许反映了预期中的“去癌种中心化”，但不能单独用来判定方法成功。要让这一解释成立，还需要证明新状态在未见 cohort 中保持稳定，携带跨癌种共享的生物信号，并保留可复现的 lineage-conditioned 差异。
 
@@ -552,6 +601,76 @@ knitr::include_graphics(fig4_jpg)
 
 本次学习曲线结果显示，在使用 10%、25%、50% 和 100% reference cohort 时，d1 相对 Direct 的癌种 balanced-accuracy 差依次为 `r paste(vapply(manifest$config$validation$learning_fractions, function(f) fmt(learning_delta$estimate[match(f, learning_delta$requested_fraction)]), character(1)), collapse = ", ")`。阴影表示 `r manifest$config$validation$repeats` 次配对重复得到的近似 95% CI（均值 ± 1.96 SE）。随着训练比例增加，负向差值始终没有消失，说明 d1 对旧癌种标签的弱化并非只是小样本估计造成的。每个比例下，两种表示均共享 cohort subset hash 和外部 query hash，因此曲线差异也不能归因于训练组成或测试样本漂移。需要注意的是，这条曲线只衡量 cancer-type readout 的样本效率，不能据此认定 d1 对所有新分型任务都存在“过度压缩”。
 
+## cohort bank 扩张下的 d1–TSP 差值
+
+上一节改变的是可用于训练 readout 的 reference cohorts；本节固定全部 reference/query 样本和 `r manifest$scaling_direct_feature_count` 个 Direct-GSClassifier TSP，只改变 frozen bank 中进入 d1 的 cohort modules 数量。每条 sequence 都按 tissue 平衡地产生嵌套 module 前缀，因此较大的 bank 严格包含较小的 bank；Direct TSP 在整条曲线上只拟合一次，且两臂统一使用预先固定的 lambda = `r manifest$config$scaling$lambda`，不在每个 bank size 重新调参。
+
+```{r figure-cohort-bank-scaling, interp_check=TRUE}
+# ==== Figure 8: Cohort-bank scaling delta (user-adjustable parameters) ====
+fig8 <- list(
+  # Canvas and type sizes are tuned for seven log-spaced bank sizes.
+  width_in = 7.0,
+  height_in = 4.5,
+  base_size = 11,
+  # Increase line/point sizes for projection; reduce them only if more counts are added.
+  line_size = 0.95,
+  point_size = 2.6,
+  point_alpha = 0.92,
+  ribbon_alpha = 0.16,
+  zero_line_width = 0.55,
+  legend_position = "none"
+)
+p8 <- ggplot2::ggplot(
+  scaling_ba,
+  ggplot2::aes(x = .data$module_count, y = .data$estimate)
+) +
+  ggplot2::geom_hline(
+    yintercept = 0,
+    linewidth = fig8$zero_line_width,
+    color = "grey55"
+  ) +
+  ggplot2::geom_ribbon(
+    ggplot2::aes(ymin = .data$ci_low, ymax = .data$ci_high),
+    fill = nature_colors[["red"]],
+    alpha = fig8$ribbon_alpha
+  ) +
+  ggplot2::geom_line(
+    linewidth = fig8$line_size,
+    color = nature_colors[["red"]]
+  ) +
+  ggplot2::geom_point(
+    size = fig8$point_size,
+    alpha = fig8$point_alpha,
+    color = nature_colors[["red"]]
+  ) +
+  ggplot2::scale_x_continuous(
+    trans = "log2",
+    breaks = cohort_scaling$module_counts,
+    labels = scales::label_number(accuracy = 1)
+  ) +
+  ggplot2::labs(
+    x = "Frozen cohort modules included",
+    y = "Balanced accuracy: d1 minus Direct TSP"
+  ) +
+  theme_nature_readable(
+    base_size = fig8$base_size,
+    x_text_angle = 0,
+    legend_position = fig8$legend_position
+  )
+
+# Readability check: log2 spacing separates early bank sizes, the zero line makes
+# advantage direction explicit, and one red curve avoids a redundant legend.
+fig8_jpg <- .ae_save_plot(
+  p8, "figure-08-cohort-bank-scaling", figure_dir,
+  preview_dir, fig8, params$plot_preview_dpi
+)
+knitr::include_graphics(fig8_jpg)
+```
+
+本次观察显示，在 `r manifest$gene_signature_count`-gene signature 下，d1 从 `r scaling_first$module_count` 个 modules、`r scaling_first$d1_feature_count` 个输出维度扩张到 `r scaling_last$module_count` 个 modules、`r scaling_last$d1_feature_count` 个输出维度时，相对固定 Direct TSP 的 balanced-accuracy 差由 **`r fmt(scaling_first$estimate)`** 变为 **`r fmt(scaling_last$estimate)`**。首末端配对变化为 `r fmt(scaling_endpoint$estimate)`（sequence bootstrap 95% CI `r fmt(scaling_endpoint$ci_low)` 至 `r fmt(scaling_endpoint$ci_high)`）；按 bank 每翻倍计，差值斜率为 `r fmt(scaling_slope$estimate)`（95% CI `r fmt(scaling_slope$ci_low)` 至 `r fmt(scaling_slope$ci_high)`），sequence 内 Spearman 趋势均值为 `r fmt(scaling_rho$estimate)`。因此，本次旧癌种 readout 上 d1 的相对表现**`r scaling_direction`**；差值最高的观测点在 `r scaling_best$module_count` 个 modules（`r fmt(scaling_best$estimate)`）。这一差异提示新增 cohort evidence 整体上缩小了 d1 的相对劣势，但完整 bank 仍未使差值越过零。
+
+这条曲线回答的是“新增冻结 cohort evidence 后，有限容量 readout 对旧癌种标签的可利用性怎样变化”，而不是 d1 的信息量是否超过 TSP。阴影以 `r manifest$config$scaling$sequences` 条 tissue-balanced module sequences 为重复单位，反映 bank 组成顺序的不确定性；它不覆盖新的患者抽样、另一组 32 genes、另一种临床终点或重新训练 cohort submodels 的不确定性。若 balanced-accuracy 差仍为负，即使曲线向上也只能说明 d1 的劣势被削弱；只有差值及其区间越过零，才构成这一 readout 上的实际优势。
+
 ## 技术来源与癌种锚点的联合评估
 
 ```{r figure-technical-excess, interp_check=TRUE}
@@ -737,6 +856,8 @@ Null-Perm 的资格状态为 **`r null_perm_status`**。36 个 query cohort 的 
 
 本次结果显示，在旧癌种标签恢复任务中，d1 的 top-k/MRR 平均 retrieval 差为 `r fmt(retrieval_mean_delta)`，总体癌种 readout 差为 `r fmt(readout_delta)`，两者相对 Direct 均为负值。即使使用全部训练数据，癌种学习曲线差仍为 `r fmt(learning_delta$estimate[match(1, learning_delta$requested_fraction)])`，说明增加训练数据并未消除差距。因此，在恢复旧癌种标签这一任务上，Direct-GSClassifier 是更简单、表现也更好的表示。CCS 的目标则是用多队列证据重表达同一份低输入 feature，从中发现不必与传统癌种一一对应的 pan-cancer state。按这一目标理解，癌种可恢复性下降可能是去中心化的预期表现，不能直接视为负面结果。
 
+固定 32-gene TSP baseline 后，cohort bank 从 `r scaling_first$module_count` 扩至 `r scaling_last$module_count` 个 modules，使 d1–TSP 的 balanced-accuracy 差改变 `r fmt(scaling_endpoint$estimate)`；每翻倍斜率为 `r fmt(scaling_slope$estimate)`，95% CI 为 `r fmt(scaling_slope$ci_low)` 至 `r fmt(scaling_slope$ci_high)`。这说明当前数据中的 scaling 方向`r scaling_direction`。这一结论比旧 scaling 模式更直接，因为它不再用“较小 d1 是否逼近完整 d1”替代 d1 与原始 TSP 的公平比较；但它仍只约束旧癌种 readout，不能外推到新状态稳定性或临床终点。
+
 三个技术来源的 excess 同向下降：`r paste(technical_summary$technical_factor, sprintf("%+.3f", technical_summary$mean_delta), sep = " = ", collapse = "; ")`，这是本次实验中最强的正向结果。`d1` 的 CKA、距离相关和局部 Jaccard 也表明，cohort bank 对原始表示进行了实质性改写。综合来看，**`d1` 同时表现出癌种中心化减弱和技术边界弱化，但本轮实验尚未检验新状态是否真正有用。** 因此，这些结果既不足以证明 CCS 已经成功，也不应让与研究目标并不等价的癌种分类结果主导整体判断。
 
 当前 reference/query 的样本量分别为 `r manifest$reference_sample_count` / `r manifest$query_sample_count`，两者规模不对称，是本报告首先需要考虑的不确定性。reference `d1` 被保守标记为 `in_sample`，因此本报告确认的是 filtered query 对冻结 bank 的外部泛化，不把 reference 内部几何当作无泄漏的性能证据。Excel cancer_type 虽未参与冻结 bank 的训练，但部分癌种与 cohort/assay 高度绑定；technical excess 的背景校正只能减轻这种混杂，无法将其完全消除。
@@ -747,7 +868,7 @@ Null-Perm 的资格状态为 **`r null_perm_status`**。36 个 query cohort 的 
 
 - 在冻结的 `d1` 上加入独立于癌种标签的 pathway score、TME state 或多组学表型，并通过 leave-one-cohort-out 检验共享状态是否可读。若 `d1` 在 technical excess 不升高的同时改善这些锚点的外部一致性，便可支持“有目的的重表达”。
 - 进入 `d2`/`d3`/metaCCS 层后，评估不同 seed 和重采样条件下的 cluster Jaccard、ARI、状态 split/merge 以及 lineage-conditioned biology。只有共享状态能够重现，并在具体 lineage 中保留可解释的差异实现，才能支持“虚拟元肿瘤—新亚型”的判断。
-- 针对从小规模到完整 bank 的多档冻结 module 构建嵌套 scaling 曲线，同时报告状态重现性、外部锚点效用、module 边际增益和 effective rank。只有随着队列增加出现非冗余且可重复的收益，才能支持“少量 feature 可随 cohort evidence 扩展”的主张。
+- 将本次固定 TSP、嵌套 module 的 scaling 设计扩展到 pathway/TME/outcome readout 与 d2/d3 state stability，并同步报告 module 边际增益和 effective rank。只有新增 cohort evidence 在独立目标上产生非冗余且可重复的收益，才能支持“少量 feature 可随 cohort evidence 扩展”的主张。
 
 ## 数字准确性验证
 
@@ -758,6 +879,7 @@ Null-Perm 的资格状态为 **`r null_perm_status`**。36 个 query cohort 的 
 | top-k/MRR 差与最差 cohort | `retrieval$paired` → `.ae_retrieval_cohort_delta()` | `retrieval.rds` |
 | readout balanced accuracy | `readout$overall` / `readout$paired_by_cohort` | `readout.rds` |
 | 学习曲线与 cohort subset hash | `learning_curve$metrics` / `$paired` | `learning_curve.rds` |
+| cohort-bank pointwise 差值、每翻倍斜率与首末端变化 | `cohort_scaling$pointwise` / `$sequence_trends` / `$trend` | `cohort_scaling.rds` |
 | decoder 指标 | `tradeoffs$decoder$summary` | `tradeoffs.rds` |
 | Annoy exact recall | `retrieval$search_validation` | `retrieval.rds` |
 
@@ -773,8 +895,9 @@ Null-Perm 的资格状态为 **`r null_perm_status`**。36 个 query cohort 的 
 | query/reference 隔离 | ✅ | 邻居表逐行满足 query cohort ≠ reference cohort |
 | 近似搜索门禁 | ✅ | Direct/d1 recall = `r fmt(annoy_recall_direct)` / `r fmt(annoy_recall_d1)` |
 | 配对学习曲线 | ✅ | 两表示共享 cohort subset/test hashes，lambda 预算一致 |
+| cohort-bank scaling | ✅ | Direct TSP 在 sequence 内固定；d1 使用 tissue-balanced nested prefixes；test hash 一致 |
 | Null-Perm 资格 | ✅ | 恒定 cohort 内锚点标记为 not_eligible |
 | 数据审计分离 | ✅ | 原始构成与 tissue 恢复由 `r data_report_name` 独立交付，本报告只读取其完整画像 |
-| 图表质量 | ✅ | `r 7L` 张消融结果图均交付矢量 PDF 与 PDF 派生 JPG，英文轴、外置图例、色盲友好配色 |
+| 图表质量 | ✅ | `r 8L` 张消融结果图均交付矢量 PDF 与 PDF 派生 JPG，英文轴、外置图例、色盲友好配色 |
 | 结果解读 | ✅ | 每个图表附近均绑定当前 cohort/指标/数值与可证伪后续 |
 | 数字可追溯 | ✅ | 内联数值来自 `r length(required_results)` 个正式 RDS 对象及其明确计算链 |
