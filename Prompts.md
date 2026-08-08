@@ -8,6 +8,32 @@
 
 ---
 
+test\ablation-02分析优化： 
+
+- 在  2fc352670840424b3b8961b3d5f2a50f568c5524 这一commit的基础上，基于 docs\plans\2026-08-08-ablation-02-cohort-bank-scaling优化计划.md 继续优化。
+
+注意事项：
+
+- 除了  test\ablation-02 、R\ablation.R 和 docs\关于CCS框架的讨论.md 可以修改，其它位置的文件都是严格只读的。
+
+---
+
+另外，我认为你在分析cohort bank效应的时候，大基础你没有把握住。cancer-type balanced accuracy、d1–GSClassifier TSP的变化（每翻倍斜率）、macro-AUROC变化（每翻倍斜率）等指标当然可以计算；但是，因为原始的d1本来就是基于150个训练集cohort module训练出来的，比较的时候，肯定很容易出现在150个训练集cohort module附近（你分析的时候是125-150）就出现平台期。这几乎是一个肯定的事，没什么特别。我觉得你的关注点要集中在scaling —— cohort scaling 对于 d1 的某些优势特性（在 2fc352670840424b3b8961b3d5f2a50f568c5524 里的 test\ablation-02 已经有一些分析的方向 ）的 scaling 是否存在？而且，scaling其实也有2个维度——会增加tissue多样性的scaling和不增加tissue多样性的scaling（即在已经存在的组织里单纯地增加cohort）对d1有什么影响？ ——也没有分析。你怎么看？
+
+---
+
+而且， cancer-type balanced accuracy 这个已经说过很多次；CCS框架并不是为了预测cancer-type，所以，这个balanced accuracy较GSClassifier-TSP低也不能说明CCS框架做了不好的事情。
+
+---
+
+test\ablation-02分析优化： 最近的cohort bank的分析，用的还是DIRECT TSP而不是 Direct-GSClassifier TSP，这个口径和之前的分析不一样。 我觉得还是要统一口径，采用之前用的基于GSClassifier计算的TSP。你的看法是？
+
+---
+
+test\ablation-02分析优化： 最近的cohort bank的分析，用的还是DIRECT TSP而不是 Direct-GSClassifier TSP，这个口径和之前的分析不一样。 我觉得还是要统一口径，采用之前用的基于GSClassifier计算的TSP。
+
+---
+
 test\ablation-02分析优化： 在目前测试数据里的32 gene signature下，评估随着cohort scaling，d1 vs.  Direct-GSClassifier TSP  的差异的变化趋势如何？这个问题还是很有意思的，因为d1是一个随着cohort会scalling的向量；但scalling后会加强还是削弱d1的优势暂时是未知的。我和reviewers们都对相关的趋势很感兴趣。你要优化分析代码以完成上述评估。请你：
 
 - 必要时可以优化 R\ablation.R 以达成目标（目前它有 "scaling" 的模式，但可能有缺陷或未激活，不一定可以完成任务）。
