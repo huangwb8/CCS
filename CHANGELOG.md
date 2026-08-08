@@ -6,6 +6,10 @@
 
 ## [Unreleased]
 
+### Added（新增）
+
+- 新增 `docs/plans/2026-08-08-ablation-02-cohort-bank-scaling优化计划.md`：规划统一 Direct-GSClassifier 主合同、将 cancer-type 指标降为 lineage 诊断，并以 tissue breadth × within-tissue cohort depth 的二维设计重构 d1 cohort-bank scaling。
+
 ### Changed（变更）
 
 - 将 `test/ablation-02` 的 `10`–`16` 契约测试脚本集中迁入 `tests/`，并同步更新该目录 README 的运行命令，以明确主分析入口与质量保障脚本的边界。

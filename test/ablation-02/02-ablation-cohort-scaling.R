@@ -1,9 +1,9 @@
 #!/usr/bin/env Rscript
 
-# Purpose: Recompute only the fixed-TSP cohort-bank scaling extension.
+# Purpose: Recompute only the two-dimensional cohort-evidence scaling extension.
 # Input: Stage-01 objects, the verified external-d1 cache, and existing ablation outputs.
-# Parameters: Shared experiment params with fixed lambda and nested module sequences.
-# Output: cohort_scaling.rds plus synchronized manifest/result references.
+# Parameters: Shared experiment params with breadth/depth repeats and matched banks.
+# Output: Schema-v2 cohort_scaling.rds plus synchronized manifest/result references.
 
 source(file.path("test", "ablation-02", "00.Environment.R"))
 source(file.path("test", "ablation-02", "01-ablation-test-data.R"))
@@ -43,11 +43,14 @@ saveRDS(
 manifest_path <- file.path(output_dir, "manifest.rds")
 manifest <- readRDS(manifest_path)
 feature_types <- prepared$feature_manifest$feature_manifest$feature_type
-manifest$version <- max(4L, manifest$version)
+manifest$version <- max(5L, manifest$version)
 manifest$scaling_created <- format(Sys.time(), "%Y-%m-%dT%H:%M:%S%z")
 manifest$gene_signature_count <- sum(feature_types == "single_bin")
 manifest$scaling_direct_feature_count <-
-  cohort_scaling$metrics$direct_feature_count[1]
+  cohort_scaling$diagnostics$direct_contracts$feature_count[
+    cohort_scaling$diagnostics$direct_contracts$contract_role == "main"
+  ][1]
+manifest$scaling_schema_version <- cohort_scaling$schema_version
 manifest$config <- config
 manifest$config_hash <- digest::digest(config, algo = "md5")
 saveRDS(manifest, manifest_path)

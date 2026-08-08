@@ -2,7 +2,7 @@
 
 # Purpose: Run the complete d1 vs Direct-GSClassifier ablation on real CCS data.
 # Input: Objects prepared by 01-ablation-test-data.R and functions from R/ablation.R.
-# Parameters: External cohorts, paired learning/scaling curves, nulls, and decoder settings.
+# Parameters: External cohorts, paired learning curves, 2D bank scaling, and controls.
 # Output: Full unfiltered result objects under the shared tmp/ablation-experiment/ cache.
 
 source(file.path("test", "ablation-02", "00.Environment.R"))

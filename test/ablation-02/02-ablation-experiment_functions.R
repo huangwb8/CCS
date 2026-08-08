@@ -47,7 +47,11 @@
       enabled = TRUE,
       module_counts = c(10L, 25L, 50L, 75L, 100L, 125L, 150L),
       sequences = 5L,
-      direct_feature_type = "gene_pair",
+      direct_feature_type = "all",
+      sensitivity_feature_type = "gene_pair",
+      biology_anchors = character(),
+      score_reference_samples = 5000L,
+      score_query_samples = 2000L,
       lambda = 1,
       bootstrap = 2000L
     ),

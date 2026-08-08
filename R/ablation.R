@@ -34,23 +34,40 @@
 #'   Representation-specific cohort-bank scaling settings:
 #'
 #'   \describe{
-#'     \item{`scaling$enabled`}{Logical; when `TRUE`, evaluate nested frozen
-#'       cohort-model banks against a fixed Direct-GSClassifier baseline.
+#'     \item{`scaling$enabled`}{Logical; when `TRUE`, evaluate tissue breadth,
+#'       within-tissue cohort depth, and matched-size frozen cohort-model banks.
 #'       Default: `FALSE`.}
-#'     \item{`scaling$module_counts`}{Positive module counts evaluated along
-#'       every tissue-balanced nested sequence. Counts above the selected bank
-#'       size are capped. Default: `c(10L, 25L, 50L, 75L, 100L, 125L, 150L)`.}
+#'     \item{`scaling$module_counts`}{Positive module counts used for matched-size
+#'       breadth-heavy versus depth-heavy contrasts. Infeasible sizes are
+#'       retained in the exclusion audit. Default:
+#'       `c(10L, 25L, 50L, 75L, 100L, 125L, 150L)`.}
 #'     \item{`scaling$sequences`}{Number of independently randomized,
-#'       tissue-balanced nested module sequences. Each sequence is the paired
-#'       uncertainty unit. Default: `10L`.}
-#'     \item{`scaling$direct_feature_type`}{Fixed Direct-GSClassifier feature
-#'       contract used throughout the curve: `"gene_pair"` for ordinary TSPs
-#'       or `"all"` for the complete native input. Default: `"gene_pair"`.}
+#'       reproducible bank-design repeats. Each repeat, rather than its samples
+#'       or grid cells, is the uncertainty unit. Default: `10L`.}
+#'     \item{`scaling$direct_feature_type`}{Main Direct-GSClassifier diagnostic
+#'       contract: `"all"` for the complete native input or `"gene_pair"` for
+#'       ordinary TSPs only. Default: `"all"`.}
+#'     \item{`scaling$sensitivity_feature_type`}{Optional secondary Direct
+#'       contract. `"gene_pair"` reports the explicitly named
+#'       Direct-GSClassifier-TSP sensitivity analysis; `"none"` disables it.
+#'       Default: `"gene_pair"`.}
+#'     \item{`scaling$biology_anchors`}{Independent sample-level biological or
+#'       clinical metadata columns used for external-utility neighborhood
+#'       consistency. Missing or empty anchors are returned as `not_evaluated`;
+#'       cancer type is not substituted. Default: `character()`.}
+#'     \item{`scaling$score_reference_samples`}{Fixed stratified reference
+#'       sample cap shared by every bank score. This controls repeated neighbor
+#'       and readout cost without changing bank-repeat uncertainty. `Inf` keeps
+#'       all reference samples. Default: `5000L`.}
+#'     \item{`scaling$score_query_samples`}{Fixed stratified external-query cap
+#'       shared by every bank score. `Inf` keeps all eligible queries. Default:
+#'       `2000L`.}
 #'     \item{`scaling$lambda`}{Single pre-specified L2 penalty shared by Direct
-#'       and every d1 bank size. Fixing it avoids re-tuning the readout at every
-#'       point and isolates representation scaling. Default: `1`.}
-#'     \item{`scaling$bootstrap`}{Positive number of sequence-level bootstrap
-#'       draws used for pointwise intervals and trend summaries. Default:
+#'       and matched-bank lineage diagnostics. Fixing it avoids re-tuning at
+#'       every bank composition. Default: `1`.}
+#'     \item{`scaling$bootstrap`}{Positive number of repeat-level bootstrap
+#'       draws used for breadth/depth slopes, interactions, and matched-size
+#'       summaries. Default:
 #'       `1000L`.}
 #'   }
 #'
@@ -4300,7 +4317,11 @@ ablation <- function(
       enabled = FALSE,
       module_counts = c(10L, 25L, 50L, 75L, 100L, 125L, 150L),
       sequences = 10L,
-      direct_feature_type = "gene_pair",
+      direct_feature_type = "all",
+      sensitivity_feature_type = "gene_pair",
+      biology_anchors = character(),
+      score_reference_samples = 5000L,
+      score_query_samples = 2000L,
       lambda = 1,
       bootstrap = 1000L
     ),
@@ -4364,6 +4385,29 @@ ablation <- function(
       "ablation: scaling$direct_feature_type must be gene_pair or all.",
       call. = FALSE
     )
+  }
+  if (length(config$scaling$sensitivity_feature_type) != 1 ||
+      !config$scaling$sensitivity_feature_type %in% c("gene_pair", "none")) {
+    stop(
+      paste0(
+        "ablation: scaling$sensitivity_feature_type must be gene_pair or none."
+      ),
+      call. = FALSE
+    )
+  }
+  if (!is.character(config$scaling$biology_anchors) ||
+      anyNA(config$scaling$biology_anchors)) {
+    stop("ablation: scaling$biology_anchors must be a character vector.", call. = FALSE)
+  }
+  for (field in c("score_reference_samples", "score_query_samples")) {
+    value <- config$scaling[[field]]
+    if (length(value) != 1L || (!is.infinite(value) &&
+        (!is.finite(value) || value < 2L || value != as.integer(value)))) {
+      stop(
+        "ablation: scaling$", field, " must be an integer of at least two or Inf.",
+        call. = FALSE
+      )
+    }
   }
   if (length(config$scaling$lambda) != 1 ||
       !is.finite(config$scaling$lambda) ||
@@ -5071,7 +5115,7 @@ ablation <- function(
     decoder = decoder
   )
   manifest <- list(
-    version = 4L,
+    version = 5L,
     created = format(Sys.time(), "%Y-%m-%dT%H:%M:%S%z"),
     seed = seed,
     experiment = "representation",
@@ -5086,7 +5130,14 @@ ablation <- function(
     module_count = length(prepared$selected_blocks),
     gene_signature_count = unname(as.integer(feature_counts["single_bin"])),
     scaling_direct_feature_count = if (config$scaling$enabled) {
-      cohort_scaling$metrics$direct_feature_count[1]
+      cohort_scaling$diagnostics$direct_contracts$feature_count[
+        cohort_scaling$diagnostics$direct_contracts$contract_role == "main"
+      ][1]
+    } else {
+      NA_integer_
+    },
+    scaling_schema_version = if (config$scaling$enabled) {
+      cohort_scaling$schema_version
     } else {
       NA_integer_
     },
@@ -5505,7 +5556,7 @@ ablation <- function(
 
 # Summarize nested-bank contrasts with the randomized module sequence as the
 # uncertainty unit. Slopes are expressed per doubling of the cohort-module bank.
-.ablation_representation_scaling_summary <- function(metrics, bootstrap, seed) {
+.ablation_representation_scaling_summary_v1 <- function(metrics, bootstrap, seed) {
   metric_names <- c(
     "balanced_accuracy_direct",
     "balanced_accuracy_d1",
@@ -5619,7 +5670,7 @@ ablation <- function(
 # through tissue-balanced nested cohort-module banks. Direct and the fixed-lambda
 # readout seed remain unchanged across the entire curve, so adjacent d1 changes
 # are not contaminated by a moving baseline or repeated model selection.
-.ablation_representation_scaling <- function(
+.ablation_representation_scaling_v1 <- function(
     prepared,
     config,
     label_column,
@@ -5788,7 +5839,7 @@ ablation <- function(
   }
   metrics <- do.call(rbind, rows)
   rownames(metrics) <- NULL
-  summaries <- .ablation_representation_scaling_summary(
+  summaries <- .ablation_representation_scaling_summary_v1(
     metrics,
     config$scaling$bootstrap,
     seed + 100000L
@@ -5809,6 +5860,1021 @@ ablation <- function(
     sequence_trends = summaries$sequence_trends,
     trend = summaries$trend,
     test_sample_hash = test_hash
+  )
+}
+
+
+# Build auditable tissue-breadth, within-tissue-depth, and matched-size banks.
+# Every stochastic repeat owns an independent composition sequence; samples are
+# never treated as scaling replicates.
+.ablation_cohort_bank_design <- function(
+    modules,
+    module_counts,
+    repeats,
+    seed
+) {
+  required <- c("module_id", "tissue", "cohort")
+  if (!all(required %in% colnames(modules))) {
+    stop("ablation: module manifest is missing bank-design fields.", call. = FALSE)
+  }
+  modules <- modules[, required, drop = FALSE]
+  modules[] <- lapply(modules, as.character)
+  if (anyNA(modules) || any(!nzchar(as.matrix(modules)))) {
+    stop("ablation: module bank contains missing identifiers.", call. = FALSE)
+  }
+  if (anyDuplicated(modules$module_id)) {
+    stop("ablation: module IDs must be unique within the bank.", call. = FALSE)
+  }
+
+  requested_counts <- sort(unique(as.integer(module_counts)))
+  requested_counts <- requested_counts[
+    requested_counts > 0L & requested_counts <= nrow(modules)
+  ]
+  rows <- list()
+  excluded <- list()
+  row_index <- 1L
+  excluded_index <- 1L
+
+  make_row <- function(
+      design_id,
+      family,
+      role,
+      repeat_id,
+      level,
+      module_ids,
+      pair_id = NA_character_,
+      parent_design_id = NA_character_
+  ) {
+    selected <- modules[match(module_ids, modules$module_id), , drop = FALSE]
+    cohort_counts <- table(selected$tissue)
+    data.frame(
+      design_id = design_id,
+      design_family = family,
+      design_role = role,
+      repeat_id = repeat_id,
+      level = as.integer(level),
+      pair_id = pair_id,
+      parent_design_id = parent_design_id,
+      module_count = length(module_ids),
+      tissue_count = length(unique(selected$tissue)),
+      min_cohort_depth = min(as.integer(cohort_counts)),
+      max_cohort_depth = max(as.integer(cohort_counts)),
+      mean_cohort_depth = mean(as.integer(cohort_counts)),
+      module_hash = digest::digest(sort(module_ids), algo = "md5"),
+      module_ids = I(list(as.character(module_ids))),
+      tissues = I(list(sort(unique(selected$tissue)))),
+      cohorts_per_tissue = I(list(cohort_counts)),
+      stringsAsFactors = FALSE
+    )
+  }
+
+  take_round_robin <- function(tissue_modules, tissue_order, count) {
+    selected <- character()
+    depth <- 1L
+    while (length(selected) < count) {
+      added <- unlist(lapply(tissue_order, function(tissue) {
+        ids <- tissue_modules[[tissue]]
+        if (length(ids) >= depth) ids[depth] else character()
+      }), use.names = FALSE)
+      selected <- c(selected, added)
+      depth <- depth + 1L
+    }
+    selected[seq_len(count)]
+  }
+
+  for (repeat_index in seq_len(as.integer(repeats))) {
+    set.seed(seed + repeat_index)
+    repeat_id <- sprintf("R%03d", repeat_index)
+    tissue_modules <- split(modules$module_id, modules$tissue)
+    tissue_modules <- lapply(tissue_modules, sample)
+    tissue_order <- sample(names(tissue_modules))
+    capacity <- lengths(tissue_modules)
+
+    # Breadth adds one cohort from each new tissue, so within-tissue depth is one.
+    parent <- NA_character_
+    for (breadth in seq_along(tissue_order)) {
+      design_id <- sprintf("%s-B%03d", repeat_id, breadth)
+      module_ids <- unlist(
+        lapply(tissue_order[seq_len(breadth)], function(x) tissue_modules[[x]][1]),
+        use.names = FALSE
+      )
+      rows[[row_index]] <- make_row(
+        design_id,
+        "breadth",
+        "sequence",
+        repeat_id,
+        breadth,
+        module_ids,
+        parent_design_id = parent
+      )
+      row_index <- row_index + 1L
+      parent <- design_id
+    }
+
+    # Depth holds the eligible tissue set fixed and adds one cohort per tissue.
+    depth_tissues <- tissue_order[capacity[tissue_order] >= 2L]
+    if (length(depth_tissues) == 0L) {
+      excluded[[excluded_index]] <- data.frame(
+        repeat_id = repeat_id,
+        design_family = "depth",
+        requested_module_count = NA_integer_,
+        reason = "no_tissue_has_two_independent_cohorts",
+        stringsAsFactors = FALSE
+      )
+      excluded_index <- excluded_index + 1L
+    } else {
+      max_depth <- min(capacity[depth_tissues])
+      parent <- NA_character_
+      for (depth in seq_len(max_depth)) {
+        design_id <- sprintf("%s-D%03d", repeat_id, depth)
+        module_ids <- unlist(lapply(depth_tissues, function(x) {
+          tissue_modules[[x]][seq_len(depth)]
+        }), use.names = FALSE)
+        rows[[row_index]] <- make_row(
+          design_id,
+          "depth",
+          "sequence",
+          repeat_id,
+          depth,
+          module_ids,
+          parent_design_id = parent
+        )
+        row_index <- row_index + 1L
+        parent <- design_id
+      }
+    }
+
+    # Matched banks have identical module counts but deliberately different
+    # tissue diversity. Breadth uses round-robin allocation; depth fills the
+    # largest tissue banks first.
+    tie_break <- stats::runif(length(capacity))
+    depth_order <- names(sort(capacity + tie_break * 1e-6, decreasing = TRUE))
+    for (module_count in requested_counts) {
+      breadth_ids <- take_round_robin(tissue_modules, tissue_order, module_count)
+      depth_ids <- unlist(lapply(depth_order, function(x) tissue_modules[[x]]),
+        use.names = FALSE
+      )[seq_len(module_count)]
+      breadth_tissues <- unique(modules$tissue[match(breadth_ids, modules$module_id)])
+      depth_tissues_used <- unique(modules$tissue[match(depth_ids, modules$module_id)])
+      if (length(breadth_tissues) <= length(depth_tissues_used)) {
+        excluded[[excluded_index]] <- data.frame(
+          repeat_id = repeat_id,
+          design_family = "matched",
+          requested_module_count = module_count,
+          reason = "no_tissue_diversity_contrast_at_this_size",
+          stringsAsFactors = FALSE
+        )
+        excluded_index <- excluded_index + 1L
+        next
+      }
+      pair_id <- sprintf("%s-M%03d", repeat_id, module_count)
+      rows[[row_index]] <- make_row(
+        paste0(pair_id, "-B"),
+        "matched",
+        "breadth_heavy",
+        repeat_id,
+        module_count,
+        breadth_ids,
+        pair_id = pair_id
+      )
+      row_index <- row_index + 1L
+      rows[[row_index]] <- make_row(
+        paste0(pair_id, "-D"),
+        "matched",
+        "depth_heavy",
+        repeat_id,
+        module_count,
+        depth_ids,
+        pair_id = pair_id
+      )
+      row_index <- row_index + 1L
+    }
+  }
+
+  design <- do.call(rbind, rows)
+  rownames(design) <- NULL
+  exclusions <- if (length(excluded) == 0L) {
+    data.frame(
+      repeat_id = character(),
+      design_family = character(),
+      requested_module_count = integer(),
+      reason = character(),
+      stringsAsFactors = FALSE
+    )
+  } else {
+    do.call(rbind, excluded)
+  }
+  design_hash <- digest::digest(
+    lapply(seq_len(nrow(design)), function(i) {
+      list(
+        design_id = design$design_id[i],
+        module_ids = design$module_ids[[i]],
+        parent_design_id = design$parent_design_id[i]
+      )
+    }),
+    algo = "md5"
+  )
+  list(design = design, exclusions = exclusions, design_hash = design_hash)
+}
+
+
+# Resolve one bank into raw matrices plus locally indexed module blocks.
+.ablation_cohort_bank_matrices <- function(prepared, module_ids) {
+  full_blocks <- prepared$selected_blocks[module_ids]
+  if (length(full_blocks) != length(module_ids) || any(lengths(full_blocks) == 0L)) {
+    stop("ablation: bank design references unavailable module blocks.", call. = FALSE)
+  }
+  full_columns <- unlist(full_blocks, use.names = FALSE)
+  block_ends <- cumsum(lengths(full_blocks))
+  block_starts <- c(1L, utils::head(block_ends, -1L) + 1L)
+  blocks <- Map(seq.int, block_starts, block_ends)
+  names(blocks) <- module_ids
+  list(
+    reference = prepared$reference_d1[, full_columns, drop = FALSE],
+    query = prepared$query_d1[, full_columns, drop = FALSE],
+    blocks = blocks
+  )
+}
+
+
+# Represent each probability block by its first centered singular direction.
+# Absolute between-module correlations then measure redundant cohort evidence
+# without allowing wider probability blocks to receive more weight.
+.ablation_module_score_matrix <- function(data, blocks) {
+  scores <- lapply(blocks, function(block) {
+    candidate <- scale(data[, block, drop = FALSE], center = TRUE, scale = FALSE)
+    if (!any(candidate != 0)) {
+      return(rep(0, nrow(candidate)))
+    }
+    fit <- base::svd(candidate, nu = 1L, nv = 0L)
+    as.numeric(fit$u[, 1L] * fit$d[1L])
+  })
+  result <- do.call(cbind, scores)
+  colnames(result) <- names(blocks)
+  result
+}
+
+
+.ablation_neighbor_index_jaccard <- function(x_neighbors, y_neighbors) {
+  if (!identical(dim(x_neighbors), dim(y_neighbors))) {
+    stop("ablation: neighbor-index matrices must have identical dimensions.",
+      call. = FALSE
+    )
+  }
+  mean(vapply(seq_len(nrow(x_neighbors)), function(i) {
+    length(intersect(x_neighbors[i, ], y_neighbors[i, ])) /
+      length(union(x_neighbors[i, ], y_neighbors[i, ]))
+  }, numeric(1)))
+}
+
+
+.ablation_scaling_metric_row <- function(
+    design,
+    metric_name,
+    metric_role,
+    estimate,
+    status = "evaluated",
+    reason = NA_character_,
+    query_coverage = "all"
+) {
+  estimate <- as.numeric(estimate)[1]
+  if (status == "evaluated" && !is.finite(estimate)) {
+    status <- "not_evaluated"
+    reason <- if (is.na(reason)) "non_finite_metric_estimate" else reason
+    estimate <- NA_real_
+  }
+  data.frame(
+    design_id = design$design_id,
+    design_family = design$design_family,
+    design_role = design$design_role,
+    repeat_id = design$repeat_id,
+    level = design$level,
+    pair_id = design$pair_id,
+    module_count = design$module_count,
+    tissue_count = design$tissue_count,
+    metric_name = metric_name,
+    metric_role = metric_role,
+    query_coverage = query_coverage,
+    estimate = estimate,
+    status = status,
+    reason = reason,
+    stringsAsFactors = FALSE
+  )
+}
+
+
+# Calculate bank-level information and representation-rewrite diagnostics.
+.ablation_score_bank_geometry <- function(
+    design,
+    bank,
+    balanced,
+    full_balanced,
+    full_neighbors,
+    config,
+    seed
+) {
+  rank_max <- min(nrow(balanced$query) - 1L, ncol(balanced$query))
+  effective_rank <- .ablation_effective_rank(balanced$query)
+  module_scores <- .ablation_module_score_matrix(bank$reference, bank$blocks)
+  redundancy <- if (ncol(module_scores) < 2L) {
+    NA_real_
+  } else {
+    correlation <- stats::cor(module_scores)
+    mean(abs(correlation[upper.tri(correlation)]), na.rm = TRUE)
+  }
+  module_variance <- vapply(bank$blocks, function(block) {
+    mean(apply(bank$reference[, block, drop = FALSE], 2, stats::var))
+  }, numeric(1))
+  variance_share <- module_variance / sum(module_variance)
+  local_k <- min(max(config$geometry$k), nrow(balanced$query) - 1L)
+  bank_neighbors <- .ablation_knn(balanced$query, local_k)
+  values <- c(
+    normalized_effective_rank = effective_rank / rank_max,
+    module_covariance_redundancy = redundancy,
+    module_variance_concentration = sum(variance_share^2),
+    cka_to_full_d1 = .ablation_linear_cka(
+      balanced$query,
+      full_balanced$query
+    ),
+    distance_spearman_to_full_d1 = .ablation_distance_spearman(
+      balanced$query,
+      full_balanced$query,
+      min(10000L, config$geometry$distance_pairs),
+      seed
+    ),
+    knn_jaccard_to_full_d1 = .ablation_neighbor_index_jaccard(
+      bank_neighbors,
+      full_neighbors
+    )
+  )
+  roles <- c(
+    rep("primary_nonredundancy", 3L),
+    rep("diagnostic_mechanism", 3L)
+  )
+  metrics <- do.call(rbind, lapply(seq_along(values), function(i) {
+    .ablation_scaling_metric_row(
+      design,
+      names(values)[i],
+      roles[i],
+      values[i]
+    )
+  }))
+  list(metrics = metrics, neighbors = bank_neighbors)
+}
+
+
+.ablation_scaling_coverage <- function(design, bank_tissues, bank_design, metadata) {
+  if (!"tissue" %in% colnames(metadata)) {
+    return(rep("all", nrow(metadata)))
+  }
+  current <- as.character(metadata$tissue) %in% bank_tissues
+  parent_tissues <- character()
+  if (!is.na(design$parent_design_id) && nzchar(design$parent_design_id)) {
+    parent_index <- match(design$parent_design_id, bank_design$design_id)
+    if (!is.na(parent_index)) parent_tissues <- bank_design$tissues[[parent_index]]
+  }
+  if (length(parent_tissues) == 0L) {
+    return(ifelse(current, "covered", "uncovered"))
+  }
+  parent <- as.character(metadata$tissue) %in% parent_tissues
+  ifelse(current & !parent, "newly_covered", ifelse(parent, "already_covered", "uncovered"))
+}
+
+
+# Convert retrieval output into technical-robustness and lineage diagnostics,
+# stratified by whether the bank covers each query tissue.
+.ablation_score_bank_retrieval <- function(
+    design,
+    retrieval,
+    coverage,
+    technical_columns
+) {
+  per_sample <- retrieval$per_sample
+  per_sample$query_coverage <- rep(coverage, times = length(unique(per_sample$k)))
+  strata <- c("all", sort(unique(per_sample$query_coverage)))
+  rows <- list()
+  index <- 1L
+  for (coverage_name in strata) {
+    selected <- if (coverage_name == "all") {
+      per_sample
+    } else {
+      per_sample[per_sample$query_coverage == coverage_name, , drop = FALSE]
+    }
+    if (nrow(selected) == 0L) next
+    for (k_i in sort(unique(selected$k))) {
+      data <- selected[selected$k == k_i, , drop = FALSE]
+      lineage <- c(
+        top1 = mean(data$top1_label_match, na.rm = TRUE),
+        top_k = mean(data$top_k_label_rate, na.rm = TRUE),
+        mrr = mean(data$mrr, na.rm = TRUE)
+      )
+      for (name in names(lineage)) {
+        rows[[index]] <- .ablation_scaling_metric_row(
+          design,
+          paste0("lineage_", name, "@", k_i),
+          "diagnostic_lineage",
+          lineage[name],
+          query_coverage = coverage_name
+        )
+        index <- index + 1L
+      }
+      for (column in technical_columns) {
+        metric <- paste0(column, "_match_excess")
+        if (!metric %in% colnames(data)) next
+        rows[[index]] <- .ablation_scaling_metric_row(
+          design,
+          paste0("technical_neighbor_excess:", column, "@", k_i),
+          "primary_technical",
+          mean(data[[metric]], na.rm = TRUE),
+          query_coverage = coverage_name
+        )
+        index <- index + 1L
+      }
+    }
+  }
+  do.call(rbind, rows)
+}
+
+
+.ablation_scaling_direct_contracts <- function(prepared, config) {
+  types <- c(main = config$scaling$direct_feature_type)
+  if (config$scaling$sensitivity_feature_type != "none") {
+    types <- c(types, sensitivity = config$scaling$sensitivity_feature_type)
+  }
+  lapply(seq_along(types), function(i) {
+    type <- unname(types[i])
+    features <- if (type == "gene_pair") {
+      prepared$feature_manifest$tsp_features
+    } else {
+      prepared$feature_manifest$features
+    }
+    columns <- match(features, colnames(prepared$reference_direct))
+    if (anyNA(columns)) {
+      stop("ablation: a Direct scaling contract is missing features.", call. = FALSE)
+    }
+    list(
+      contract_role = names(types)[i],
+      group = if (type == "gene_pair") {
+        "Direct-GSClassifier-TSP"
+      } else {
+        "Direct-GSClassifier"
+      },
+      feature_type = type,
+      features = features,
+      feature_count = length(columns),
+      feature_hash = digest::digest(features, algo = "md5"),
+      reference = prepared$reference_direct[, columns, drop = FALSE],
+      query = prepared$query_direct[, columns, drop = FALSE]
+    )
+  })
+}
+
+
+# Estimate breadth/depth slopes, their interaction, and matched-size paired
+# differences. Bootstrap summaries resample repeat-level estimates only.
+.ablation_representation_scaling_summary <- function(
+    metrics,
+    design,
+    bootstrap,
+    seed
+) {
+  base <- metrics[
+    metrics$status == "evaluated" & metrics$query_coverage == "all",
+    ,
+    drop = FALSE
+  ]
+  base <- merge(
+    base,
+    design[, c(
+      "design_id", "parent_design_id", "mean_cohort_depth"
+    )],
+    by = "design_id",
+    all.x = TRUE,
+    sort = FALSE
+  )
+  units <- list()
+  unit_index <- 1L
+
+  for (family in c("breadth", "depth")) {
+    selected <- base[base$design_family == family, , drop = FALSE]
+    groups <- split(selected, interaction(
+      selected$repeat_id,
+      selected$metric_name,
+      drop = TRUE
+    ))
+    for (data in groups) {
+      if (nrow(data) < 2L || length(unique(data$level)) < 2L) next
+      fit <- stats::lm(estimate ~ level, data = data)
+      units[[unit_index]] <- data.frame(
+        contrast_type = paste0(family, "_slope"),
+        aggregation = "repeat",
+        repeat_id = data$repeat_id[1],
+        pair_id = NA_character_,
+        metric_name = data$metric_name[1],
+        component = if (family == "breadth") {
+          "per_added_tissue"
+        } else {
+          "per_added_cohort_per_tissue"
+        },
+        estimate = unname(stats::coef(fit)[2]),
+        ci_low = NA_real_,
+        ci_high = NA_real_,
+        n_repeats = 1L,
+        stringsAsFactors = FALSE
+      )
+      unit_index <- unit_index + 1L
+    }
+  }
+
+  matched <- base[base$design_family == "matched", , drop = FALSE]
+  breadth <- matched[matched$design_role == "breadth_heavy", , drop = FALSE]
+  depth <- matched[matched$design_role == "depth_heavy", , drop = FALSE]
+  paired <- merge(
+    breadth,
+    depth,
+    by = c("repeat_id", "pair_id", "metric_name"),
+    suffixes = c("_breadth", "_depth")
+  )
+  if (nrow(paired) > 0L) {
+    for (i in seq_len(nrow(paired))) {
+      units[[unit_index]] <- data.frame(
+        contrast_type = "matched_size",
+        aggregation = "pair",
+        repeat_id = paired$repeat_id[i],
+        pair_id = paired$pair_id[i],
+        metric_name = paired$metric_name[i],
+        component = "breadth_minus_depth",
+        estimate = paired$estimate_breadth[i] - paired$estimate_depth[i],
+        ci_low = NA_real_,
+        ci_high = NA_real_,
+        n_repeats = 1L,
+        stringsAsFactors = FALSE
+      )
+      unit_index <- unit_index + 1L
+    }
+  }
+
+  marginal_current <- base[
+    !is.na(base$parent_design_id) & nzchar(base$parent_design_id),
+    ,
+    drop = FALSE
+  ]
+  marginal_parent <- base[, c("design_id", "metric_name", "estimate"), drop = FALSE]
+  names(marginal_parent) <- c("parent_design_id", "metric_name", "parent_estimate")
+  marginal <- merge(
+    marginal_current,
+    marginal_parent,
+    by = c("parent_design_id", "metric_name")
+  )
+  if (nrow(marginal) > 0L) {
+    for (i in seq_len(nrow(marginal))) {
+      units[[unit_index]] <- data.frame(
+        contrast_type = "marginal_gain",
+        aggregation = "nested_step",
+        repeat_id = marginal$repeat_id[i],
+        pair_id = marginal$design_id[i],
+        metric_name = marginal$metric_name[i],
+        component = paste0(marginal$design_family[i], "_child_minus_parent"),
+        estimate = marginal$estimate[i] - marginal$parent_estimate[i],
+        ci_low = NA_real_,
+        ci_high = NA_real_,
+        n_repeats = 1L,
+        stringsAsFactors = FALSE
+      )
+      unit_index <- unit_index + 1L
+    }
+  }
+
+  interaction_groups <- split(matched, interaction(
+    matched$repeat_id,
+    matched$metric_name,
+    drop = TRUE
+  ))
+  for (data in interaction_groups) {
+    if (nrow(data) < 4L || length(unique(data$tissue_count)) < 2L ||
+        length(unique(data$mean_cohort_depth)) < 2L) next
+    fit <- stats::lm(
+      estimate ~ tissue_count * mean_cohort_depth,
+      data = data
+    )
+    coefficient <- stats::coef(fit)["tissue_count:mean_cohort_depth"]
+    if (!is.finite(coefficient)) next
+    units[[unit_index]] <- data.frame(
+      contrast_type = "breadth_depth_interaction",
+      aggregation = "repeat",
+      repeat_id = data$repeat_id[1],
+      pair_id = NA_character_,
+      metric_name = data$metric_name[1],
+      component = "tissue_count_x_mean_depth",
+      estimate = unname(coefficient),
+      ci_low = NA_real_,
+      ci_high = NA_real_,
+      n_repeats = 1L,
+      stringsAsFactors = FALSE
+    )
+    unit_index <- unit_index + 1L
+  }
+
+  unit_table <- if (length(units) == 0L) data.frame() else do.call(rbind, units)
+  if (nrow(unit_table) == 0L) return(unit_table)
+  summary_source <- stats::aggregate(
+    estimate ~ contrast_type + repeat_id + metric_name + component,
+    data = unit_table,
+    FUN = mean
+  )
+  summary_groups <- split(summary_source, interaction(
+    summary_source$contrast_type,
+    summary_source$metric_name,
+    summary_source$component,
+    drop = TRUE
+  ))
+  summaries <- lapply(seq_along(summary_groups), function(i) {
+    data <- summary_groups[[i]]
+    interval <- .ablation_bootstrap_mean(
+      data$estimate,
+      bootstrap,
+      seed + i
+    )
+    data.frame(
+      contrast_type = data$contrast_type[1],
+      aggregation = "bootstrap_summary",
+      repeat_id = NA_character_,
+      pair_id = NA_character_,
+      metric_name = data$metric_name[1],
+      component = data$component[1],
+      estimate = mean(data$estimate),
+      ci_low = interval[1],
+      ci_high = interval[2],
+      n_repeats = nrow(data),
+      stringsAsFactors = FALSE
+    )
+  })
+  rbind(unit_table, do.call(rbind, summaries))
+}
+
+
+# Score the auditable two-dimensional cohort bank. Primary evidence concerns
+# non-redundancy, technical robustness, external biology (when supplied), and
+# repeat stability; cancer-type readouts remain explicitly diagnostic.
+.ablation_representation_scaling <- function(
+    prepared,
+    config,
+    label_column,
+    seed,
+    verbose,
+    cache_path = NULL
+) {
+  modules <- prepared$module_manifest$modules
+  modules <- modules[match(prepared$selected_module_ids, modules$module_id), , drop = FALSE]
+  bank_design <- .ablation_cohort_bank_design(
+    modules,
+    config$scaling$module_counts,
+    config$scaling$sequences,
+    seed
+  )
+  design <- bank_design$design
+  design$d1_feature_count <- vapply(design$module_ids, function(module_ids) {
+    sum(lengths(prepared$selected_blocks[module_ids]))
+  }, integer(1))
+  if ("tissue" %in% colnames(prepared$query_metadata)) {
+    query_tissue <- as.character(prepared$query_metadata$tissue)
+    design$query_covered_count <- vapply(design$tissues, function(tissues) {
+      sum(query_tissue %in% tissues)
+    }, integer(1))
+    design$query_covered_fraction <- design$query_covered_count / length(query_tissue)
+    design$query_coverage_hash <- vapply(design$tissues, function(tissues) {
+      digest::digest(
+        sort(prepared$query_metadata$sample_id[query_tissue %in% tissues]),
+        algo = "md5"
+      )
+    }, character(1))
+  } else {
+    design$query_covered_count <- NA_integer_
+    design$query_covered_fraction <- NA_real_
+    design$query_coverage_hash <- NA_character_
+  }
+  query_hash <- digest::digest(sort(prepared$query_metadata$sample_id), algo = "md5")
+  contracts <- .ablation_scaling_direct_contracts(prepared, config)
+  score_reference_metadata <- .ablation_limit_metadata(
+    prepared$reference_metadata,
+    config$scaling$score_reference_samples,
+    seed + 101L
+  )
+  score_query_metadata <- .ablation_limit_metadata(
+    prepared$query_metadata,
+    config$scaling$score_query_samples,
+    seed + 102L
+  )
+  score_reference_rows <- match(
+    score_reference_metadata$sample_id,
+    prepared$reference_metadata$sample_id
+  )
+  score_query_rows <- match(
+    score_query_metadata$sample_id,
+    prepared$query_metadata$sample_id
+  )
+  score_reference_hash <- digest::digest(
+    sort(score_reference_metadata$sample_id),
+    algo = "md5"
+  )
+  score_query_hash <- digest::digest(
+    sort(score_query_metadata$sample_id),
+    algo = "md5"
+  )
+  cache_key <- digest::digest(list(
+    prepared_cache_key = prepared$cache_key,
+    bank_design_hash = bank_design$design_hash,
+    direct_contracts = lapply(contracts, function(x) x$feature_hash),
+    query_hash = query_hash,
+    score_reference_hash = score_reference_hash,
+    score_query_hash = score_query_hash,
+    geometry = config$geometry,
+    scaling = config$scaling,
+    seed = seed
+  ), algo = "md5")
+  fit_cache <- list(key = cache_key, direct = list(), d1 = list())
+  if (!is.null(cache_path) && file.exists(cache_path)) {
+    cached <- readRDS(cache_path)
+    if (identical(cached$key, cache_key)) fit_cache <- cached
+  }
+  save_fit_cache <- function() {
+    if (!is.null(cache_path)) saveRDS(fit_cache, cache_path)
+  }
+
+  readout_seed <- seed + 50000L
+  direct_diagnostics <- lapply(contracts, function(contract) {
+    fit <- fit_cache$direct[[contract$feature_hash]]
+    if (is.null(fit)) {
+      result <- .ablation_linear_readout(
+        train = contract$reference[score_reference_rows, , drop = FALSE],
+        test = contract$query[score_query_rows, , drop = FALSE],
+        train_metadata = score_reference_metadata,
+        test_metadata = score_query_metadata,
+        label_column = label_column,
+        lambda = config$scaling$lambda,
+        inner_folds = config$validation$inner_folds,
+        nrounds = config$validation$nrounds,
+        numCores = config$validation$numCores,
+        seed = readout_seed,
+        blocks = NULL
+      )
+      fit <- list(overall = result$overall, selected_lambda = result$selected_lambda)
+      fit_cache$direct[[contract$feature_hash]] <- fit
+      save_fit_cache()
+    }
+    data.frame(
+      contract_role = contract$contract_role,
+      group = contract$group,
+      feature_type = contract$feature_type,
+      feature_count = contract$feature_count,
+      feature_hash = contract$feature_hash,
+      balanced_accuracy = fit$overall$balanced_accuracy,
+      macro_auroc = fit$overall$macro_auroc,
+      selected_lambda = fit$selected_lambda,
+      stringsAsFactors = FALSE
+    )
+  })
+  direct_diagnostics <- do.call(rbind, direct_diagnostics)
+
+  full_bank <- .ablation_cohort_bank_matrices(
+    prepared,
+    prepared$selected_module_ids
+  )
+  full_bank$reference <- full_bank$reference[score_reference_rows, , drop = FALSE]
+  full_bank$query <- full_bank$query[score_query_rows, , drop = FALSE]
+  full_balanced <- .ablation_module_balanced_transform(
+    full_bank$reference,
+    full_bank$query,
+    full_bank$blocks
+  )
+  stability_k <- min(max(config$geometry$k), nrow(score_query_metadata) - 1L)
+  full_neighbors <- .ablation_knn(full_balanced$query, stability_k)
+  technical_columns <- intersect(
+    config$anchors$technical,
+    intersect(
+      colnames(score_reference_metadata),
+      colnames(score_query_metadata)
+    )
+  )
+  biology_anchors <- intersect(
+    config$scaling$biology_anchors,
+    intersect(
+      colnames(score_reference_metadata),
+      colnames(score_query_metadata)
+    )
+  )
+  missing_biology <- setdiff(config$scaling$biology_anchors, biology_anchors)
+  reasons <- if (length(config$scaling$biology_anchors) == 0L) {
+    data.frame(
+      evidence_layer = "external_biology",
+      status = "not_evaluated",
+      reason = "no_independent_biology_anchor_configured",
+      stringsAsFactors = FALSE
+    )
+  } else if (length(missing_biology) > 0L) {
+    data.frame(
+      evidence_layer = paste0("external_biology:", missing_biology),
+      status = "not_evaluated",
+      reason = "anchor_missing_from_reference_or_query_metadata",
+      stringsAsFactors = FALSE
+    )
+  } else {
+    data.frame(
+      evidence_layer = character(),
+      status = character(),
+      reason = character(),
+      stringsAsFactors = FALSE
+    )
+  }
+
+  metric_parts <- list()
+  neighbor_indices <- list()
+  metric_index <- 1L
+  local_k <- config$geometry$k[config$geometry$k < nrow(score_reference_metadata)]
+  if (length(local_k) == 0L) {
+    stop("ablation: no scaling retrieval k is feasible.", call. = FALSE)
+  }
+  for (i in seq_len(nrow(design))) {
+    design_row <- design[i, , drop = FALSE]
+    module_ids <- design$module_ids[[i]]
+    if (verbose) {
+      luckyBase::LuckyVerbose(
+        "ablation: cohort bank ", i, "/", nrow(design), " (",
+        design_row$design_id, ")..."
+      )
+    }
+    bank <- .ablation_cohort_bank_matrices(prepared, module_ids)
+    bank$reference <- bank$reference[score_reference_rows, , drop = FALSE]
+    bank$query <- bank$query[score_query_rows, , drop = FALSE]
+    balanced <- .ablation_module_balanced_transform(
+      bank$reference,
+      bank$query,
+      bank$blocks
+    )
+    geometry <- .ablation_score_bank_geometry(
+      design_row,
+      bank,
+      balanced,
+      full_balanced,
+      full_neighbors,
+      config,
+      seed + i
+    )
+    neighbor_indices[[design_row$design_id]] <- geometry$neighbors
+    metric_parts[[metric_index]] <- geometry$metrics
+    metric_index <- metric_index + 1L
+
+    retrieval <- .ablation_query_reference_retrieval(
+      balanced$reference,
+      balanced$query,
+      score_reference_metadata,
+      score_query_metadata,
+      label_column = label_column,
+      technical_columns = technical_columns,
+      k = local_k,
+      search = config$geometry$search,
+      seed = seed + 1000L + i,
+      n_trees = config$geometry$n_trees,
+      search_k = config$geometry$search_k
+    )
+    coverage <- .ablation_scaling_coverage(
+      design_row,
+      design$tissues[[i]],
+      design,
+      score_query_metadata
+    )
+    metric_parts[[metric_index]] <- .ablation_score_bank_retrieval(
+      design_row,
+      retrieval,
+      coverage,
+      technical_columns
+    )
+    metric_index <- metric_index + 1L
+
+    for (anchor in biology_anchors) {
+      biology <- .ablation_query_reference_retrieval(
+        balanced$reference,
+        balanced$query,
+        score_reference_metadata,
+        score_query_metadata,
+        label_column = anchor,
+        k = local_k,
+        search = config$geometry$search,
+        seed = seed + 2000L + i,
+        n_trees = config$geometry$n_trees,
+        search_k = config$geometry$search_k
+      )
+      for (k_i in sort(unique(biology$per_sample$k))) {
+        values <- biology$per_sample$top_k_label_rate[biology$per_sample$k == k_i]
+        metric_parts[[metric_index]] <- .ablation_scaling_metric_row(
+          design_row,
+          paste0("biology_neighbor_consistency:", anchor, "@", k_i),
+          "primary_biology",
+          mean(values, na.rm = TRUE)
+        )
+        metric_index <- metric_index + 1L
+      }
+    }
+
+    # Supervised cancer-type readout is deliberately restricted to matched banks.
+    if (design_row$design_family == "matched") {
+      module_hash <- design_row$module_hash
+      d1_fit <- fit_cache$d1[[module_hash]]
+      if (is.null(d1_fit)) {
+        result <- .ablation_linear_readout(
+          train = bank$reference,
+          test = bank$query,
+          train_metadata = score_reference_metadata,
+          test_metadata = score_query_metadata,
+          label_column = label_column,
+          lambda = config$scaling$lambda,
+          inner_folds = config$validation$inner_folds,
+          nrounds = config$validation$nrounds,
+          numCores = config$validation$numCores,
+          seed = readout_seed,
+          blocks = bank$blocks
+        )
+        d1_fit <- list(overall = result$overall, selected_lambda = result$selected_lambda)
+        fit_cache$d1[[module_hash]] <- d1_fit
+        save_fit_cache()
+      }
+      metric_parts[[metric_index]] <- rbind(
+        .ablation_scaling_metric_row(
+          design_row,
+          "lineage_balanced_accuracy_d1",
+          "diagnostic_lineage",
+          d1_fit$overall$balanced_accuracy
+        ),
+        .ablation_scaling_metric_row(
+          design_row,
+          "lineage_macro_auroc_d1",
+          "diagnostic_lineage",
+          d1_fit$overall$macro_auroc
+        )
+      )
+      metric_index <- metric_index + 1L
+    }
+  }
+
+  # Neighbor stability compares independent bank compositions at the same design cell.
+  stability_groups <- split(seq_len(nrow(design)), interaction(
+    design$design_family,
+    design$design_role,
+    design$level,
+    design$module_count,
+    drop = TRUE
+  ))
+  for (indices in stability_groups) {
+    if (length(indices) < 2L) next
+    for (i in indices) {
+      peers <- setdiff(indices, i)
+      values <- vapply(peers, function(j) {
+        .ablation_neighbor_index_jaccard(
+          neighbor_indices[[design$design_id[i]]],
+          neighbor_indices[[design$design_id[j]]]
+        )
+      }, numeric(1))
+      metric_parts[[metric_index]] <- .ablation_scaling_metric_row(
+        design[i, , drop = FALSE],
+        "neighbor_stability",
+        "primary_stability",
+        mean(values)
+      )
+      metric_index <- metric_index + 1L
+    }
+  }
+
+  metrics <- do.call(rbind, metric_parts)
+  rownames(metrics) <- NULL
+  contrasts <- .ablation_representation_scaling_summary(
+    metrics,
+    design,
+    config$scaling$bootstrap,
+    seed + 100000L
+  )
+  list(
+    schema_version = 2L,
+    status = "complete",
+    reasons = reasons,
+    design_hash = bank_design$design_hash,
+    design = design,
+    design_exclusions = bank_design$exclusions,
+    metrics = metrics,
+    contrasts = contrasts,
+    diagnostics = list(
+      direct_contracts = direct_diagnostics,
+      lineage_role = "diagnostic",
+      mechanism_role = "diagnostic",
+      query_hash = query_hash,
+      score_reference_hash = score_reference_hash,
+      score_query_hash = score_query_hash,
+      score_reference_count = nrow(score_reference_metadata),
+      score_query_count = nrow(score_query_metadata),
+      cache_key = cache_key,
+      biology_anchors = biology_anchors
+    ),
+    module_counts = sort(unique(design$module_count)),
+    test_sample_hash = query_hash
   )
 }
 
