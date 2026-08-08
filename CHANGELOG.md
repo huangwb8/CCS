@@ -6,6 +6,10 @@
 
 ## [Unreleased]
 
+### Changed
+
+- Figure 2 现以与指标颜色一致的虚线显示样本级总体 top-k 一致率与 MRR 差值。
+
 ### Added（新增）
 
 - 新增 `docs/plans/2026-08-08-ablation-02-cohort-bank-scaling优化计划.md`：规划统一 Direct-GSClassifier 主合同、将 cancer-type 指标降为 lineage 诊断，并以 tissue breadth × within-tissue cohort depth 的二维设计重构 d1 cohort-bank scaling。
