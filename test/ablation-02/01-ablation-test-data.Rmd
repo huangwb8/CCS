@@ -117,9 +117,13 @@ external_sample_count <- sum(
 
 本报告是数据审计阶段，只审计完整输入数据、组织标签恢复和 reference-query 原始构成。它不运行表示学习，也不根据样本量、效应大小或显著性阈值筛选数据；确认性表示实验的资格条件与结果由 `r experiment_report_name` 单独报告。
 
+之所以把数据审计放在所有模型分析之前，是因为模型就像按花名册分组做游戏：如果同一个班被写成两个名字，或者不同班被误写成一个名字，后面的分数再精确也回答错了问题。本阶段先确认“有多少人、分别来自哪里、哪些人用于参照、哪些人用于提问”，让客户先看懂实验地基是否可靠，再进入 d1 与 Direct-GSClassifier 的比较。
+
 ## 数据概览
 
 表达 RDS 共含 `r raw_sample_count` 个样本和 `r raw_cohort_count` 个 cohort。历史结构只有 `r raw_tissue_count` 个顶层 tissue，其中 `Undefined` 汇集了 `r remapped_cohort_count` 个已知 cohort、`r remapped_sample_count` 个样本。经核验映射恢复后得到 `r resolved_tissue_count` 个 tissue，未解析样本数为 **`r unresolved_sample_count`**；样本与 cohort 总数保持不变。
+
+这里先检查组织标签恢复，是为了确认我们只是把贴错位置的姓名牌放回正确抽屉，而没有偷偷增加、删除或重复任何样本。可以把 **sample** 理解为一个孩子，**cohort** 理解为一起入学的一个班，**tissue** 理解为班级所属的年级；理想结果是孩子和班级总数完全不变，只有原先写着 `Undefined` 的年级标签被可靠补全。下面的表逐个展示这些标签从哪里来、被放到哪里，客户可直接核对每次移动是否有依据。
 
 ```{r tissue-resolution-table, interp_check=TRUE}
 # Purpose: Show every historical Undefined cohort and its audited destination.
@@ -147,6 +151,8 @@ render_dt(
 | 审计产物 | `saveRDS()` | `r profile_path` | 让 Rmd 不重复加载完整表达矩阵与冻结模型 | `r data_script_name` |
 
 ## 样本与 reference-query 构成
+
+这一步要回答“模型从谁身上学习，又拿谁来接受检验”。**reference** 像已经写好答案的例题，负责提供可比较的参照；**query** 像交给模型的新题，用来观察表示能否在未作为参照的样本上工作。先看各组织中两类样本的数量，是为了避免某个组织因为例题特别多而看起来天然更好，也避免把“题目见得多”误当成方法更可靠。图中的柱子越长，只表示该组样本更多，并不自动表示证据更独立或模型更优秀。
 
 ```{r figure-data-tissue-composition, interp_check=TRUE}
 # ==== Data Figure 1: Tissue composition (user-adjustable parameters) ====
@@ -197,6 +203,8 @@ knitr::include_graphics(fig_data1_jpg)
 当前数据结果显示，`r tissue_totals$tissue[1]` 样本量最高（`r tissue_totals$sample_count[1]` 个样本、`r tissue_totals$cohort_count[1]` 个 cohort），其次为 `r tissue_totals$tissue[2]`（`r tissue_totals$sample_count[2]`）和 `r tissue_totals$tissue[3]`（`r tissue_totals$sample_count[3]`）。external query 由冻结模型记录的 filtered cohort 决定，原始层面包含 `r external_sample_count` 个样本。**这不是随机训练测试切分；第二阶段仍按独立锚点和重复样本合同重新判定确认性 query。** 这种组织覆盖差异表明样本量只能描述数据规模，不能替代独立 cohort 证据；实验报告会并列给出独立 cohort 数与最终纳入样本数。
 
 ## cohort 规模与来源异质性
+
+样本数很多，并不等于独立证据很多：一个人数很多的大班，仍然只代表一个班的教学环境；多个相互独立的小班，才能提供多次独立检验机会。因此这里同时查看每个 tissue 有多少样本、多少 cohort，以及最大 cohort 是否过大。横轴采用对数尺度，就像把很长和很短的尺子都压缩到一张纸上，目的是让小 cohort 不被大 cohort 完全遮住；位置相差一个大刻度代表数量级差异，而不是普通的等量加减。
 
 ```{r figure-data-cohort-scale, interp_check=TRUE}
 # ==== Data Figure 2: Cohort scale heterogeneity (user-adjustable parameters) ====
@@ -261,7 +269,9 @@ knitr::include_graphics(fig_data2_jpg)
 
 #### 结果解读
 
-当前数据结果显示，各 tissue 的 cohort 数与样本数存在跨量级差异；最大单一 cohort 为 `r largest_cohort$tissue` / `r largest_cohort$cohort`，含 `r largest_cohort$sample_count` 个样本。该差异表明样本多不等于独立外部证据更充分，一个大 cohort 可能在样本级汇总中压过多个较小 cohort。稳健性分析以 tissue 分层数据为输入，方法为 cohort-level bootstrap 和 leave-one-cohort-out；判据为效应方向在独立 cohort 中保持一致，若移除最大 cohort 后方向翻转，则总体均值不作为跨队列结论。
+当前数据结果显示，各 tissue 的 cohort 数与样本数存在跨量级差异；最大单一 cohort 为 `r largest_cohort$tissue` / `r largest_cohort$cohort`，含 `r largest_cohort$sample_count` 个样本。该差异表明样本多不等于独立外部证据更充分，一个大 cohort 可能在样本级汇总中压过多个较小 cohort。稳健性分析以 tissue 分层数据为输入，方法为 cohort-level bootstrap 和 leave-one-cohort-out：前者像把“班级名单”反复重新抽取，观察结论是否总朝同一方向；后者像每次拿掉一个班，检查是否有某个班独自决定答案。判据为效应方向在独立 cohort 中保持一致，若移除最大 cohort 后方向翻转，则总体均值不作为跨队列结论。
+
+还需要查看数据来源，是因为来自同一个平台或数据库的样本可能共享相同的测量习惯，就像同一台相机拍出的照片会带着相似的色调。下面的热图把每个 tissue 内部视为一个完整整体，颜色表示该来源在本 tissue 中占多大份额；颜色越深，只说明该来源占比越高。它的价值是提醒我们：若某个 tissue 几乎全由一个 source 支撑，看到的差异可能同时包含生物差异和来源差异，不能直接当成多次独立重复。
 
 ```{r figure-data-source-composition, interp_check=TRUE}
 # ==== Data Figure 3: Source-system composition (user-adjustable parameters) ====

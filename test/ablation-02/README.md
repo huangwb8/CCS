@@ -30,6 +30,7 @@ Rscript test/ablation-02/tests/14-test-ablation-real-encoder.R
 Rscript test/ablation-02/tests/15-test-ablation-public-representation.R
 Rscript test/ablation-02/tests/16-test-ablation-public-readout.R
 Rscript test/ablation-02/tests/17-test-ablation-cohort-scaling.R
+Rscript test/ablation-02/tests/18-test-ablation-report-figure-02.R
 ```
 
 `10`、`14`、`15`、`16` 需要项目约定的真实数据与冻结模型路径；`17` 使用不平衡的合成 tissue bank，锁定 breadth/depth 嵌套性、matched-size 配对、block 等权、双 Direct 合同、指标角色与 repeat bootstrap。真实数据路径可通过 `CCS_DATA_ROOT`、`CCS_SYNC_ROOT`、`CCS_ABLATION_MODEL_ROOT` 等环境变量覆盖机器默认值。
