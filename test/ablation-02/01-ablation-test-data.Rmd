@@ -123,7 +123,7 @@ external_sample_count <- sum(
 
 表达 RDS 共含 `r raw_sample_count` 个样本和 `r raw_cohort_count` 个 cohort。历史结构只有 `r raw_tissue_count` 个顶层 tissue，其中 `Undefined` 汇集了 `r remapped_cohort_count` 个已知 cohort、`r remapped_sample_count` 个样本。经核验映射恢复后得到 `r resolved_tissue_count` 个 tissue，未解析样本数为 **`r unresolved_sample_count`**；样本与 cohort 总数保持不变。
 
-这里先检查组织标签恢复，是为了确认我们只是把贴错位置的姓名牌放回正确抽屉，而没有偷偷增加、删除或重复任何样本。可以把 **sample** 理解为一个孩子，**cohort** 理解为一起入学的一个班，**tissue** 理解为班级所属的年级；理想结果是孩子和班级总数完全不变，只有原先写着 `Undefined` 的年级标签被可靠补全。下面的表逐个展示这些标签从哪里来、被放到哪里，客户可直接核对每次移动是否有依据。
+这里先检查组织标签恢复，是为了确认标签修正没有增加、删除或重复任何样本。下面的表逐个展示历史 `Undefined` cohort 的来源和核验后去向，客户可直接审查每次恢复是否有依据。
 
 ```{r tissue-resolution-table, interp_check=TRUE}
 # Purpose: Show every historical Undefined cohort and its audited destination.
@@ -150,9 +150,23 @@ render_dt(
 | 全量数据画像 | `.atd_build_data_profile()` | 不应用业务阈值 | 保留全部 cohort 与样本供审计，展示层不改变数据 | `r paste0(data_functions_name, ":", find_source_line(".atd_build_data_profile <- function"))` |
 | 审计产物 | `saveRDS()` | `r profile_path` | 让 Rmd 不重复加载完整表达矩阵与冻结模型 | `r data_script_name` |
 
+## 指标取值与通俗解读
+
+本表集中说明数据审计指标的范围、趋势和通俗含义。后续正文只报告本次结果，不再重复定义这些尺子。
+
+| 指标 | 取值范围 | 意义（包括趋势变化） | 通俗解读 |
+|---|---|---|---|
+| sample 数 | 从零开始的整数，没有固定上限 | 增加表示样本规模扩大；不自动代表证据更独立或质量更好 | 像班里的孩子人数：人多说明队伍大，不代表来自更多学校 |
+| cohort 数 | 从零开始的整数，没有固定上限 | 增加通常表示独立队列覆盖扩大；相同样本数下，更多 cohort 可减少单一大队列主导 | 像参加比赛的班级数：多个班比一个超大班更能检验结果是否普遍 |
+| tissue 数 | 从零开始的整数，没有固定上限 | 增加表示组织背景覆盖更广；不同 tissue 的样本量仍需分别审查 | 像覆盖了更多年级，但每个年级有多少孩子仍要单独看 |
+| 未解析样本数 | 零至全部样本数 | 零最理想；上升表示更多样本无法进入可靠的组织分层 | 像花名册上找不到班级的孩子，越少越好 |
+| reference/query 占比 | 零至一（含端点），也可写成零至百分之百 | 表示参照样本和待检验样本各占多少；变化反映角色构成，不存在单纯越高越好 | reference 像例题，query 像新题；两边都要有，比例本身不是考试分数 |
+| source 占比 | 零至一（含端点），同一 tissue 内各来源之和为一 | 某来源占比升高表示该 tissue 更依赖单一数据来源，来源混杂风险增大 | 像照片越来越多来自同一台相机，看到的色调可能是相机造成的 |
+| 对数坐标位置 | 仅适用于正数，没有固定上限或满分 | 相同距离代表倍数变化；位置升高只表示数量级增大，不表示效果更强 | 像把很长和很短的尺子压缩到同一张纸上，让小数值也看得见 |
+
 ## 样本与 reference-query 构成
 
-这一步要回答“模型从谁身上学习，又拿谁来接受检验”。**reference** 像已经写好答案的例题，负责提供可比较的参照；**query** 像交给模型的新题，用来观察表示能否在未作为参照的样本上工作。先看各组织中两类样本的数量，是为了避免某个组织因为例题特别多而看起来天然更好，也避免把“题目见得多”误当成方法更可靠。图中的柱子越长，只表示该组样本更多，并不自动表示证据更独立或模型更优秀。
+这一步要回答“模型从谁身上学习，又拿谁来接受检验”。先看各组织中 reference 与 query 的数量，是为了避免某个组织因参照样本特别多而看起来天然更好，也避免把样本量优势误当成方法优势。
 
 ```{r figure-data-tissue-composition, interp_check=TRUE}
 # ==== Data Figure 1: Tissue composition (user-adjustable parameters) ====
@@ -204,7 +218,7 @@ knitr::include_graphics(fig_data1_jpg)
 
 ## cohort 规模与来源异质性
 
-样本数很多，并不等于独立证据很多：一个人数很多的大班，仍然只代表一个班的教学环境；多个相互独立的小班，才能提供多次独立检验机会。因此这里同时查看每个 tissue 有多少样本、多少 cohort，以及最大 cohort 是否过大。横轴采用对数尺度，就像把很长和很短的尺子都压缩到一张纸上，目的是让小 cohort 不被大 cohort 完全遮住；位置相差一个大刻度代表数量级差异，而不是普通的等量加减。
+样本数很多并不等于独立证据很多，因此这里同时查看每个 tissue 的样本数、cohort 数和最大 cohort 规模。纵轴采用对数尺度，使小 cohort 不会被大 cohort 完全遮住，从而同时审查多个数量级的数据。
 
 ```{r figure-data-cohort-scale, interp_check=TRUE}
 # ==== Data Figure 2: Cohort scale heterogeneity (user-adjustable parameters) ====
@@ -269,9 +283,9 @@ knitr::include_graphics(fig_data2_jpg)
 
 #### 结果解读
 
-当前数据结果显示，各 tissue 的 cohort 数与样本数存在跨量级差异；最大单一 cohort 为 `r largest_cohort$tissue` / `r largest_cohort$cohort`，含 `r largest_cohort$sample_count` 个样本。该差异表明样本多不等于独立外部证据更充分，一个大 cohort 可能在样本级汇总中压过多个较小 cohort。稳健性分析以 tissue 分层数据为输入，方法为 cohort-level bootstrap 和 leave-one-cohort-out：前者像把“班级名单”反复重新抽取，观察结论是否总朝同一方向；后者像每次拿掉一个班，检查是否有某个班独自决定答案。判据为效应方向在独立 cohort 中保持一致，若移除最大 cohort 后方向翻转，则总体均值不作为跨队列结论。
+当前数据结果显示，各 tissue 的 cohort 数与样本数存在跨量级差异；最大单一 cohort 为 `r largest_cohort$tissue` / `r largest_cohort$cohort`，含 `r largest_cohort$sample_count` 个样本。该差异表明样本多不等于独立外部证据更充分，一个大 cohort 可能在样本级汇总中压过多个较小 cohort。稳健性分析采用 cohort-level bootstrap 和 leave-one-cohort-out；若移除最大 cohort 后效应方向翻转，则总体均值不作为跨队列结论。
 
-还需要查看数据来源，是因为来自同一个平台或数据库的样本可能共享相同的测量习惯，就像同一台相机拍出的照片会带着相似的色调。下面的热图把每个 tissue 内部视为一个完整整体，颜色表示该来源在本 tissue 中占多大份额；颜色越深，只说明该来源占比越高。它的价值是提醒我们：若某个 tissue 几乎全由一个 source 支撑，看到的差异可能同时包含生物差异和来源差异，不能直接当成多次独立重复。
+还需要查看数据来源，因为同一平台或数据库的样本可能共享测量偏差。下面的热图按 tissue 内部归一化，帮助识别是否存在单一 source 主导；这类 tissue 的差异可能同时包含生物差异和来源差异，不能直接视为多次独立重复。
 
 ```{r figure-data-source-composition, interp_check=TRUE}
 # ==== Data Figure 3: Source-system composition (user-adjustable parameters) ====
