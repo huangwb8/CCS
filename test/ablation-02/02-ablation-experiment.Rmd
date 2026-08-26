@@ -1179,7 +1179,11 @@ Null-Perm 的资格状态为 **`r null_perm_status`**。`r manifest$query_cohort
 
 ## 讨论与分析
 
-本次结果显示，在旧癌种标签恢复任务中，d1 的 top-k 一致率平均差为 `r fmt(retrieval_mean_delta)`，MRR 平均差为 `r fmt(retrieval_mrr_delta)`，总体癌种 readout 差为 `r fmt(readout_delta)`，三者相对 Direct 均为负值。即使使用全部训练数据，癌种学习曲线差仍为 `r fmt(learning_delta$estimate[match(1, learning_delta$requested_fraction)])`，说明增加训练数据并未消除差距。因此，在恢复旧癌种标签这一任务上，Direct-GSClassifier 是更简单、表现也更好的表示。CCS 的目标则是用多队列证据重表达同一份低输入 feature，从中发现不必与传统癌种一一对应的 pan-cancer state。按这一目标理解，癌种可恢复性下降可能是去中心化的预期表现，不能直接视为负面结果。
+本次结果显示，在旧癌种标签恢复任务中，d1 的 top-k 一致率平均差为 `r fmt(retrieval_mean_delta)`，MRR 平均差为 `r fmt(retrieval_mrr_delta)`，总体癌种 readout 差为 `r fmt(readout_delta)`，三者相对 Direct 均为负值。即使使用全部训练数据，癌种学习曲线差仍为 `r fmt(learning_delta$estimate[match(1, learning_delta$requested_fraction)])`，说明增加训练数据并未消除差距。因此，在恢复旧癌种标签这一任务上，Direct-GSClassifier 是更简单、表现也更好的表示。
+
+从机制上看，当前最有证据支持的解释不是“d1 把癌种标签简单平均掉了”，而是 cohort bank 对同一份 Direct feature 进行了选择性的重编码和重新加权：同一样本被多个冻结 cohort 模型分别读取，d1 保存的是这些模型输出组成的证据向量，而不是某一个已知 cohort 的标签。几何指标显示这种重编码确实改变了局部邻域；同时，三个技术来源的 excess 均下降，说明与 cohort/技术来源相关的方向被削弱。由于部分 cancer type 与 cohort、assay 或 platform 绑定，技术边界减弱可能连带降低旧癌种标签的可恢复性。因此，“癌种信号被稀释”的直觉可以保留，但更准确的说法是：癌种相关方向被重新分散、降权，且其中一部分可能与技术或队列捷径重叠。
+
+现有结果还不支持“所有信息都被无差别破坏”。d1 仍能较好地恢复相当一部分 Direct 的概率和排序信息，随机投影对照也没有产生同等幅度的癌种下降；这更像是与具体 cohort-model bank 有关的有方向信息瓶颈，而不是一般性的降维损失。另一方面，technical excess 的下降和癌种 readout 的下降同时出现，只能说明两种变化并存，不能证明被去除的正是技术噪声，也不能证明剩余空间已经携带有用的新生物状态。换言之，当前证据可以支持“d1 改写了表示并降低了旧癌种中心化”，但还不能在“有目的的泛癌重表达”和“无选择的信息混合”之间作出因果区分。
 
 二维 bank design 将“增加组织背景”和“同组织增加独立队列”从单一 module-count 斜率中拆开。Normalized effective rank 的 breadth/depth 斜率分别为 `r fmt(rank_breadth$estimate)` / `r fmt(rank_depth$estimate)`；matched-size breadth-heavy 减 depth-heavy 的 effective-rank、redundancy 和 stability 差分别为 `r fmt(rank_matched$estimate)`、`r fmt(redundancy_matched$estimate)` 和 `r fmt(stability_matched$estimate)`。这些效应共同约束新增 cohort evidence 是否非冗余且可重复，比旧的 d1–TSP 癌种差值曲线更贴近 CCS 的设计问题；但在 external biology 为 `r biology_scaling_status$status` 时，仍不能外推到新状态的生物或临床效用。
 
@@ -1188,6 +1192,8 @@ Null-Perm 的资格状态为 **`r null_perm_status`**。`r manifest$query_cohort
 当前 reference/query 的样本量分别为 `r manifest$reference_sample_count` / `r manifest$query_sample_count`，两者规模不对称，是一项重要的不确定性。reference `d1` 被保守标记为 `in_sample`，因此本报告确认的是 filtered query 对冻结 bank 的外部泛化，不把 reference 内部几何当作无泄漏的性能证据。Excel cancer_type 虽未参与冻结 bank 的训练，但部分癌种与 cohort/assay 高度绑定；technical excess 的背景校正只能减轻这种混杂，无法将其完全消除。
 
 本轮唯一的独立生物锚点是 `r manifest$anchor`，尚未纳入 pathway/TME state、独立分子表型、outcome，也没有评估 `d2`/`d3`/metaCCS 的稳定性。因此，目前还无法判断去癌种中心化后得到的是有用的新结构，还是无选择的混合。项目负责人也未预先设定与新状态目标一致的最小重要差异，本报告因此不会用零差异或任意事后阈值判定 `d1`“胜出”或“失败”。
+
+要区分上述解释，后续分析应至少回答三个问题：第一，在相同癌种、相同技术背景和跨 cohort 的严格匹配条件下，癌种检索下降是否仍然存在；第二，降低技术聚集的同一批 module 是否保留或增强 pathway、TME、独立分子表型或 outcome 等外部锚点；第三，哪些 module 或 Direct feature 的损失同时解释了癌种 readout 下降和技术 excess 下降。为此，可进行癌种×cohort×技术变量的条件化检索、独立生物标签的 leave-one-cohort-out readout，以及按 module variance share 和 per-feature decoder 误差开展配对消融。只有当 d1 在独立生物任务上保持跨 cohort 的稳定性，并且 d2/d3/metaCCS 的状态能够在不同 seed 和 bank 组成下复现，才可以把当前的“去癌种中心化”解释为有目的的信息重表达；否则，它仍只能被视为一种已观察到的表示改写。
 
 后续分析可沿三条路径推进：
 
