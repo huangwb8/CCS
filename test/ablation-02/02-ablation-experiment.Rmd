@@ -1185,6 +1185,16 @@ Null-Perm 的资格状态为 **`r null_perm_status`**。`r manifest$query_cohort
 
 现有结果还不支持“所有信息都被无差别破坏”。d1 仍能较好地恢复相当一部分 Direct 的概率和排序信息，随机投影对照也没有产生同等幅度的癌种下降；这更像是与具体 cohort-model bank 有关的有方向信息瓶颈，而不是一般性的降维损失。另一方面，technical excess 的下降和癌种 readout 的下降同时出现，只能说明两种变化并存，不能证明被去除的正是技术噪声，也不能证明剩余空间已经携带有用的新生物状态。换言之，当前证据可以支持“d1 改写了表示并降低了旧癌种中心化”，但还不能在“有目的的泛癌重表达”和“无选择的信息混合”之间作出因果区分。
 
+| 可能解释 | 目前支持度 | 主要依据 |
+|---|---|---|
+| cohort-conditioned 重编码导致癌种中心化减弱 | 高 | 几何指标显示局部邻域被明显重排；癌种检索和线性 readout 均下降 |
+| 癌种与技术/cohort 混杂，技术校正连带降低癌种恢复 | 中高 | assay、platform、source 的 technical excess 均下降，且部分癌种与这些来源绑定 |
+| d1 对部分 Direct 信息进行了有方向的压缩 | 中高 | Direct 特征仍可较好重建，但不是无损重建 |
+| 只是样本量不足 | 较低 | readout 学习曲线中，增加 reference cohorts 后差距没有消失 |
+| 任意降维或随机压缩都会造成同样下降 | 较低 | Null-RP 的癌种一致率高于 d1，未出现同等幅度的下降 |
+
+这张表的“支持度”是对当前证据的相对判断，不是正式的概率或显著性等级；尤其“中高”只能表示多个结果方向一致，不能替代独立验证。
+
 二维 bank design 将“增加组织背景”和“同组织增加独立队列”从单一 module-count 斜率中拆开。Normalized effective rank 的 breadth/depth 斜率分别为 `r fmt(rank_breadth$estimate)` / `r fmt(rank_depth$estimate)`；matched-size breadth-heavy 减 depth-heavy 的 effective-rank、redundancy 和 stability 差分别为 `r fmt(rank_matched$estimate)`、`r fmt(redundancy_matched$estimate)` 和 `r fmt(stability_matched$estimate)`。这些效应共同约束新增 cohort evidence 是否非冗余且可重复，比旧的 d1–TSP 癌种差值曲线更贴近 CCS 的设计问题；但在 external biology 为 `r biology_scaling_status$status` 时，仍不能外推到新状态的生物或临床效用。
 
 三个技术来源的 excess 同向下降：`r paste(technical_summary$technical_factor, sprintf("%+.3f", technical_summary$mean_delta), sep = " = ", collapse = "; ")`，这是本次实验中最强的正向结果。`d1` 的 CKA、距离相关和局部 Jaccard 也表明，cohort bank 对原始表示进行了实质性改写。综合来看，**`d1` 同时表现出癌种中心化减弱和技术边界弱化，但本轮实验尚未检验新状态是否真正有用。** 鉴于 matched-size effective-rank 区间跨零、bank-design 仅有 `r manifest$config$scaling$sequences` 个 repeats，且独立生物锚点状态为 `r biology_scaling_status$status`，这些结果不足以证明 CCS 已经成功，也不应让与研究目标并不等价的癌种分类结果主导整体判断。
