@@ -16,6 +16,13 @@
 
 ---
 
+test\ablation-02分析优化：
+
+- 基于 docs\plans\2026-08-29-ablation-02-statistical-inference-optimization.md 优化源代码
+- 重出rmd、html报告
+
+---
+
 你还是有一个小节；专门搞一个表格来做这件事吧，不要在正文里零散地做。 表格的任务：
 
 - 指标
