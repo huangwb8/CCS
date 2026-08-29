@@ -36,7 +36,7 @@
     validation = list(
       enabled = TRUE,
       learning_fractions = c(0.10, 0.25, 0.50, 1.00),
-      repeats = 3L,
+      repeats = 10L,
       inner_folds = 3L,
       lambda = c(0.1, 1, 10),
       nrounds = 30L,
@@ -188,4 +188,197 @@
     device = grDevices::cairo_pdf
   )
   bensz_pdf_to_jpg(pdf_path, jpg_path, dpi = dpi)
+}
+
+# Cohort-level inference helpers -------------------------------------------------
+# All resampling is performed on complete clusters, then the same sampled
+# clusters are used for both representations through their paired delta.
+.ae_paired_inference <- function(
+  data,
+  delta_column,
+  cluster_column = "cohort",
+  n_boot = 2000L,
+  seed = 20260829L,
+  unit = "cohort",
+  method = "cluster_bootstrap_sign_flip",
+  alternative = "two.sided",
+  null = 0,
+  multiplicity_method = "none",
+  min_clusters = 2L
+) {
+  required <- c(delta_column, cluster_column)
+  if (!all(required %in% names(data))) {
+    return(data.frame(
+      estimate = NA_real_, ci_low = NA_real_, ci_high = NA_real_,
+      p_value = NA_real_, p_value_adj = NA_real_, n_cohort = 0L,
+      n_sample = 0L, resamples = 0L, seed = as.integer(seed), unit = unit,
+      method = method, alternative = alternative, null = null,
+      multiplicity_method = multiplicity_method, status = "not_estimable",
+      reason = "missing_required_columns", stringsAsFactors = FALSE
+    ))
+  }
+
+  keep <- is.finite(data[[delta_column]]) & !is.na(data[[cluster_column]])
+  observed <- data[keep, required, drop = FALSE]
+  if (nrow(observed) == 0L) {
+    return(data.frame(
+      estimate = NA_real_, ci_low = NA_real_, ci_high = NA_real_,
+      p_value = NA_real_, p_value_adj = NA_real_, n_cohort = 0L,
+      n_sample = 0L, resamples = 0L, seed = as.integer(seed), unit = unit,
+      method = method, alternative = alternative, null = null,
+      multiplicity_method = multiplicity_method, status = "not_estimable",
+      reason = "no_finite_pairs", stringsAsFactors = FALSE
+    ))
+  }
+
+  cluster_values <- split(observed[[delta_column]], observed[[cluster_column]])
+  cluster_values <- cluster_values[vapply(cluster_values, length, integer(1)) > 0L]
+  n_cluster <- length(cluster_values)
+  cluster_means <- vapply(cluster_values, mean, numeric(1), na.rm = TRUE)
+  estimate <- mean(cluster_means)
+  base <- data.frame(
+    estimate = estimate, ci_low = NA_real_, ci_high = NA_real_,
+    p_value = NA_real_, p_value_adj = NA_real_, n_cohort = n_cluster,
+    n_sample = nrow(observed), resamples = as.integer(max(0L, n_boot)),
+    seed = as.integer(seed), unit = unit, method = method,
+    alternative = alternative, null = null,
+    multiplicity_method = multiplicity_method, status = "complete",
+    reason = "", stringsAsFactors = FALSE
+  )
+  if (n_cluster < as.integer(min_clusters)) {
+    base$status <- "not_estimable"
+    base$reason <- if (min_clusters > 2L) {
+      paste0("fewer_than_", min_clusters, "_independent_clusters")
+    } else {
+      "fewer_than_two_independent_clusters"
+    }
+    return(base)
+  }
+
+  n_boot <- as.integer(n_boot)
+  if (is.na(n_boot) || n_boot < 100L) {
+    base$status <- "not_estimable"
+    base$reason <- "bootstrap_repeats_below_minimum"
+    return(base)
+  }
+
+  old_seed <- if (exists(".Random.seed", envir = .GlobalEnv, inherits = FALSE)) {
+    get(".Random.seed", envir = .GlobalEnv)
+  } else NULL
+  on.exit({
+    if (is.null(old_seed)) {
+      if (exists(".Random.seed", envir = .GlobalEnv, inherits = FALSE)) {
+        rm(".Random.seed", envir = .GlobalEnv)
+      }
+    } else {
+      assign(".Random.seed", old_seed, envir = .GlobalEnv)
+    }
+  }, add = TRUE)
+  set.seed(seed)
+  bootstrap <- replicate(
+    n_boot,
+    mean(sample(cluster_means, n_cluster, replace = TRUE)),
+    simplify = TRUE
+  )
+  base$ci_low <- unname(stats::quantile(bootstrap, 0.025, names = FALSE, type = 6))
+  base$ci_high <- unname(stats::quantile(bootstrap, 0.975, names = FALSE, type = 6))
+
+  # Exact sign-flip for small cluster counts; Monte Carlo otherwise.
+  if (n_cluster <= 16L) {
+    signs <- as.matrix(expand.grid(rep(list(c(-1, 1)), n_cluster)))
+    null_distribution <- apply(signs, 1L, function(s) mean(s * (cluster_means - null)))
+  } else {
+    null_distribution <- replicate(
+      n_boot,
+      mean(sample(c(-1, 1), n_cluster, replace = TRUE) * (cluster_means - null)),
+      simplify = TRUE
+    )
+  }
+  exceed <- sum(abs(null_distribution) >= abs(estimate - null))
+  base$p_value <- (exceed + 1) / (length(null_distribution) + 1)
+  base
+}
+
+.ae_adjust_inference <- function(inference, method = "holm") {
+  if (!"p_value" %in% names(inference)) return(inference)
+  inference$p_value_adj <- NA_real_
+  ok <- is.finite(inference$p_value)
+  if (any(ok)) inference$p_value_adj[ok] <- stats::p.adjust(inference$p_value[ok], method = method)
+  inference$multiplicity_method <- method
+  inference
+}
+
+.ae_retrieval_inference <- function(
+  retrieval, k = 30L, n_boot = 2000L, seed = 20260829L,
+  multiplicity_method = "holm"
+) {
+  paired <- retrieval$paired[retrieval$paired$k == k, , drop = FALSE]
+  metrics <- c(
+    top_k_label_rate = "delta_top_k_label_rate",
+    mrr = "delta_mrr",
+    top1_label_match = "delta_top1_label_match"
+  )
+  rows <- lapply(seq_along(metrics), function(i) {
+    out <- .ae_paired_inference(
+      paired, metrics[[i]], cluster_column = "cohort", n_boot = n_boot,
+      seed = seed + i - 1L, unit = "cohort", method = "cohort_bootstrap_sign_flip",
+      multiplicity_method = multiplicity_method
+    )
+    out$endpoint <- names(metrics)[i]
+    out$k <- k
+    out
+  })
+  result <- do.call(rbind, rows)
+  result <- .ae_adjust_inference(result, multiplicity_method)
+  result[order(match(result$endpoint, names(metrics))), , drop = FALSE]
+}
+
+.ae_readout_inference <- function(
+  readout, n_boot = 2000L, seed = 20260829L,
+  multiplicity_method = "holm"
+) {
+  paired <- readout$paired_by_cohort
+  metrics <- c(
+    balanced_accuracy = "delta_balanced_accuracy",
+    macro_auroc = "delta_macro_auroc"
+  )
+  rows <- lapply(seq_along(metrics), function(i) {
+    out <- .ae_paired_inference(
+      paired, metrics[[i]], cluster_column = "cohort", n_boot = n_boot,
+      seed = seed + i - 1L, unit = "query", method = "query_cohort_bootstrap_sign_flip",
+      multiplicity_method = multiplicity_method
+    )
+    if (all(c("sample_count_d1", "sample_count_direct") %in% names(paired))) {
+      out$n_sample <- sum(
+        pmax(paired$sample_count_d1, paired$sample_count_direct),
+        na.rm = TRUE
+      )
+    }
+    out$endpoint <- names(metrics)[i]
+    out
+  })
+  result <- do.call(rbind, rows)
+  .ae_adjust_inference(result, multiplicity_method)
+}
+
+.ae_learning_inference <- function(
+  curve, n_boot = 2000L, seed = 20260829L,
+  multiplicity_method = "holm"
+) {
+  fractions <- sort(unique(curve$paired$requested_fraction))
+  rows <- lapply(seq_along(fractions), function(i) {
+    part <- curve$paired[curve$paired$requested_fraction == fractions[i], , drop = FALSE]
+    out <- .ae_paired_inference(
+      part, "delta_balanced_accuracy", cluster_column = "repeat_id",
+      n_boot = n_boot, seed = seed + i - 1L, unit = "design_repeat",
+      method = "paired_design_repeat_bootstrap_sign_flip",
+      multiplicity_method = multiplicity_method,
+      min_clusters = 10L
+    )
+    out$requested_fraction <- fractions[i]
+    out$primary <- fractions[i] == max(fractions)
+    out
+  })
+  result <- do.call(rbind, rows)
+  .ae_adjust_inference(result, multiplicity_method)
 }

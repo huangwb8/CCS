@@ -9,6 +9,8 @@ params:
   plot_language: "en"
   plot_run_dir: "tmp/plot-previews"
   plot_preview_dpi: 200
+  inference_bootstrap: 2000
+  inference_seed: 20260829
 output:
   html_document:
     toc: true
@@ -87,6 +89,8 @@ preview_dir <- bensz_run_dir(
 
 fmt <- function(x, digits = 3L) formatC(x, digits = digits, format = "f")
 fmt_pct <- function(x, digits = 1L) paste0(fmt(100 * x, digits), "%")
+fmt_p <- function(x) ifelse(is.finite(x), format.pval(x, digits = 3, eps = 1e-3), "NA")
+fmt_ci <- function(x) paste0("[", fmt(x$ci_low), ", ", fmt(x$ci_high), "]")
 metric_value <- function(name) {
   native_geometry$metrics$metric_value[
     match(name, native_geometry$metrics$metric_name)
@@ -139,6 +143,15 @@ retrieval_mrr_delta <- mean(retrieval_overall$delta_mrr, na.rm = TRUE)
 retrieval_direct_mrr <- mean(retrieval_overall$mrr_direct, na.rm = TRUE)
 retrieval_d1_mrr <- mean(retrieval_overall$mrr_d1, na.rm = TRUE)
 
+# Cohort-level inferential layer.  Direct and d1 are already paired in the
+# upstream artifacts; the helper resamples complete cohorts and records status.
+retrieval_inference <- .ae_retrieval_inference(
+  retrieval,
+  k = params$display_k,
+  n_boot = params$inference_bootstrap,
+  seed = params$inference_seed
+)
+
 readout_overall <- readout$overall
 readout_direct <- readout_overall[
   readout_overall$representation == "Direct-GSClassifier",
@@ -168,6 +181,11 @@ readout_bottom <- readout_cohort[
   ,
   drop = FALSE
 ]
+readout_inference <- .ae_readout_inference(
+  readout,
+  n_boot = params$inference_bootstrap,
+  seed = params$inference_seed + 100L
+)
 
 learning_summary <- .ae_learning_summary(learning_curve)
 learning_delta <- learning_curve$paired |>
@@ -178,6 +196,52 @@ learning_delta <- learning_curve$paired |>
       sqrt(sum(is.finite(.data$delta_balanced_accuracy))),
     .groups = "drop"
   )
+learning_inference <- .ae_learning_inference(
+  learning_curve,
+  n_boot = params$inference_bootstrap,
+  seed = params$inference_seed + 200L
+)
+learning_ci <- learning_inference[, c("requested_fraction", "ci_low", "ci_high")]
+learning_summary <- dplyr::left_join(
+  learning_summary,
+  learning_ci,
+  by = "requested_fraction"
+)
+forest_data <- rbind(
+  data.frame(
+    endpoint = "Retrieval top-k label rate",
+    estimate = retrieval_inference$estimate[retrieval_inference$endpoint == "top_k_label_rate"],
+    ci_low = retrieval_inference$ci_low[retrieval_inference$endpoint == "top_k_label_rate"],
+    ci_high = retrieval_inference$ci_high[retrieval_inference$endpoint == "top_k_label_rate"],
+    p_value = retrieval_inference$p_value[retrieval_inference$endpoint == "top_k_label_rate"],
+    unit = "cohort"
+  ),
+  data.frame(
+    endpoint = "Retrieval MRR",
+    estimate = retrieval_inference$estimate[retrieval_inference$endpoint == "mrr"],
+    ci_low = retrieval_inference$ci_low[retrieval_inference$endpoint == "mrr"],
+    ci_high = retrieval_inference$ci_high[retrieval_inference$endpoint == "mrr"],
+    p_value = retrieval_inference$p_value[retrieval_inference$endpoint == "mrr"],
+    unit = "cohort"
+  ),
+  data.frame(
+    endpoint = "Readout balanced accuracy",
+    estimate = readout_inference$estimate[readout_inference$endpoint == "balanced_accuracy"],
+    ci_low = readout_inference$ci_low[readout_inference$endpoint == "balanced_accuracy"],
+    ci_high = readout_inference$ci_high[readout_inference$endpoint == "balanced_accuracy"],
+    p_value = readout_inference$p_value[readout_inference$endpoint == "balanced_accuracy"],
+    unit = "query cohort"
+  ),
+  data.frame(
+    endpoint = "Learning curve at 100%",
+    estimate = learning_inference$estimate[learning_inference$requested_fraction == 1],
+    ci_low = learning_inference$ci_low[learning_inference$requested_fraction == 1],
+    ci_high = learning_inference$ci_high[learning_inference$requested_fraction == 1],
+    p_value = learning_inference$p_value[learning_inference$requested_fraction == 1],
+    unit = "design repeat"
+  )
+)
+forest_data$endpoint <- factor(forest_data$endpoint, levels = rev(forest_data$endpoint))
 
 if (!identical(cohort_scaling$schema_version, 2L)) {
   stop("The cohort scaling result must use schema version 2.", call. = FALSE)
@@ -432,10 +496,10 @@ render_dt(overview_table, pageLength = 11)
 | 数据审计输入 | `data_profile` | `r data_profile_path` | 复用第一阶段完整画像，不在实验报告中重复加载或重画数据审计 | `r data_report_name` |
 | 完整 GSClassifier 输入 | `.ablation_gsclassifier_matrix()` | 冻结 `geneSet`、`breakVec`、feature manifest | 保留 32 single-bin、496 gene-pair、1 set-pair 的真实合同 | `R/ablation.R:` `r find_source_line(".ablation_gsclassifier_matrix <- function")` |
 | 外部 d1 重编码 | `.ablation_encode_d1_from_direct()` | 150 modules；模型 repeat 中位数 | filtered query 从未参与 bank 训练；优化编码与既有 d1 零误差一致 | `R/ablation.R:` `r find_source_line(".ablation_encode_d1_from_direct <- function")` |
-| query-to-reference 检索 | `.ablation_query_reference_retrieval()` | k = `r paste(manifest$config$geometry$k, collapse = "/")` | query 只到其它 cohorts 的 atlas 找邻居 | `R/ablation.R:` `r find_source_line(".ablation_query_reference_retrieval <- function")` |
+| query-to-reference 检索 | `.ablation_query_reference_retrieval()` + `.ae_retrieval_inference()` | k = `r paste(manifest$config$geometry$k, collapse = "/")`；cohort bootstrap = `r params$inference_bootstrap` | query 只到其它 cohorts 的 atlas 找邻居；按 cohort 估计 CI 与配对 p 值 | `R/ablation.R:` `r find_source_line(".ablation_query_reference_retrieval <- function")`；`02-ablation-experiment_functions.R` |
 | d1 距离 | `.ablation_module_balanced_transform()` | module 等权标准化 Euclidean | d1 blocks 的行和不满足 simplex，故不伪用 Hellinger | `R/ablation.R:` `r find_source_line(".ablation_module_balanced_transform <- function")` |
-| 外部 readout | `.ablation_linear_readout()` | grouped `r manifest$config$validation$inner_folds`-fold CV；lambda = `r paste(manifest$config$validation$lambda, collapse = "/")` | 预处理与调参均在 reference 内完成，两臂预算一致 | `R/ablation.R:` `r find_source_line(".ablation_linear_readout <- function")` |
-| 配对学习曲线 | `.ablation_learning_curve()` | `r paste(100 * manifest$config$validation$learning_fractions, collapse = "/")`% × `r manifest$config$validation$repeats` repeats | 区分小样本归纳偏置与信息上限 | `R/ablation.R:` `r find_source_line(".ablation_learning_curve <- function")` |
+| 外部 readout | `.ablation_linear_readout()` + `.ae_readout_inference()` | grouped `r manifest$config$validation$inner_folds`-fold CV；lambda = `r paste(manifest$config$validation$lambda, collapse = "/")` | 预处理与调参均在 reference 内完成，两臂预算一致；query cohort bootstrap 单独报告 | `R/ablation.R:` `r find_source_line(".ablation_linear_readout <- function")`；`02-ablation-experiment_functions.R` |
+| 配对学习曲线 | `.ablation_learning_curve()` + `.ae_learning_inference()` | `r paste(100 * manifest$config$validation$learning_fractions, collapse = "/")`% × `r manifest$config$validation$repeats` repeats | 区分小样本归纳偏置与信息上限；以 design repeat 做配对 CI | `R/ablation.R:` `r find_source_line(".ablation_learning_curve <- function")`；`02-ablation-experiment_functions.R` |
 | cohort-evidence scaling | `.ablation_cohort_bank_design()` / `.ablation_representation_scaling()` | breadth、depth、matched-size × `r manifest$config$scaling$sequences` repeats；完整 Direct 主合同 + TSP sensitivity | 分离 tissue breadth 与 within-tissue depth；bootstrap 只重采样 design repeat | `R/ablation.R:` `r find_source_line(".ablation_cohort_bank_design <- function")` |
 | 信息损失 | `.ablation_decode_direct_features()` | rank = `r tradeoffs$decoder$rank`；ridge lambda = `r tradeoffs$decoder$lambda` | 按 feature type 量化 d1 无法恢复的原生输入 | `R/ablation.R:` `r find_source_line(".ablation_decode_direct_features <- function")` |
 
@@ -567,6 +631,24 @@ $$
 
 图中展示的是每个样本的“d1 减 Direct”配对差，再在 cohort 内取平均。差值为正表示 d1 更容易恢复旧癌种标签，负值表示 d1 的邻域更少由旧癌种主导；它衡量的是 lineage recoverability，不是 CCS 新状态的正确率。虚线是所有 query 的样本级平均，因此样本多的 cohort 权重更大；散点则是各 cohort 内的样本均值，用于识别异质性。Top-k 与 MRR 的绝对值没有减去“该癌种在合格 reference 中所占比例”的机会基线，不同癌种不能只凭绝对分数横向判优；本报告主要依靠同一 query、同一 reference 候选池下的 d1−Direct 配对差保证比较口径一致。
 
+### 检索差异的 cohort-level 推断
+
+下面的推断以 query cohort 为统计单位。每次 bootstrap 对完整 cohort 有放回抽取，并在同一索引下保留 Direct/d1 配对；sign-flip 检验的零假设是平均配对差为零。`n_sample` 仅用于描述数据量，不被当成独立重复数。
+
+```{r retrieval-inference-table}
+retrieval_inference_table <- retrieval_inference[, c(
+  "endpoint", "estimate", "ci_low", "ci_high", "p_value", "p_value_adj",
+  "n_cohort", "n_sample", "resamples", "unit", "multiplicity_method", "status"
+)]
+render_dt(retrieval_inference_table, pageLength = 3L)
+```
+
+结论：该表给出的效应量、区间和配对检验共同描述了 cohort 重采样下的检索差异稳定性。
+
+#### 检索推断结果解读
+
+在预先指定的 `k =` `r params$display_k` 主要终点上，top-k 配对差估计为 `r fmt(retrieval_inference$estimate[retrieval_inference$endpoint == "top_k_label_rate"])`，95% CI 为 `r fmt_ci(retrieval_inference[retrieval_inference$endpoint == "top_k_label_rate", ])`，双侧 p = `r fmt_p(retrieval_inference$p_value[retrieval_inference$endpoint == "top_k_label_rate"])`（Holm 校正后 `r fmt_p(retrieval_inference$p_value_adj[retrieval_inference$endpoint == "top_k_label_rate"])`）。这个区间描述 cohort 重采样下效应量的可变范围，不能替代生物学效用终点；若区间跨零或 p 值未达到 0.05，应表述为证据不足以拒绝零差异，而不是“没有差异”。MRR 与 top1 是次要终点，校正后的结果需结合其有效 cohort 数、方向和区间共同判读。
+
 ```{r figure-retrieval-cohort, interp_check=TRUE}
 # ==== Figure 2: External retrieval cohort deltas (user-adjustable parameters) ====
 fig2 <- list(
@@ -595,7 +677,15 @@ retrieval_reference <- data.frame(
     c("Top-k label rate", "Mean reciprocal rank"),
     levels = levels(plot_retrieval$metric)
   ),
-  estimate = c(retrieval_mean_delta, retrieval_mrr_delta)
+  estimate = c(retrieval_mean_delta, retrieval_mrr_delta),
+  ci_low = c(
+    retrieval_inference$ci_low[retrieval_inference$endpoint == "top_k_label_rate"],
+    retrieval_inference$ci_low[retrieval_inference$endpoint == "mrr"]
+  ),
+  ci_high = c(
+    retrieval_inference$ci_high[retrieval_inference$endpoint == "top_k_label_rate"],
+    retrieval_inference$ci_high[retrieval_inference$endpoint == "mrr"]
+  )
 )
 cohort_order <- retrieval_delta_main$cohort[
   order(retrieval_delta_main$estimate)
@@ -630,7 +720,11 @@ p2 <- ggplot2::ggplot(
     x = "Cohort-d1 minus Direct-GSClassifier",
     y = "External query cohort",
     color = "Metric",
-    caption = "Dashed lines: sample-level overall means"
+    caption = paste0(
+      "Dashed lines: sample-level means; cohort-bootstrap 95% CI [",
+      paste(fmt(retrieval_reference$ci_low), fmt(retrieval_reference$ci_high), collapse = "; "),
+      "]"
+    )
   ) +
   theme_nature_readable(
     base_size = fig2$base_size,
@@ -666,6 +760,10 @@ render_dt(
 )
 ```
 
+#### 检索极端 cohort 解读
+
+结论：极端 cohort 的方向差异是该表最重要的观察结果，应结合有效样本量与后续分层分析解释。
+
 该表进一步展示了 lineage 重加权在具体 query cohort 中的差异。`r retrieval_top$cohort[1]` 与 `r retrieval_bottom$cohort[1]` 的方向相反，说明 cohort bank 对不同癌种的重加权强度和方向并不一致。下一步可分别按 assay/source 对这两类 cohort 分层，检验 d1 邻居在 pathway score、TME state 或其他非癌种锚点上是否更加一致。若跨 cohort 的状态一致性提高，且 Annoy/exact recall 仍高于 `r fmt(manifest$config$geometry$min_annoy_recall)`，便更支持这是“有目的的结构重构”，而不必要求癌种 top-k 差值转为正向。
 
 ## 外部癌种线性 readout
@@ -680,6 +778,26 @@ $$
 $$
 
 因此，三成表示“各癌种召回率的平均值为百分之三十”，而不是“所有样本中恰好百分之三十正确”。分数越高，说明大、小癌种被更均衡地识别；随机基线取决于类别数和预测规则，不能机械套用二分类任务的一半。
+
+### readout 差异的 query-cohort 推断
+
+readout 推断固定已生成的外部 query 预测，以 query cohort 为 cluster 计算 paired bootstrap CI，并用 sign-flip 检验平均差为零。端到端重新拟合 reference 的不确定性不在本表中混入，避免把两种来源的变异解释成同一置信区间。
+
+```{r readout-inference-table}
+readout_inference_table <- readout_inference[, c(
+  "endpoint", "estimate", "ci_low", "ci_high", "p_value", "p_value_adj",
+  "n_cohort", "n_sample", "resamples", "unit", "multiplicity_method", "status"
+)]
+render_dt(readout_inference_table, pageLength = 2L)
+```
+
+结论：该表显示冻结 readout 的 query-cohort 差异与其 bootstrap 不确定性，并表明两者应在同一统计单位下比较。
+
+#### readout 推断结果解读
+
+balanced accuracy 的 query-cohort 配对差为 `r fmt(readout_inference$estimate[readout_inference$endpoint == "balanced_accuracy"])`，95% CI 为 `r fmt_ci(readout_inference[readout_inference$endpoint == "balanced_accuracy", ])`，p = `r fmt_p(readout_inference$p_value[readout_inference$endpoint == "balanced_accuracy"])`（Holm 校正后 `r fmt_p(readout_inference$p_value_adj[readout_inference$endpoint == "balanced_accuracy"])`）。该区间量化冻结模型在不同 query cohort 组成下的差异范围；这些 p 值只描述冻结模型下的外部 query 稳定性，不能替代独立生物任务效用，也不能把样本数较大的 cohort 当作更多独立证据。
+
+有效 query cohort 数为 `r readout_inference$n_cohort[readout_inference$endpoint == "balanced_accuracy"]`，样本数为 `r readout_inference$n_sample[readout_inference$endpoint == "balanced_accuracy"]`；因此 CI 的宽度主要反映 cohort 数量，而不是把每个 query 当作独立重复。
 
 ```{r figure-readout-cohort, interp_check=TRUE}
 # ==== Figure 3: External linear readout cohort deltas (user-adjustable parameters) ====
@@ -708,7 +826,13 @@ p3 <- ggplot2::ggplot(
   ) +
   ggplot2::labs(
     x = "Balanced accuracy: Cohort-d1 minus Direct-GSClassifier",
-    y = "External query cohort"
+    y = "External query cohort",
+    caption = paste0(
+      "Overall query-cohort bootstrap 95% CI: ",
+      fmt_ci(readout_inference[readout_inference$endpoint == "balanced_accuracy", ]),
+      "; p = ",
+      fmt_p(readout_inference$p_value[readout_inference$endpoint == "balanced_accuracy"])
+    )
   ) +
   theme_nature_readable(
     base_size = fig3$base_size,
@@ -733,7 +857,27 @@ knitr::include_graphics(fig3_jpg)
 
 总体分数较低可能来自表示缺少可用的旧癌种信息，也可能只是训练样本不足。学习曲线把可用于训练的 reference cohorts 比例依次设为 `r paste(scales::percent(manifest$config$validation$learning_fractions, accuracy = 1), collapse = "、")`；横轴不是“随机抽取多少样本”，而是“允许模型看到多少比例的 reference cohorts”。若 d1 与 Direct 的差距随训练比例增加而趋近零，问题更偏向样本效率；若点估计持续远离零，则更像表示本身改变了可读信息。两臂每次共享相同 cohort subset 和同一批 query，确保比较的不是题目难度。
 
-每个点是 `r manifest$config$validation$repeats` 次配对重复的均值，阴影采用“均值 ± 1.96 × 标准误”给出近似 95% 区间；标准误等于重复间标准差除以重复次数平方根。它表达重复抽样下均值的不确定性，不表示 95% 的单个样本都落在阴影内。由于这里只有 `r manifest$config$validation$repeats` 次重复，该区间应作为稳定性提示，而不是精确的显著性检验。
+每个点是 `r manifest$config$validation$repeats` 次配对重复的均值，阴影改为按 design repeat 做 cluster bootstrap 得到的 95% CI；它表达重复设计下均值的不确定性，不表示 95% 的单个 query 样本都落在阴影内。若有效重复数不足，推断表会标记为 `not_estimable`，不把近似区间当作确认性显著性检验。
+
+### 学习曲线差异的重复设计推断
+
+每个训练比例的统计单位是共享 cohort subset 的 design repeat，而不是其中的 query 样本。由于当前重复数由实验配置决定，结果表同时保留有效重复数和 `status`；重复不足时显示 `not_estimable`，不将近似区间当作确认性显著性证据。
+
+```{r learning-inference-table}
+learning_inference_table <- learning_inference[, c(
+  "requested_fraction", "estimate", "ci_low", "ci_high", "p_value", "p_value_adj",
+  "n_cohort", "n_sample", "resamples", "unit", "multiplicity_method", "status"
+)]
+render_dt(learning_inference_table, pageLength = nrow(learning_inference_table))
+```
+
+结论：该表显示每个训练比例的差异及其区间，并表明这些差异应归因到共享 cohort subset 的 design repeat，而非 query 样本数。
+
+#### 学习曲线推断结果解读
+
+在 100% reference fraction 的主要比较点，d1−Direct 差异为 `r fmt(learning_inference$estimate[learning_inference$requested_fraction == 1])`，95% CI 为 `r fmt_ci(learning_inference[learning_inference$requested_fraction == 1, ])`，p = `r fmt_p(learning_inference$p_value[learning_inference$requested_fraction == 1])`。该 CI 反映共享 cohort subset 的重复设计不确定性；其余 fraction 的校正 p 值用于样本效率敏感性分析，不能与主要终点等量齐观，也不能据此宣称端到端 refit 的确认性证据。
+
+100% fraction 的有效 design repeat 数为 `r learning_inference$n_cohort[learning_inference$requested_fraction == 1]`，重复数偏少时 p 值分辨率有限，报告中的 status 会保留这一限制。
 
 ```{r figure-learning-curve, interp_check=TRUE}
 # ==== Figure 4: Paired learning curves (user-adjustable parameters) ====
@@ -757,8 +901,8 @@ p4 <- ggplot2::ggplot(
 ) +
   ggplot2::geom_ribbon(
     ggplot2::aes(
-      ymin = .data$estimate - 1.96 * .data$se,
-      ymax = .data$estimate + 1.96 * .data$se,
+      ymin = .data$ci_low,
+      ymax = .data$ci_high,
       fill = .data$representation
     ),
     alpha = 0.14,
@@ -794,8 +938,8 @@ p4 <- ggplot2::ggplot(
     legend_position = fig4$legend_position
   )
 
-# Readability check: four x ticks remain sparse, ribbons carry repeat uncertainty,
-# and the external legend avoids covering either learning curve.
+# Readability check: four x ticks remain sparse, ribbons carry cohort/design-repeat
+# bootstrap uncertainty, and the external legend avoids covering either curve.
 fig4_jpg <- .ae_save_plot(
   p4, "figure-04-paired-learning-curve", figure_dir,
   preview_dir, fig4, params$plot_preview_dpi
@@ -804,6 +948,65 @@ knitr::include_graphics(fig4_jpg)
 ```
 
 本次学习曲线的直接解读是：在上述四个训练比例下，d1 相对 Direct 的癌种 balanced-accuracy 点估计差依次为 `r paste(vapply(manifest$config$validation$learning_fractions, function(f) fmt(learning_delta$estimate[match(f, learning_delta$requested_fraction)]), character(1)), collapse = ", ")`。差值从最低训练比例时的 `r fmt(learning_delta$estimate[match(min(manifest$config$validation$learning_fractions), learning_delta$requested_fraction)])` 扩大到全部 reference cohorts 时的 `r fmt(learning_delta$estimate[match(1, learning_delta$requested_fraction)])`，**没有出现“数据增加后差距回到零”的点估计模式**。这不支持差距仅由小训练集造成，但 `r manifest$config$validation$repeats` 次重复仍不足以把学习曲线当作严格显著性证据。每个比例下两种表示共享 cohort subset hash 和外部 query hash，因此差异也不能归因于训练组成或测试样本漂移；这条曲线只衡量 cancer-type readout，不能据此认定 d1 对所有新分型任务都存在“过度压缩”。
+
+## 主要终点的效应量与不确定性
+
+这张综合图把三个分析模块的主要或预先指定比较点放在同一条零差异基线上。横轴始终是 d1−Direct，因此不同指标的绝对数值只用于判断各自区间是否跨零，不把不同量纲的效应大小直接横向排名。
+
+```{r figure-inference-forest, interp_check=TRUE}
+# ==== Figure 10: Inference summary forest plot (user-adjustable parameters) ====
+fig10 <- list(
+  # Canvas size in inches. Increase height if endpoint labels become crowded.
+  width_in = 7.2,
+  height_in = 4.6,
+  base_size = 10,
+  point_size = 2.8,
+  line_size = 0.75,
+  zero_line_width = 0.55,
+  legend_position = "none"
+)
+p10 <- ggplot2::ggplot(
+  forest_data,
+  ggplot2::aes(y = .data$endpoint, x = .data$estimate)
+) +
+  ggplot2::geom_vline(
+    xintercept = 0,
+    linewidth = fig10$zero_line_width,
+    linetype = "dashed",
+    color = "grey55"
+  ) +
+  ggplot2::geom_errorbar(
+    ggplot2::aes(xmin = .data$ci_low, xmax = .data$ci_high),
+    orientation = "y",
+    linewidth = fig10$line_size,
+    na.rm = TRUE
+  ) +
+  ggplot2::geom_point(
+    size = fig10$point_size,
+    color = nature_colors[["purple"]],
+    na.rm = TRUE
+  ) +
+  ggplot2::labs(
+    x = "Cohort/query-level d1 minus Direct estimate",
+    y = NULL,
+    caption = "Points: estimates; lines: 95% bootstrap CI; dashed line: zero difference"
+  ) +
+  theme_nature_readable(
+    base_size = fig10$base_size,
+    x_text_angle = 0,
+    legend_position = fig10$legend_position
+  )
+
+# Readability check: endpoints are short and ordered by analysis module; the
+# horizontal intervals expose zero-crossing directly without overlapping labels.
+fig10_jpg <- .ae_save_plot(
+  p10, "figure-10-inference-summary", figure_dir, preview_dir, fig10,
+  params$plot_preview_dpi
+)
+knitr::include_graphics(fig10_jpg)
+```
+
+图中显示四个区间，分别对应检索 top-k、检索 MRR、外部 readout balanced accuracy 和 100% learning fraction。**结果解读：**区间跨零的终点只能表述为证据不足以拒绝零差异；区间完全位于零的一侧时，表明在当前统计单位和重采样设计下方向更稳定。该图用于比较不确定性范围，不把 p-value 当作 CCS 新状态效用的替代终点。
 
 ## cohort evidence 的二维 scaling
 
@@ -1218,8 +1421,11 @@ Null-Perm 的资格状态为 **`r null_perm_status`**。`r manifest$query_cohort
 | reference/query 样本与 cohort 数 | `manifest$reference_*` / `manifest$query_*` | `manifest.rds` |
 | CKA、距离相关、kNN Jaccard | `native_geometry$metrics` | `native_geometry.rds` |
 | top-k/MRR 差与最差 cohort | `retrieval$paired` → `.ae_retrieval_cohort_delta()` | `retrieval.rds` |
+| 检索 cohort-level CI 与配对 p 值 | `retrieval_inference` → `.ae_retrieval_inference()` | analysis helper script |
 | readout balanced accuracy | `readout$overall` / `readout$paired_by_cohort` | `readout.rds` |
+| readout query-cohort CI 与配对 p 值 | `readout_inference` → `.ae_readout_inference()` | analysis helper script |
 | 学习曲线与 cohort subset hash | `learning_curve$metrics` / `$paired` | `learning_curve.rds` |
+| 学习曲线 design-repeat CI 与配对 p 值 | `learning_inference` → `.ae_learning_inference()` | analysis helper script |
 | bank design、breadth/depth slope、matched-size 与交互 | `cohort_scaling$design` / `$metrics` / `$contrasts` | `cohort_scaling.rds` schema v2 |
 | technical-neighbor excess | `retrieval$per_sample` → `.ae_technical_delta()` | `retrieval.rds` |
 | module variance share | `native_geometry$module_diagnostics` | `native_geometry.rds` |
