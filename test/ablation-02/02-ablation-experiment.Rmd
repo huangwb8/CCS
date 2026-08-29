@@ -112,6 +112,7 @@ geometry_metrics$metric_label <- c(
   distance_spearman = "Distance Spearman",
   knn_jaccard = "kNN Jaccard"
 )[geometry_metrics$metric_name]
+geometry_inference <- .ae_geometry_inference(native_geometry)
 
 retrieval_cohort_delta <- .ae_retrieval_cohort_delta(retrieval, params$display_k)
 retrieval_delta_main <- retrieval_cohort_delta[
@@ -201,11 +202,54 @@ learning_inference <- .ae_learning_inference(
   n_boot = params$inference_bootstrap,
   seed = params$inference_seed + 200L
 )
+scaling_inference <- .ae_scaling_inference(
+  cohort_scaling,
+  n_boot = params$inference_bootstrap,
+  seed = params$inference_seed + 300L
+)
 learning_ci <- learning_inference[, c("requested_fraction", "ci_low", "ci_high")]
 learning_summary <- dplyr::left_join(
   learning_summary,
   learning_ci,
   by = "requested_fraction"
+)
+learning_rep_ci <- learning_curve$metrics |>
+  dplyr::group_by(.data$representation, .data$requested_fraction, .data$repeat_id) |>
+  dplyr::summarise(
+    balanced_accuracy = mean(.data$balanced_accuracy, na.rm = TRUE),
+    .groups = "drop"
+  )
+learning_rep_ci <- split(
+  learning_rep_ci,
+  interaction(
+    learning_rep_ci$representation,
+    learning_rep_ci$requested_fraction,
+    drop = TRUE
+  )
+)
+learning_rep_ci <- do.call(rbind, lapply(learning_rep_ci, function(part) {
+  out <- .ae_paired_inference(
+    part,
+    "balanced_accuracy",
+    cluster_column = "repeat_id",
+    n_boot = params$inference_bootstrap,
+    seed = params$inference_seed + 250L,
+    unit = "design_repeat",
+    method = "representation_repeat_bootstrap",
+    min_clusters = 2L
+  )
+  data.frame(
+    representation = part$representation[1],
+    requested_fraction = part$requested_fraction[1],
+    ci_low_rep = out$ci_low,
+    ci_high_rep = out$ci_high,
+    stringsAsFactors = FALSE
+  )
+}))
+learning_summary <- dplyr::left_join(
+  learning_summary,
+  learning_rep_ci,
+  by = c("representation", "requested_fraction")
 )
 forest_data <- rbind(
   data.frame(
@@ -289,6 +333,64 @@ scaling_sequence <- cohort_scaling$metrics |>
       sqrt(sum(is.finite(.data$estimate))),
     .groups = "drop"
   )
+scaling_sequence_repeat <- cohort_scaling$metrics |>
+  dplyr::filter(
+    .data$status == "evaluated",
+    .data$query_coverage == "all",
+    .data$design_family %in% c("breadth", "depth"),
+    .data$metric_name %in% scaling_metric_names
+  ) |>
+  dplyr::mutate(
+    scaling_axis = ifelse(
+      .data$design_family == "breadth",
+      .data$tissue_count,
+      .data$level
+    ),
+    design_label = dplyr::recode(
+      .data$design_family,
+      breadth = "Tissue breadth",
+      depth = "Within-tissue depth"
+    )
+  ) |>
+  dplyr::group_by(
+    .data$design_label, .data$metric_name, .data$scaling_axis, .data$repeat_id
+  ) |>
+  dplyr::summarise(repeat_estimate = mean(.data$estimate), .groups = "drop")
+scaling_sequence_ci <- split(
+  scaling_sequence_repeat,
+  interaction(
+    scaling_sequence_repeat$design_label,
+    scaling_sequence_repeat$metric_name,
+    scaling_sequence_repeat$scaling_axis,
+    drop = TRUE
+  )
+)
+scaling_sequence_ci <- do.call(rbind, lapply(seq_along(scaling_sequence_ci), function(i) {
+  part <- scaling_sequence_ci[[i]]
+  out <- .ae_paired_inference(
+    part,
+    "repeat_estimate",
+    cluster_column = "repeat_id",
+    n_boot = params$inference_bootstrap,
+    seed = params$inference_seed + 350L + i,
+    unit = "design_repeat",
+    method = "scaling_cell_repeat_bootstrap",
+    min_clusters = 2L
+  )
+  data.frame(
+    design_label = part$design_label[1],
+    metric_name = part$metric_name[1],
+    scaling_axis = part$scaling_axis[1],
+    ci_low_seq = out$ci_low,
+    ci_high_seq = out$ci_high,
+    stringsAsFactors = FALSE
+  )
+}))
+scaling_sequence <- dplyr::left_join(
+  scaling_sequence,
+  scaling_sequence_ci,
+  by = c("design_label", "metric_name", "scaling_axis")
+)
 
 scaling_matched_raw <- cohort_scaling$metrics |>
   dplyr::filter(
@@ -331,6 +433,47 @@ scaling_matched <- dplyr::inner_join(
       sqrt(sum(is.finite(.data$delta))),
     .groups = "drop"
   )
+scaling_matched_repeat <- dplyr::inner_join(
+  scaling_matched_breadth,
+  scaling_matched_depth,
+  by = c("repeat_id", "pair_id", "module_count", "metric_name")
+) |>
+  dplyr::mutate(delta = .data$estimate_breadth - .data$estimate_depth) |>
+  dplyr::group_by(.data$module_count, .data$metric_name, .data$repeat_id) |>
+  dplyr::summarise(repeat_estimate = mean(.data$delta), .groups = "drop")
+scaling_matched_ci <- split(
+  scaling_matched_repeat,
+  interaction(
+    scaling_matched_repeat$module_count,
+    scaling_matched_repeat$metric_name,
+    drop = TRUE
+  )
+)
+scaling_matched_ci <- do.call(rbind, lapply(seq_along(scaling_matched_ci), function(i) {
+  part <- scaling_matched_ci[[i]]
+  out <- .ae_paired_inference(
+    part,
+    "repeat_estimate",
+    cluster_column = "repeat_id",
+    n_boot = params$inference_bootstrap,
+    seed = params$inference_seed + 450L + i,
+    unit = "design_repeat",
+    method = "matched_size_repeat_bootstrap",
+    min_clusters = 2L
+  )
+  data.frame(
+    module_count = part$module_count[1],
+    metric_name = part$metric_name[1],
+    ci_low_matched = out$ci_low,
+    ci_high_matched = out$ci_high,
+    stringsAsFactors = FALSE
+  )
+}))
+scaling_matched <- dplyr::left_join(
+  scaling_matched,
+  scaling_matched_ci,
+  by = c("module_count", "metric_name")
+)
 
 scaling_contrast <- function(type, metric) {
   result <- cohort_scaling$contrasts[
@@ -593,6 +736,12 @@ p1 <- ggplot2::ggplot(
     vjust = -0.45,
     size = 3.6
   ) +
+  ggplot2::geom_text(
+    ggplot2::aes(label = "CI / p: not estimable"),
+    vjust = 1.8,
+    size = 2.7,
+    color = "grey35"
+  ) +
   ggplot2::scale_y_continuous(
     limits = c(0, 1.05),
     breaks = seq(0, 1, 0.2),
@@ -612,6 +761,16 @@ fig1_jpg <- .ae_save_plot(
   params$plot_preview_dpi
 )
 knitr::include_graphics(fig1_jpg)
+```
+
+Figure 1 显示三个几何指标来自一次冻结 reference 几何计算；当前 RDS 未保存可按 cohort 重抽取的样本级矩阵或独立 geometry repeats，因此不能把单次 CKA、Distance Spearman 或 kNN Jaccard 的差异人为扩展成置信区间。这里将它们明确标记为 `not_estimable`，而不是用样本数当作独立重复。后续若保存每个 cohort 的几何矩阵或重复计算结果，再补充真正的 geometry-level CI。
+
+```{r geometry-inference-table}
+geometry_inference_table <- geometry_inference[, c(
+  "endpoint", "estimate", "ci_low", "ci_high", "p_value", "n_sample",
+  "unit", "method", "status", "reason"
+)]
+render_dt(geometry_inference_table, pageLength = 3L)
 ```
 
 本次几何结果的直接解读是：CKA = `r fmt(metric_value("linear_cka"))`，说明 d1 与 Direct 的整体样本关系仍有较强一致性，但不是简单复制；Distance Spearman = `r fmt(metric_value("distance_spearman"))`，表示大尺度的远近排序仍保持清楚的正向关系。kNN Jaccard = `r fmt(metric_value("knn_jaccard"))`，即共同邻居约占两份邻居名单并集的 `r fmt_pct(metric_value("knn_jaccard"))`。由于两份名单都含相同数量的邻居，这一 Jaccard 值粗略对应每份名单约 `r fmt_pct(2 * metric_value("knn_jaccard") / (1 + metric_value("knn_jaccard")))` 的成员相同；这是便于理解的换算，不能代替逐样本分布。
@@ -672,6 +831,28 @@ plot_retrieval$metric <- factor(
   levels = c("delta_top_k_label_rate", "delta_mrr"),
   labels = c("Top-k label rate", "Mean reciprocal rank")
 )
+retrieval_overall_plot <- data.frame(
+  cohort = "Overall",
+  metric = factor(
+    c("Top-k label rate", "Mean reciprocal rank"),
+    levels = levels(plot_retrieval$metric)
+  ),
+  estimate = c(retrieval_mean_delta, retrieval_mrr_delta),
+  ci_low = c(
+    retrieval_inference$ci_low[retrieval_inference$endpoint == "top_k_label_rate"],
+    retrieval_inference$ci_low[retrieval_inference$endpoint == "mrr"]
+  ),
+  ci_high = c(
+    retrieval_inference$ci_high[retrieval_inference$endpoint == "top_k_label_rate"],
+    retrieval_inference$ci_high[retrieval_inference$endpoint == "mrr"]
+  ),
+  sample_count = NA_integer_,
+  stringsAsFactors = FALSE
+)
+plot_retrieval$ci_low <- NA_real_
+plot_retrieval$ci_high <- NA_real_
+retrieval_overall_plot <- retrieval_overall_plot[, names(plot_retrieval), drop = FALSE]
+plot_retrieval <- rbind(plot_retrieval, retrieval_overall_plot)
 retrieval_reference <- data.frame(
   metric = factor(
     c("Top-k label rate", "Mean reciprocal rank"),
@@ -690,7 +871,7 @@ retrieval_reference <- data.frame(
 cohort_order <- retrieval_delta_main$cohort[
   order(retrieval_delta_main$estimate)
 ]
-plot_retrieval$cohort <- factor(plot_retrieval$cohort, levels = cohort_order)
+plot_retrieval$cohort <- factor(plot_retrieval$cohort, levels = c(cohort_order, "Overall"))
 
 p2 <- ggplot2::ggplot(
   plot_retrieval,
@@ -709,6 +890,16 @@ p2 <- ggplot2::ggplot(
     linewidth = fig2$zero_line_width,
     show.legend = FALSE
   ) +
+  ggplot2::geom_errorbar(
+    data = plot_retrieval[plot_retrieval$cohort == "Overall", , drop = FALSE],
+    ggplot2::aes(xmin = .data$ci_low, xmax = .data$ci_high),
+    orientation = "y",
+    width = 0.22,
+    linewidth = fig2$zero_line_width,
+    position = ggplot2::position_dodge(width = 0.45),
+    show.legend = FALSE,
+    na.rm = TRUE
+  ) +
   ggplot2::geom_point(size = fig2$point_size) +
   ggplot2::scale_color_manual(
     values = c(
@@ -721,9 +912,10 @@ p2 <- ggplot2::ggplot(
     y = "External query cohort",
     color = "Metric",
     caption = paste0(
-      "Dashed lines: sample-level means; cohort-bootstrap 95% CI [",
+      "Dashed lines: sample-level means; overall cohort-bootstrap 95% CI [",
       paste(fmt(retrieval_reference$ci_low), fmt(retrieval_reference$ci_high), collapse = "; "),
-      "]"
+      "]; p(top-k) = ", fmt_p(retrieval_inference$p_value[retrieval_inference$endpoint == "top_k_label_rate"]),
+      "; p(MRR) = ", fmt_p(retrieval_inference$p_value[retrieval_inference$endpoint == "mrr"])
     )
   ) +
   theme_nature_readable(
@@ -809,8 +1001,31 @@ fig3 <- list(
   zero_line_width = 0.55,
   legend_position = "none"
 )
-readout_plot <- readout_cohort[order(readout_cohort$delta_balanced_accuracy), ]
-readout_plot$cohort <- factor(readout_plot$cohort, levels = readout_plot$cohort)
+readout_plot <- readout_cohort[
+  order(readout_cohort$delta_balanced_accuracy),
+  c("cohort", "delta_balanced_accuracy"),
+  drop = FALSE
+]
+readout_plot$ci_low <- NA_real_
+readout_plot$ci_high <- NA_real_
+readout_overall_plot <- data.frame(
+  cohort = "Overall",
+  delta_balanced_accuracy = readout_inference$estimate[
+    readout_inference$endpoint == "balanced_accuracy"
+  ],
+  ci_low = readout_inference$ci_low[
+    readout_inference$endpoint == "balanced_accuracy"
+  ],
+  ci_high = readout_inference$ci_high[
+    readout_inference$endpoint == "balanced_accuracy"
+  ],
+  stringsAsFactors = FALSE
+)
+readout_plot <- rbind(readout_plot, readout_overall_plot)
+readout_plot$cohort <- factor(
+  readout_plot$cohort,
+  levels = c(as.character(readout_plot$cohort[-nrow(readout_plot)]), "Overall")
+)
 p3 <- ggplot2::ggplot(
   readout_plot,
   ggplot2::aes(x = .data$delta_balanced_accuracy, y = .data$cohort)
@@ -819,6 +1034,16 @@ p3 <- ggplot2::ggplot(
     xintercept = 0,
     linewidth = fig3$zero_line_width,
     color = "grey55"
+  ) +
+  ggplot2::geom_errorbar(
+    data = readout_plot[readout_plot$cohort == "Overall", , drop = FALSE],
+    ggplot2::aes(xmin = .data$ci_low, xmax = .data$ci_high),
+    orientation = "y",
+    width = 0.22,
+    linewidth = fig3$zero_line_width,
+    color = nature_colors[["purple"]],
+    show.legend = FALSE,
+    na.rm = TRUE
   ) +
   ggplot2::geom_point(
     size = fig3$point_size,
@@ -901,8 +1126,8 @@ p4 <- ggplot2::ggplot(
 ) +
   ggplot2::geom_ribbon(
     ggplot2::aes(
-      ymin = .data$ci_low,
-      ymax = .data$ci_high,
+      ymin = .data$ci_low_rep,
+      ymax = .data$ci_high_rep,
       fill = .data$representation
     ),
     alpha = 0.14,
@@ -930,7 +1155,12 @@ p4 <- ggplot2::ggplot(
     x = "Fraction of reference cohorts",
     y = "External balanced accuracy",
     color = "Representation",
-    fill = "Representation"
+    fill = "Representation",
+    caption = paste0(
+      "Shaded bands: representation-specific repeat-bootstrap 95% CI; ",
+      "primary paired p (100% fraction) = ",
+      fmt_p(learning_inference$p_value[learning_inference$requested_fraction == 1])
+    )
   ) +
   theme_nature_readable(
     base_size = fig4$base_size,
@@ -989,7 +1219,10 @@ p10 <- ggplot2::ggplot(
   ggplot2::labs(
     x = "Cohort/query-level d1 minus Direct estimate",
     y = NULL,
-    caption = "Points: estimates; lines: 95% bootstrap CI; dashed line: zero difference"
+    caption = paste0(
+      "Points: estimates; lines: 95% bootstrap CI; dashed line: zero difference; ",
+      "p = ", fmt_p(forest_data$p_value)
+    )
   ) +
   theme_nature_readable(
     base_size = fig10$base_size,
@@ -1050,8 +1283,8 @@ p8 <- ggplot2::ggplot(
 ) +
   ggplot2::geom_ribbon(
     ggplot2::aes(
-      ymin = .data$estimate - 1.96 * .data$se,
-      ymax = .data$estimate + 1.96 * .data$se
+      ymin = .data$ci_low_seq,
+      ymax = .data$ci_high_seq
     ),
     alpha = fig8$ribbon_alpha,
     color = NA
@@ -1078,7 +1311,8 @@ p8 <- ggplot2::ggplot(
     x = "Added tissues or cohort-depth level",
     y = "Estimate",
     color = "Bank design",
-    fill = "Bank design"
+    fill = "Bank design",
+    caption = "Shaded bands: design-repeat bootstrap 95% CI; slope p-values are reported in the table below"
   ) +
   theme_nature_readable(
     base_size = fig8$base_size,
@@ -1094,6 +1328,16 @@ fig8_jpg <- .ae_save_plot(
   preview_dir, fig8, params$plot_preview_dpi
 )
 knitr::include_graphics(fig8_jpg)
+```
+
+Figure 8 的阴影区间现在按每个 scaling cell 的 design repeat 重新抽取计算。结果解读：它显示同一 bank 设计在不同重复下的估计范围，并表明不同设计的差异不应由 query 数量解释；它不把同一 repeat 内的多个 query 当作独立样本。区间较宽时，说明当前独立 bank-design repeats 对该 scaling cell 的估计仍不稳定。
+
+```{r scaling-inference-table}
+scaling_inference_table <- scaling_inference[, c(
+  "contrast_type", "metric_name", "estimate", "ci_low", "ci_high",
+  "p_value", "p_value_adj", "n_cohort", "unit", "status", "reason"
+)]
+render_dt(scaling_inference_table, pageLength = nrow(scaling_inference_table))
 ```
 
 本次 scaling sequence 的结果显示：normalized effective rank 的 breadth 斜率为 **`r fmt(rank_breadth$estimate)`**（repeat-bootstrap 95% CI `r fmt(rank_breadth$ci_low)` 至 `r fmt(rank_breadth$ci_high)`），depth 斜率为 **`r fmt(rank_depth$estimate)`**（95% CI `r fmt(rank_depth$ci_low)` 至 `r fmt(rank_depth$ci_high)`）。两条置信区间均低于零，表明每新增一个 tissue 或每增加一层同 tissue cohort，非重复方向占当前 bank 容量的比例都在下降；按斜率量级，分别约下降 `r fmt(100 * abs(rank_breadth$estimate), 1L)` 和 `r fmt(100 * abs(rank_depth$estimate), 1L)` 个百分点。这说明新增 evidence 没有按 module 容量同比增加独立方向，但不能据此断言 raw effective rank 一定下降。
@@ -1128,8 +1372,8 @@ p9 <- ggplot2::ggplot(
   ) +
   ggplot2::geom_ribbon(
     ggplot2::aes(
-      ymin = .data$estimate - 1.96 * .data$se,
-      ymax = .data$estimate + 1.96 * .data$se
+      ymin = .data$ci_low_matched,
+      ymax = .data$ci_high_matched
     ),
     fill = nature_colors[["green"]],
     alpha = fig9$ribbon_alpha
@@ -1150,7 +1394,8 @@ p9 <- ggplot2::ggplot(
   ) +
   ggplot2::labs(
     x = "Matched frozen cohort modules",
-    y = "Breadth-heavy minus depth-heavy"
+    y = "Breadth-heavy minus depth-heavy",
+    caption = "Shaded bands: matched-size design-repeat bootstrap 95% CI"
   ) +
   theme_nature_readable(
     base_size = fig9$base_size,

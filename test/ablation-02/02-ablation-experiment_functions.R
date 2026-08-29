@@ -382,3 +382,84 @@
   result <- do.call(rbind, rows)
   .ae_adjust_inference(result, multiplicity_method)
 }
+
+.ae_scaling_inference <- function(
+  cohort_scaling, n_boot = 2000L, seed = 20260829L,
+  multiplicity_method = "holm"
+) {
+  contrasts <- cohort_scaling$contrasts
+  if (is.null(contrasts) || nrow(contrasts) == 0L) {
+    return(data.frame())
+  }
+  repeat_level <- contrasts[
+    contrasts$aggregation %in% c("repeat", "pair") &
+      is.finite(contrasts$estimate) &
+      !is.na(contrasts$repeat_id),
+    c("contrast_type", "repeat_id", "metric_name", "estimate"),
+    drop = FALSE
+  ]
+  if (nrow(repeat_level) == 0L) return(data.frame())
+  repeat_level <- repeat_level |>
+    dplyr::group_by(.data$contrast_type, .data$repeat_id, .data$metric_name) |>
+    dplyr::summarise(estimate = mean(.data$estimate), .groups = "drop")
+  groups <- split(
+    repeat_level,
+    interaction(
+      repeat_level$contrast_type,
+      repeat_level$metric_name,
+      drop = TRUE,
+      lex.order = TRUE
+    )
+  )
+  rows <- lapply(seq_along(groups), function(i) {
+    part <- groups[[i]]
+    out <- .ae_paired_inference(
+      part,
+      "estimate",
+      cluster_column = "repeat_id",
+      n_boot = n_boot,
+      seed = seed + i - 1L,
+      unit = "design_repeat",
+      method = "bank_design_repeat_bootstrap_sign_flip",
+      multiplicity_method = multiplicity_method,
+      min_clusters = 2L
+    )
+    if (out$n_cohort < 10L && out$status == "complete") {
+      out$status <- "exploratory"
+      out$reason <- "fewer_than_ten_independent_design_repeats"
+    }
+    out$contrast_type <- part$contrast_type[1]
+    out$metric_name <- part$metric_name[1]
+    out
+  })
+  result <- do.call(rbind, rows)
+  .ae_adjust_inference(result, multiplicity_method)
+}
+
+.ae_geometry_inference <- function(native_geometry) {
+  metrics <- native_geometry$metrics
+  metrics <- metrics[metrics$metric_name %in% c(
+    "linear_cka", "distance_spearman", "knn_jaccard"
+  ), , drop = FALSE]
+  if (nrow(metrics) == 0L) return(data.frame())
+  data.frame(
+    endpoint = metrics$metric_name,
+    estimate = metrics$metric_value,
+    ci_low = NA_real_,
+    ci_high = NA_real_,
+    p_value = NA_real_,
+    p_value_adj = NA_real_,
+    n_cohort = NA_integer_,
+    n_sample = metrics$sample_count,
+    resamples = 0L,
+    seed = NA_integer_,
+    unit = "not_available",
+    method = "not_estimable_single_frozen_geometry",
+    alternative = "two.sided",
+    null = NA_real_,
+    multiplicity_method = "none",
+    status = "not_estimable",
+    reason = "native_geometry_contains_one_frozen_estimate",
+    stringsAsFactors = FALSE
+  )
+}
