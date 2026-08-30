@@ -16,6 +16,20 @@
 
 ---
 
+这里我补充几点：
+
+- E:\Sync\@Analysis\PanCan_Data\Level 1\PanCan_CancerSample_DataListForCCS_GEO+cBioPortal+UCXCXenav20240809.rds 是完整的矩阵；你可以看目前的数据里对应什么样本；然后回去这里找，肯定可以找到。 因此， 增殖、免疫/TME、PAM50、CMS 等生物 anchor 是可以做的
+- "E:\RCloud\database\Signature\report\GeneSignature-HWB.rds" 是一个我之前整理过的已经发表的一些Gene Signature；对于你研究生物 anchor是有好处的。 你可以搞。
+- 生存、治疗反应、临床结局这个在之前的讨论里已经说过了。 到了临床表型这一步，中间的影响因素太多，没有办法真的很好地研究。因此，还是把目标局限一下，能回答到“cohort-based representative对生物anchor的表征影响”已经足够了。从另外一个角度来说，临床表型有很多，你总是没有办法一一研究的；因此，关注“cohort-based representative的生物学意义”就足够了。
+- d2/d3/metaCCS 稳定性的研究以前早就说过了。它们都是d1的衍生物，所以并不是研究重点。我们重点还是研究透d1的性质。
+- 其它的探索方向你看着哪些合适的，尽量做一下；如果不能做就不要勉强。就算证据不是很强，有一些探索性的分析也可以接受；但是能做好的还是尽量做
+
+本次优化将开启 ablation-03 这个分析，它是在02的基础上进一步优化。因为02分析虽然还不太全面，但是它基本上说明了“d1与Direct-GSClassifier明显不同”，也算是一个阶段性成果，因此我不打算覆盖它。03的分析应该包含02，然后有更多更好、更全面的分析，意义也要有所推进。如果你需要改CCS包的源代码，也可以；但我个人的建议是仅改 R\ablation.R ， 其它的不要大改；而且尽量保证对 ablation-02 的兼容（这个很容易；03主要是有新的分析，你直接添加一些新的部件，然后旧的部分不改就行了；就是这种“模块化增强”就可以保证兼容性）。
+
+结合上述意见，你总结一下，写个优化计划在docs/plans 里。
+
+---
+
 test\ablation-02分析优化：
 
 - 基于 docs\plans\2026-08-29-ablation-02-statistical-inference-optimization.md 优化源代码
