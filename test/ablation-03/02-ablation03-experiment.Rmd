@@ -30,8 +30,8 @@ output:
 # Input: Data audit from stage 01 plus eight products from 02-ablation-experiment.R.
 # Parameters: Display thresholds from YAML params; no scientific winner threshold is invented.
 # Output: Traceable variables used by inline numbers, tables, and figures.
-# External query d1 is sliced from the full precomputed resCCS object; no
-# external d1 re-encoding cache is used.
+# Stage 01 prepares one self-consistent CCS object with complete precomputed d1
+# rows and the filtered model-bank contract.
 knitr::opts_chunk$set(
   echo = TRUE,
   warning = FALSE,
@@ -652,7 +652,7 @@ render_dt(overview_table, pageLength = 11)
 |---|---|---|---|---|
 | 数据审计输入 | `data_profile` | `r data_profile_path` | 复用第一阶段完整画像，不在实验报告中重复加载或重画数据审计 | `r data_report_name` |
 | 完整 GSClassifier 输入 | `.ablation_gsclassifier_matrix()` | 冻结 `geneSet`、`breakVec`、feature manifest | 保留 32 single-bin、496 gene-pair、1 set-pair 的真实合同 | `R/ablation.R:` `r find_source_line(".ablation_gsclassifier_matrix <- function")` |
-| 预计算 external d1 复用 | full `resCCS` 的外部样本行 × frozen training-bank 列 | 不再重算外部 d1，也不保留 external-d1-cache | query 使用预计算 d1；列合同由筛选版 resCCS 冻结 | `R/ablation.R:` `r find_source_line(".ablation_prepare_representation_input <- function")` |
+| 完整 d1 入口 | Stage 01 将 full `resCCS` 的 d1 行按筛选版对象的冻结列合同合并 | 只在分析入口做一次性对象适配，不修改 CCS 包函数或写 external-d1-cache | `ablation()` 接收单一自洽 CCS 对象，query 缺失时仍按通用路径重编码 | `R/ablation.R:` `r find_source_line(".ablation_prepare_representation_input <- function")` |
 | query-to-reference 检索 | `.ablation_query_reference_retrieval()` + `.ae_retrieval_inference()` | k = `r paste(manifest$config$geometry$k, collapse = "/")`；cohort bootstrap = `r params$inference_bootstrap` | query 只到其它 cohorts 的 atlas 找邻居；按 cohort 估计 CI 与配对 p 值 | `R/ablation.R:` `r find_source_line(".ablation_query_reference_retrieval <- function")`；`02-ablation-experiment_functions.R` |
 | d1 距离 | `.ablation_module_balanced_transform()` | module 等权标准化 Euclidean | d1 blocks 的行和不满足 simplex，故不伪用 Hellinger | `R/ablation.R:` `r find_source_line(".ablation_module_balanced_transform <- function")` |
 | 外部 readout | `.ablation_linear_readout()` + `.ae_readout_inference()` | grouped `r manifest$config$validation$inner_folds`-fold CV；lambda = `r paste(manifest$config$validation$lambda, collapse = "/")` | 预处理与调参均在 reference 内完成，两臂预算一致；query cohort bootstrap 单独报告 | `R/ablation.R:` `r find_source_line(".ablation_linear_readout <- function")`；`02-ablation-experiment_functions.R` |

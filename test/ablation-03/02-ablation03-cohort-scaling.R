@@ -2,7 +2,7 @@
 
 # Purpose: Recompute only the two-dimensional cohort-evidence scaling extension.
 # Input: Stage-01 objects and existing ablation outputs. External d1 is read
-# directly from the full precomputed resCCS object.
+# from the self-consistent CCS object prepared by stage 01.
 # Parameters: Shared experiment params with breadth/depth repeats and matched banks.
 # Output: Schema-v2 cohort_scaling.rds plus synchronized manifest/result references.
 
@@ -22,8 +22,7 @@ output_dir <- .ablation03_path("tmp", "ablation-experiment")
 params <- .ae_ablation_params(filtered_cohorts, n_cores)
 config <- .ablation_resolve_representation_config(seed, params)
 analysis <- .ablation_prepare_representation_analysis(
-  object = resCCS,
-  d1_source = resCCS_full,
+  object = resCCS_ablation,
   data = data_all,
   metadata = ablation_metadata,
   config = config,

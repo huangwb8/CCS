@@ -163,6 +163,28 @@ if (!all(rownames(filtered_d1) %in% rownames(full_d1))) {
     call. = FALSE
   )
 }
+
+# The public ablation API consumes one self-consistent CCS object.  Keep the
+# filtered object for its frozen model-bank contract, but replace its d1 rows
+# with the complete precomputed matrix after checking that the training-bank
+# rows and columns are unchanged.  This adapter is deliberately local to the
+# analysis data boundary; the CCS package does not need a second d1 input.
+full_training_d1 <- full_d1[
+  rownames(filtered_d1),
+  colnames(filtered_d1),
+  drop = FALSE
+]
+if (!isTRUE(all.equal(unname(full_training_d1), unname(filtered_d1)))) {
+  stop(
+    "ablation-test-data: full and filtered d1 disagree on frozen training rows.",
+    call. = FALSE
+  )
+}
+resCCS_ablation <- resCCS
+resCCS_ablation@Data$Probability$d1 <- full_d1[
+  , colnames(filtered_d1),
+  drop = FALSE
+]
 filtered_model_cohorts <- as.character(resCCS@Data$filtered.cohort)
 filtered_cohorts <- .atd_resolve_cohort_keys(
   filtered_model_cohorts,

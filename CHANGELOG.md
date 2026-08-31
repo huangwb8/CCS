@@ -6,7 +6,10 @@
 
 ## [Unreleased]
 
-- 优化 `ablation-03` 的 d1 输入：同时加载完整与筛选版 `resCCS`，外部 query 直接复用完整对象中预计算的 d1 样本行，并严格截取筛选版冻结训练 bank 的列；停止外部 d1 重编码及其缓存依赖。
+- 重构 `ablation()` 的 d1 输入边界：移除少见场景专用的 `d1_source` 与
+  `external-d1-cache.rds`，统一接收单一 CCS 对象；对象已有的 d1 行直接复用，
+  缺失的 query 行才按冻结 model bank 按需编码。`ablation-03` 在数据入口将完整
+  `resCCS` 的 d1 行按筛选版冻结列合同合并后再调用通用 API。
 
 ### Changed
 

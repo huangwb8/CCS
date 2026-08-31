@@ -66,7 +66,7 @@ result <- ablation(
       decoder_rank = 2L,
       decoder_lambda = 1
     ),
-    output = list(cover = TRUE, cache_external_d1 = TRUE)
+    output = list(cover = TRUE)
   ),
   seed = 702L,
   verbose = FALSE

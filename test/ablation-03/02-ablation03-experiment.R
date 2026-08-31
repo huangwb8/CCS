@@ -21,8 +21,7 @@ dir.create(output_dir, recursive = TRUE, showWarnings = FALSE)
 ablation_params <- .ae_ablation_params(filtered_cohorts, n_cores)
 
 ablation_result <- ablation(
-  object = resCCS,
-  d1_source = resCCS_full,
+  object = resCCS_ablation,
   data = data_all,
   metadata = ablation_metadata,
   experiment = "representation",

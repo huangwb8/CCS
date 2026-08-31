@@ -69,8 +69,7 @@
       decoder_max_query_samples = 5000L
     ),
     output = list(
-      cover = TRUE,
-      cache_external_d1 = FALSE
+      cover = TRUE
     )
   )
 }

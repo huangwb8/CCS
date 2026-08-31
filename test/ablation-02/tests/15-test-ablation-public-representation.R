@@ -47,7 +47,7 @@ result <- ablation(
     ),
     validation = list(enabled = FALSE),
     controls = list(null_rp = FALSE, null_perm = TRUE),
-    output = list(cover = TRUE, cache_external_d1 = TRUE)
+    output = list(cover = TRUE)
   ),
   seed = 501L,
   verbose = FALSE

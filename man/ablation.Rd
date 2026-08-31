@@ -12,8 +12,7 @@ ablation(
   output.dir = file.path(getwd(), "ccs-ablation"),
   params = list(),
   seed = 20260727,
-  verbose = TRUE,
-  d1_source = NULL
+  verbose = TRUE
 )
 }
 \arguments{
@@ -269,10 +268,6 @@ replacing same-named ablation result files. Default: \code{FALSE}.}
 \item{seed}{Master random seed.}
 
 \item{verbose}{Whether to report progress.}
-
-\item{d1_source}{Optional \code{CCS} object containing precomputed d1 for samples
-outside the frozen training bank. When supplied, its d1 rows are reused
-directly and no external d1 re-encoding or cache is performed.}
 }
 \value{
 An object of class \code{CCSAblation}.
@@ -280,8 +275,8 @@ An object of class \code{CCSAblation}.
 \description{
 Evaluate the frozen CCS representation without retraining cohort submodels.
 The default \code{"representation"} experiment reconstructs the complete native
-GSClassifier input, reuses supplied precomputed external d1 when available
-(otherwise re-encoding it with the frozen model bank),
+GSClassifier input, reuses matching frozen d1 rows, and re-encodes only missing
+filtered query samples through the frozen model bank,
 and compares Direct-GSClassifier with Cohort-d1 on independent
 query-to-reference retrieval, grouped linear readout, paired learning curves,
 null controls, and feature-type reconstruction. Explicit requests for the
