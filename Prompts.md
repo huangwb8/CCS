@@ -16,6 +16,22 @@
 
 ---
 
+最近分析的时候有说：
+
+```
+R/ablation.R新增 d1_source 参数；
+
+外部 query 直接读取完整 RDS 中预计算的 d1；
+
+只保留筛选版对象定义的冻结 training-bank d1 列；
+
+不再执行外部 d1 重编码，也不再写入 external-d1-cache.rds。
+```
+
+上述逻辑肯定是不太优雅的。 目前， ablation 函数是不是仅看到 d1，d2/d3/metaCCS/normCCS都不涉及，对吗？如果是这样的话， "E:/iProjects/RCheck/GSClassifier/routine01/ccs/PADv20240911/resCCS.rds" 包含了“训练 metaCCS 的样本”和“外部数据样本”的resCCS，直接通过分析代码（不需要改CCS包的函数）参考 E:/Sync/Project/PADv20250720/models/resCCS_5ff3a2de76e6cf902e765e8224f9cb66.rds 完全拆成2个部分；然后分别做就行。 你想一下， d1_source 根本不是一个普适的情形，完全没有必要把 ablation 函数设计成适配这种少见情形。你设计函数不要只是为了跑成功代码；要有优雅的设计逻辑才行呀？
+
+---
+
 这么约束就行：
 
 - "E:/iProjects/RCheck/GSClassifier/routine01/ccs/PADv20240911/resCCS.rds" 包含了“训练 metaCCS 的样本”和“外部数据样本”的 d1；但是应该没有d2-d3-metaCCS-normCCS那一套东西。 
