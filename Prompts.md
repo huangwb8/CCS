@@ -16,6 +16,25 @@
 
 ---
 
+这么约束就行：
+
+- "E:/iProjects/RCheck/GSClassifier/routine01/ccs/PADv20240911/resCCS.rds" 包含了“训练 metaCCS 的样本”和“外部数据样本”的 d1；但是应该没有d2-d3-metaCCS-normCCS那一套东西。 
+- E:/Sync/Project/PADv20250720/models/resCCS_5ff3a2de76e6cf902e765e8224f9cb66.rds 仅包含“训练 metaCCS 的样本”，但是包含了d2-d3-metaCCS-normCCS那一套东西。 
+- d1的计算是个耗时步骤，因此在  PADv20240911/resCCS.rds  这个阶段，其实就已经先把d1搞好了。 就是为了后续可以更加方便地使用。
+
+但这里也有一个需要注意的点： d1是一个依赖cohort的值。如果cohort的数量增加，d1就会变长。 所以，显然  PADv20240911/resCCS.rds  里的d1是比resCCS_5ff3a2de76e6cf902e765e8224f9cb66.rds里的d1更长。如果在ablation-03的研究里要研究 “外部数据样本”的 d1，其实应该是仅截取由 “训练 metaCCS 的样本” 的那部分cohorts所call的那一部分（当然，剩余的部分也许是有用的；您也可以研究，只要你觉得对本次分析有用）。我的想法对吗？
+
+---
+
+test\ablation-03分析：
+
+- 基于  docs\plans\2026-08-30-ablation-03生物学锚点与表示性质优化计划.md 做分析
+- 分析的过程会引用一些不在 E:\RCloud\RFactory\ccs 里的文件；它们都是只读，严禁修改。你修改文件的范围要严格局限于  E:\RCloud\RFactory\ccs 及其子文件夹里
+- 分析的时候可能会有一些中间数据已经存在，因此生成中间数据的代码可能不用重复运行。如果你觉得中间数据可能已经变化，应该重新运行生成这些中间数据的代码。
+- 在 bensz-rmd-rules 的规范下工作（R环境可以用： C:\R\R-4.3.1）。 要出最后的html报告
+
+---
+
 这里我补充几点：
 
 - E:\Sync\@Analysis\PanCan_Data\Level 1\PanCan_CancerSample_DataListForCCS_GEO+cBioPortal+UCXCXenav20240809.rds 是完整的矩阵；你可以看目前的数据里对应什么样本；然后回去这里找，肯定可以找到。 因此， 增殖、免疫/TME、PAM50、CMS 等生物 anchor 是可以做的
