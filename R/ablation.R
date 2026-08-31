@@ -3,7 +3,8 @@
 #' @description
 #' Evaluate the frozen CCS representation without retraining cohort submodels.
 #' The default `"representation"` experiment reconstructs the complete native
-#' GSClassifier input, re-encodes filtered cohorts with the frozen model bank,
+#' GSClassifier input, reuses supplied precomputed external d1 when available
+#' (otherwise re-encoding it with the frozen model bank),
 #' and compares Direct-GSClassifier with Cohort-d1 on independent
 #' query-to-reference retrieval, grouped linear readout, paired learning curves,
 #' null controls, and feature-type reconstruction. Explicit requests for the
@@ -12,6 +13,9 @@
 #' groups and recorded in an audit table.
 #'
 #' @param object A `CCS` object containing the frozen d1 representation.
+#' @param d1_source Optional `CCS` object containing precomputed d1 for samples
+#'   outside the frozen training bank. When supplied, its d1 rows are reused
+#'   directly and no external d1 re-encoding or cache is performed.
 #' @param data Raw RNA expression data. A tissue/cohort nested list is preferred;
 #'   each leaf can be an expression matrix or a list containing `expr`.
 #' @param metadata Optional sample annotation with sample, cohort, tissue and
@@ -269,7 +273,8 @@ ablation <- function(
     output.dir = file.path(getwd(), "ccs-ablation"),
     params = list(),
     seed = 20260727,
-    verbose = TRUE
+    verbose = TRUE,
+    d1_source = NULL
 ) {
   experiment <- unique(as.character(experiment))
   legacy_only <- c("scaling", "tissue_first", "metaccs")
@@ -304,7 +309,8 @@ ablation <- function(
       output.dir = output.dir,
       params = params,
       seed = seed,
-      verbose = verbose
+      verbose = verbose,
+      d1_source = d1_source
     ))
   }
 
@@ -4443,8 +4449,9 @@ ablation <- function(
 }
 
 
-# Prepare disjoint reference/query matrices. Existing d1 is used only for the
-# reference atlas; every filtered query is re-encoded through the frozen bank.
+# Prepare disjoint reference/query matrices. The filtered object defines the
+# frozen training-bank columns; an optional full object supplies precomputed
+# external-query rows without re-encoding.
 .ablation_prepare_representation_input <- function(
     object,
     data,
@@ -4452,8 +4459,12 @@ ablation <- function(
     config,
     output.dir,
     seed,
-    verbose
+    verbose,
+    d1_source = NULL
 ) {
+  if (!is.null(d1_source) && !methods::is(d1_source, "CCS")) {
+    stop("ablation: d1_source must be a CCS object.", call. = FALSE)
+  }
   module_manifest <- .ablation_module_manifest(object)
   feature_manifest <- .ablation_frozen_feature_manifest(object, module_manifest)
   module_ids <- config$comparison$module_ids
@@ -4486,15 +4497,21 @@ ablation <- function(
     stop("ablation: no filtered external cohorts are available.", call. = FALSE)
   }
 
-  d1 <- as.matrix(object@Data$Probability$d1)
+  d1_object <- if (is.null(d1_source)) object else d1_source
+  d1 <- as.matrix(d1_object@Data$Probability$d1)
   expression_ids <- colnames(flattened$expr)
   reference_ids <- Reduce(intersect, list(
     rownames(d1),
     expression_ids,
     metadata$sample_id[!metadata$cohort_key %in% filtered]
   ))
+  query_expression_ids <- if (is.null(d1_source)) {
+    expression_ids
+  } else {
+    intersect(expression_ids, rownames(d1))
+  }
   query_ids <- intersect(
-    expression_ids,
+    query_expression_ids,
     metadata$sample_id[metadata$cohort_key %in% filtered]
   )
   if (length(reference_ids) < 3 || length(query_ids) < 1) {
@@ -4536,34 +4553,55 @@ ablation <- function(
   reference_direct <- direct[reference_ids, , drop = FALSE]
   query_direct <- direct[query_ids, , drop = FALSE]
 
-  expected_columns <- colnames(d1)[
+  expected_columns <- colnames(object@Data$Probability$d1)[
     unlist(module_manifest$blocks[module_ids], use.names = FALSE)
   ]
+  missing_d1_columns <- setdiff(expected_columns, colnames(d1))
+  if (length(missing_d1_columns) > 0L) {
+    stop(
+      "ablation: d1 source is missing frozen training-bank columns: ",
+      paste(missing_d1_columns, collapse = ", "),
+      ".",
+      call. = FALSE
+    )
+  }
   reference_d1 <- d1[reference_ids, expected_columns, drop = FALSE]
-  model_paths <- .ablation_model_path_map(object)[module_ids]
-  model_info <- file.info(unname(model_paths))[, c("size", "mtime"), drop = FALSE]
+  d1_provenance_key <- if (is.null(d1_source)) {
+    model_paths <- .ablation_model_path_map(object)[module_ids]
+    list(
+      mode = "reencoded",
+      model_paths = model_paths,
+      model_info = file.info(unname(model_paths))[, c("size", "mtime"), drop = FALSE]
+    )
+  } else {
+    list(
+      mode = "precomputed",
+      query_d1_hash = digest::digest(
+        d1[query_ids, expected_columns, drop = FALSE],
+        algo = "md5"
+      )
+    )
+  }
   cache_key <- digest::digest(
     list(
       query_ids = query_ids,
       direct = query_direct,
       module_ids = module_ids,
-      model_paths = model_paths,
-      model_info = model_info
+      d1_columns = expected_columns,
+      d1_provenance = d1_provenance_key
     ),
     algo = "md5"
   )
-  cache_path <- file.path(output.dir, "external-d1-cache.rds")
-  query_d1 <- NULL
-  if (config$output$cache_external_d1 && file.exists(cache_path)) {
-    cache <- readRDS(cache_path)
-    if (identical(cache$key, cache_key)) {
-      query_d1 <- cache$d1
-      if (verbose) {
-        luckyBase::LuckyVerbose("ablation: using verified external d1 cache.")
-      }
+  if (!is.null(d1_source)) {
+    query_d1 <- d1[query_ids, expected_columns, drop = FALSE]
+    if (verbose) {
+      luckyBase::LuckyVerbose(
+        "ablation: reusing precomputed external d1 from full resCCS (",
+        ncol(query_d1),
+        " frozen bank columns)."
+      )
     }
-  }
-  if (is.null(query_d1)) {
+  } else {
     query_d1 <- .ablation_encode_d1_from_direct(
       object = object,
       direct = query_direct,
@@ -4572,13 +4610,12 @@ ablation <- function(
       numCores = config$validation$numCores,
       verbose = verbose
     )
-    if (config$output$cache_external_d1) {
-      saveRDS(list(key = cache_key, d1 = query_d1), cache_path)
-    }
   }
 
   selected_blocks <- lapply(module_ids, function(module_id) {
-    module_columns <- colnames(d1)[module_manifest$blocks[[module_id]]]
+    module_columns <- colnames(object@Data$Probability$d1)[
+      module_manifest$blocks[[module_id]]
+    ]
     match(module_columns, expected_columns)
   })
   names(selected_blocks) <- module_ids
@@ -4734,16 +4771,18 @@ ablation <- function(
     config,
     output.dir,
     seed,
-    verbose
+    verbose,
+    d1_source = NULL
 ) {
   prepared <- .ablation_prepare_representation_input(
-    object,
-    data,
-    metadata,
-    config,
-    output.dir,
-    seed,
-    verbose
+    object = object,
+    data = data,
+    metadata = metadata,
+    config = config,
+    output.dir = output.dir,
+    seed = seed,
+    verbose = verbose,
+    d1_source = d1_source
   )
   anchor <- config$anchors$primary
   if (!anchor %in% colnames(prepared$reference_metadata) ||
@@ -4779,7 +4818,8 @@ ablation <- function(
     output.dir,
     params,
     seed,
-    verbose
+    verbose,
+    d1_source = NULL
 ) {
   if (!methods::is(object, "CCS")) {
     stop("ablation: object must be a CCS object.", call. = FALSE)
@@ -4796,6 +4836,7 @@ ablation <- function(
 
   analysis <- .ablation_prepare_representation_analysis(
     object = object,
+    d1_source = d1_source,
     data = data,
     metadata = metadata,
     config = config,

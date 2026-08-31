@@ -8,11 +8,12 @@ ablation(
   object,
   data,
   metadata = NULL,
-  experiment = c("cohort", "scaling", "tissue_first", "metaccs"),
+  experiment = "representation",
   output.dir = file.path(getwd(), "ccs-ablation"),
   params = list(),
   seed = 20260727,
-  verbose = TRUE
+  verbose = TRUE,
+  d1_source = NULL
 )
 }
 \arguments{
@@ -24,20 +25,62 @@ each leaf can be an expression matrix or a list containing \code{expr}.}
 \item{metadata}{Optional sample annotation with sample, cohort, tissue and
 biological-label columns. Common CCS column names are recognized.}
 
-\item{experiment}{One or more of \code{"cohort"}, \code{"scaling"},
-\code{"tissue_first"} and \code{"metaccs"}.}
+\item{experiment}{\code{"representation"} by default. The deprecated single value
+\code{"cohort"} maps to \code{"representation"} with a warning. Explicit legacy
+requests may contain one or more of \code{"cohort"}, \code{"scaling"},
+\code{"tissue_first"}, and \code{"metaccs"}; \code{"representation"} cannot be mixed with
+legacy experiments.}
 
 \item{output.dir}{Independent output directory. Existing CCS products are
 never overwritten.}
 
-\item{params}{Named nested list recursively merged onto
-\code{.ablation_default_params(seed)}. Callers may provide only the leaves they
-want to change, for example
-\code{list(general = list(rank = 25L), scaling = list(gate = list(enforce = TRUE)))}.
-The canonical top-level groups are \code{general}, \code{cohort}, \code{scaling},
-\code{tissue_first}, and \code{metaccs}. Existing flat parameter names remain accepted
-and are normalized to this schema; unknown or ambiguous duplicate fields are
-rejected before computation.
+\item{params}{Named nested list. For \code{"representation"}, values are merged
+onto \code{.ablation_representation_default_params(seed)} under \code{comparison},
+\code{provenance}, \code{anchors}, \code{geometry}, \code{validation}, \code{controls}, \code{tradeoffs},
+and \code{output}. For explicit legacy experiments, values are merged onto
+\code{.ablation_default_params(seed)} under \code{general}, \code{cohort}, \code{scaling},
+\code{tissue_first}, and \code{metaccs}; existing flat legacy names remain accepted.
+Unknown fields are rejected before computation.
+
+Representation-specific cohort-bank scaling settings:
+
+\describe{
+\item{\code{scaling$enabled}}{Logical; when \code{TRUE}, evaluate tissue breadth,
+within-tissue cohort depth, and matched-size frozen cohort-model banks.
+Default: \code{FALSE}.}
+\item{\code{scaling$module_counts}}{Positive module counts used for matched-size
+breadth-heavy versus depth-heavy contrasts. Infeasible sizes are
+retained in the exclusion audit. Default:
+\code{c(10L, 25L, 50L, 75L, 100L, 125L, 150L)}.}
+\item{\code{scaling$sequences}}{Number of independently randomized,
+reproducible bank-design repeats. Each repeat, rather than its samples
+or grid cells, is the uncertainty unit. Default: \code{10L}.}
+\item{\code{scaling$direct_feature_type}}{Main Direct-GSClassifier diagnostic
+contract: \code{"all"} for the complete native input or \code{"gene_pair"} for
+ordinary TSPs only. Default: \code{"all"}.}
+\item{\code{scaling$sensitivity_feature_type}}{Optional secondary Direct
+contract. \code{"gene_pair"} reports the explicitly named
+Direct-GSClassifier-TSP sensitivity analysis; \code{"none"} disables it.
+Default: \code{"gene_pair"}.}
+\item{\code{scaling$biology_anchors}}{Independent sample-level biological or
+clinical metadata columns used for external-utility neighborhood
+consistency. Missing or empty anchors are returned as \code{not_evaluated};
+cancer type is not substituted. Default: \code{character()}.}
+\item{\code{scaling$score_reference_samples}}{Fixed stratified reference
+sample cap shared by every bank score. This controls repeated neighbor
+and readout cost without changing bank-repeat uncertainty. \code{Inf} keeps
+all reference samples. Default: \code{5000L}.}
+\item{\code{scaling$score_query_samples}}{Fixed stratified external-query cap
+shared by every bank score. \code{Inf} keeps all eligible queries. Default:
+\code{2000L}.}
+\item{\code{scaling$lambda}}{Single pre-specified L2 penalty shared by Direct
+and matched-bank lineage diagnostics. Fixing it avoids re-tuning at
+every bank composition. Default: \code{1}.}
+\item{\code{scaling$bootstrap}}{Positive number of repeat-level bootstrap
+draws used for breadth/depth slopes, interactions, and matched-size
+summaries. Default:
+\code{1000L}.}
+}
 
 Shared representation, validation, and metric settings:
 
@@ -226,19 +269,25 @@ replacing same-named ablation result files. Default: \code{FALSE}.}
 \item{seed}{Master random seed.}
 
 \item{verbose}{Whether to report progress.}
+
+\item{d1_source}{Optional \code{CCS} object containing precomputed d1 for samples
+outside the frozen training bank. When supplied, its d1 rows are reused
+directly and no external d1 re-encoding or cache is performed.}
 }
 \value{
 An object of class \code{CCSAblation}.
 }
 \description{
 Evaluate the frozen CCS representation without retraining cohort submodels.
-Direct features are reconstructed with GSClassifier's native preprocessing
-contract and the exact feature support stored in the frozen models.
-The function implements the cohort-representation, cohort-axis scaling,
-tissue-first and end-to-end metaCCS experiments defined by the CCS layered
-ablation plans. All
-stochastic operations are paired across comparison groups and recorded in
-an audit table.
+The default \code{"representation"} experiment reconstructs the complete native
+GSClassifier input, reuses supplied precomputed external d1 when available
+(otherwise re-encoding it with the frozen model bank),
+and compares Direct-GSClassifier with Cohort-d1 on independent
+query-to-reference retrieval, grouped linear readout, paired learning curves,
+null controls, and feature-type reconstruction. Explicit requests for the
+legacy scaling, tissue-first, and metaCCS experiments remain available during
+the API transition. All stochastic operations are paired across comparison
+groups and recorded in an audit table.
 }
 \author{
 Weibin Huang \href{mailto:hwb2012@qq.com}{hwb2012@qq.com}
