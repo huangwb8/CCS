@@ -1,0 +1,23 @@
+version: "2026-08-30"
+source: "E:/RCloud/database/Signature/report/GeneSignature-HWB.rds"
+role: "independent_biological_anchor"
+readout: "cohort_zscore_signature_mean"
+anchors:
+  proliferation:
+    family: "Conserved-PanCan-TME-subtypes"
+    name: "Tumor proliferation rate"
+  immune_tme:
+    family: "Zeng2021"
+    name: "TME_A_Immune2"
+  stromal_tme:
+    family: "Zeng2021"
+    name: "TME_B_Stromal2"
+  ifn_il6:
+    family: "IFN-IL6"
+    names:
+      - "IFN signaling"
+      - "IL6-JAK-STAT3 signaling"
+exclusions:
+  cancer_type_substitution: false
+  posthoc_anchor_selection: false
+  ccs_input_overlap: "reported_in_manifest; disjoint filtering requires the CCS feature manifest"
