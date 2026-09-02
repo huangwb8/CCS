@@ -6,6 +6,8 @@
 
 ## [Unreleased]
 
+- 补充 Windows 开发环境约定：R 环境路径为 `C:\R\R-4.3.1`，用于 `Rscript`、包构建、检查和场景测试。
+
 - 重构 `ablation()` 的 d1 输入边界：移除少见场景专用的 `d1_source` 与
   `external-d1-cache.rds`，统一接收单一 CCS 对象；对象已有的 d1 行直接复用，
   缺失的 query 行才按冻结 model bank 按需编码。`ablation-03` 在数据入口将完整
