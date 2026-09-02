@@ -28,49 +28,49 @@ result_dir <- file.path(.ablation03_dir, "tmp", "ablation-experiment")
 manifest <- readRDS(file.path(result_dir, "manifest.rds"))
 retrieval <- readRDS(file.path(result_dir, "retrieval.rds"))
 neighbours <- retrieval$neighbors[retrieval$neighbors$neighbor_rank <= 15, , drop = FALSE]
-target_ids <- unique(c(as.character(neighbours$query_sample), as.character(neighbours$reference_sample)))
+target_ids <- sort(unique(c(as.character(neighbours$query_sample), as.character(neighbours$reference_sample))))
 full_path <- Sys.getenv("CCS_FULL_EXPRESSION_RDS", unset = "E:/Sync/@Analysis/PanCan_Data/Level 1/PanCan_CancerSample_DataListForCCS_GEO+cBioPortal+UCXCXenav20240809.rds")
 sig_path <- Sys.getenv("CCS_GENE_SIGNATURE_RDS", unset = "E:/RCloud/database/Signature/report/GeneSignature-HWB.rds")
-stopifnot(file.exists(full_path), file.exists(sig_path))
-signatures <- readRDS(sig_path)
-anchors <- list(
-  proliferation = signatures[["Conserved-PanCan-TME-subtypes"]][["Tumor proliferation rate"]],
-  immune_tme = signatures[["Zeng2021"]][["TME_A_Immune2"]],
-  stromal_tme = signatures[["Zeng2021"]][["TME_B_Stromal2"]],
-  ifn_il6 = c(signatures[["IFN-IL6"]][[1]], signatures[["IFN-IL6"]][[2]])
-)
-anchors <- lapply(anchors, unique)
-
-score_rows <- list(); coverage_rows <- list(); ii <- 0L; jj <- 0L
-atlas <- readRDS(full_path)
-for (tissue in names(atlas)) {
-  for (cohort in names(atlas[[tissue]])) {
-    mat <- as.matrix(atlas[[tissue]][[cohort]])
-    ids <- colnames(mat)
-    keep <- ids %in% target_ids
-    if (!any(keep)) next
-    for (anchor in names(anchors)) {
-      genes <- anchors[[anchor]]
-      idx <- which(rownames(mat) %in% genes)
-      jj <- jj + 1L
-      coverage_rows[[jj]] <- data.frame(
-        tissue = tissue, cohort = cohort, cohort_key = paste(tissue, cohort, sep = "/"),
-        anchor = anchor, genes_required = length(genes), genes_found = length(idx),
-        coverage = length(idx) / length(genes), sample_count = sum(keep),
-        external_query_cohort = paste(tissue, cohort, sep = "/") %in% manifest$external_cohorts
-      )
-      if (length(idx) < 2L) next
-      sub <- mat[idx, keep, drop = FALSE]
-      z <- t(scale(t(sub)))
-      score <- colMeans(z, na.rm = TRUE)
-      ii <- ii + 1L
-      score_rows[[ii]] <- data.frame(sample_id = ids[keep], anchor = anchor,
-        score = as.numeric(score), stringsAsFactors = FALSE)
-    }
+cache_path <- Sys.getenv("CCS_BIOLOGY_CACHE_RDS", unset = file.path(out_dir, "expression-anchor-cache.rds"))
+if (!file.exists(cache_path)) {
+  stop("ablation-03 biology: expression-anchor-cache.rds is missing; run 01-ablation03-biology-cache.R first.", call. = FALSE)
+}
+cache <- readRDS(cache_path)
+if (!identical(cache$schema_version, 1L) || !identical(cache$status, "complete")) {
+  stop("ablation-03 biology: unsupported or incomplete cache schema.", call. = FALSE)
+}
+expected_sample_hash <- digest::digest(paste(target_ids, collapse = "\n"), algo = "md5", serialize = FALSE)
+if (!identical(cache$sample_key_hash, expected_sample_hash)) {
+  stop("ablation-03 biology: cache sample-key hash mismatch; rebuild the cache.", call. = FALSE)
+}
+if (!identical(normalizePath(sig_path, winslash = "/", mustWork = FALSE), cache$signature$path)) {
+  stop("ablation-03 biology: signature source mismatch; rebuild the cache.", call. = FALSE)
+}
+if (file.exists(full_path)) {
+  source_hash <- digest::digest(file = full_path, algo = "md5")
+  if (!identical(source_hash, cache$source$md5)) {
+    stop("ablation-03 biology: expression source hash mismatch; rebuild the cache.", call. = FALSE)
   }
 }
+anchors <- cache$anchors
+coverage <- cache$coverage
+coverage$external_query_cohort <- coverage$cohort_key %in% manifest$external_cohorts
+score_rows <- list(); ii <- 0L
+for (cohort in cache$cohorts) {
+  mat <- cohort$expression
+  ids <- cohort$sample_id
+  for (anchor in names(anchors)) {
+    idx <- which(rownames(mat) %in% anchors[[anchor]])
+    if (length(idx) < 2L) next
+    z <- t(scale(t(mat[idx, , drop = FALSE])))
+    score <- colMeans(z, na.rm = TRUE)
+    ii <- ii + 1L
+    score_rows[[ii]] <- data.frame(sample_id = ids, anchor = anchor,
+      score = as.numeric(score), stringsAsFactors = FALSE)
+  }
+}
+if (!length(score_rows)) stop("ablation-03 biology: no anchor has at least two cached genes.", call. = FALSE)
 scores <- do.call(rbind, score_rows)
-coverage <- do.call(rbind, coverage_rows)
 scores <- scores[is.finite(scores$score), , drop = FALSE]
 
 boot_ci <- function(x, seed = 20260830L, B = 500L) {
@@ -114,7 +114,9 @@ write.csv(coverage, file.path(out_dir, "anchor_coverage.csv"), row.names = FALSE
 write.csv(utility, file.path(out_dir, "anchor_utility.csv"), row.names = FALSE)
 write.csv(contrasts, file.path(out_dir, "anchor_contrasts.csv"), row.names = FALSE)
 saveRDS(list(anchors = anchors, coverage = coverage, utility = utility, contrasts = contrasts,
-             retrieval_rows_top15 = nrow(neighbours), source_signature = sig_path),
+             retrieval_rows_top15 = nrow(neighbours), source_signature = sig_path,
+             cache_path = cache_path, cache_schema_version = cache$schema_version,
+             cache_source_md5 = cache$source$md5, cache_sample_key_hash = cache$sample_key_hash),
         file.path(out_dir, "ablation03-biology.rds"))
 
 means <- aggregate(coverage$coverage, list(anchor = coverage$anchor), mean)

@@ -10,6 +10,7 @@ Direct/d1 neighbour comparisons).
 from __future__ import annotations
 
 import json
+import hashlib
 import math
 import os
 import re
@@ -26,14 +27,12 @@ FIG = ROOT / "test" / "ablation-03" / "figures"
 OUT.mkdir(parents=True, exist_ok=True)
 FIG.mkdir(parents=True, exist_ok=True)
 
-FULL_RDS = Path(os.getenv(
-    "CCS_FULL_EXPRESSION_RDS",
-    r"E:\Sync\@Analysis\PanCan_Data\Level 1\PanCan_CancerSample_DataListForCCS_GEO+cBioPortal+UCXCXenav20240809.rds",
-))
 SIG_RDS = Path(os.getenv(
     "CCS_GENE_SIGNATURE_RDS",
     r"E:\RCloud\database\Signature\report\GeneSignature-HWB.rds",
 ))
+FULL_RDS = Path(os.getenv("CCS_FULL_EXPRESSION_RDS", "")) if os.getenv("CCS_FULL_EXPRESSION_RDS") else None
+CACHE_RDS = Path(os.getenv("CCS_BIOLOGY_CACHE_RDS", str(OUT / "expression-anchor-cache.rds")))
 RETRIEVAL_RDS = ROOT / "test" / "ablation-03" / "tmp" / "ablation-experiment" / "retrieval.rds"
 MANIFEST_RDS = ROOT / "test" / "ablation-03" / "tmp" / "ablation-experiment" / "manifest.rds"
 
@@ -154,6 +153,14 @@ def _write_not_estimable(reason, manifest_external=None, retrieval_rows=0):
         }, handle, ensure_ascii=False, indent=2)
 
 
+def _md5_file(path):
+    digest = hashlib.md5()
+    with path.open("rb") as handle:
+        for chunk in iter(lambda: handle.read(1024 * 1024), b""):
+            digest.update(chunk)
+    return digest.hexdigest()
+
+
 def main():
     manifest = rdata.read_rds(str(MANIFEST_RDS))
     retrieval = rdata.read_rds(str(RETRIEVAL_RDS))
@@ -165,80 +172,62 @@ def main():
     manifest_external = {str(v) for v in manifest_external}
     target_ids = set(neighbors["query_sample"].astype(str)) | set(neighbors["reference_sample"].astype(str))
 
+    if not CACHE_RDS.exists():
+        _write_not_estimable("expression_anchor_cache_missing", manifest_external, len(neighbors))
+        raise RuntimeError(f"expression-anchor cache is missing: {CACHE_RDS}")
     try:
-        signatures = rdata.read_rds(str(SIG_RDS))
+        cache = rdata.read_rds(str(CACHE_RDS))
     except Exception as exc:
-        _write_not_estimable(f"signature_rds_unreadable:{type(exc).__name__}", manifest_external,
+        _write_not_estimable(f"expression_anchor_cache_unreadable:{type(exc).__name__}", manifest_external,
                              len(neighbors))
-        print(json.dumps({"status": "not_estimable", "reason": "signature_rds_unreadable"}, ensure_ascii=False))
-        return
+        raise RuntimeError("expression-anchor cache is unreadable") from exc
+    if int(_scalar(cache.get("schema_version", -1))) != 1 or str(_scalar(cache.get("status", ""))) != "complete":
+        raise RuntimeError("expression-anchor cache has unsupported or incomplete schema")
+    target_hash = hashlib.md5("\n".join(sorted(target_ids)).encode("utf-8")).hexdigest()
+    if str(_scalar(cache.get("sample_key_hash", ""))) != target_hash:
+        raise RuntimeError("expression-anchor cache sample-key hash mismatch; rebuild the cache")
+    if FULL_RDS is not None and FULL_RDS.exists():
+        source = cache.get("source", {})
+        expected_md5 = str(_scalar(source.get("md5", ""))) if isinstance(source, dict) else ""
+        if expected_md5 and _md5_file(FULL_RDS) != expected_md5:
+            raise RuntimeError("expression-anchor cache source hash mismatch; rebuild the cache")
     selected = {}
-    specs = {
-        "proliferation": lambda n: "Tumor proliferation rate" in n,
-        "immune_tme": lambda n: n == "TME_A_Immune2",
-        "stromal_tme": lambda n: n == "TME_B_Stromal2",
-        "ifn_il6": lambda n: bool(re.search(r"IFN|IL6-JAK-STAT3", n, re.I)),
-    }
-    for label, predicate in specs.items():
-        found = _find_signature(signatures, predicate)
-        if found:
-            family, name, genes = found
-            selected[label] = {"family": family, "name": name, "genes": genes}
+    raw_anchors = cache.get("anchors", {})
+    for label, genes in raw_anchors.items():
+        selected[str(label)] = {"genes": _flatten_genes(genes), "name": str(label), "family": "frozen_manifest"}
     if len(selected) < 3:
-        raise RuntimeError("Fewer than three independent signatures were found in GeneSignature-HWB.rds")
+        raise RuntimeError("Fewer than three frozen signatures are present in expression-anchor cache")
 
     # Score only samples used by the frozen 02 retrieval table.  Each cohort is
     # standardized separately, preventing platform-wide expression shifts from
     # becoming a biological signal.
     scores = {anchor: {} for anchor in selected}
     coverage_rows = []
-    try:
-        atlas = rdata.read_rds(str(FULL_RDS))
-    except (MemoryError, OSError, ValueError) as exc:
-        _write_not_estimable(
-            f"expression_atlas_unreadable:{type(exc).__name__}",
-            manifest_external,
-            len(neighbors),
-        )
-        print(json.dumps({
-            "status": "not_estimable",
-            "reason": "expression_atlas_unreadable",
-            "error_type": type(exc).__name__,
-        }, ensure_ascii=False))
-        return
-    for tissue, cohorts in atlas.items():
-        if not isinstance(cohorts, dict):
+    raw_cohorts = cache.get("cohorts", {})
+    cohort_items = raw_cohorts.items() if isinstance(raw_cohorts, dict) else enumerate(raw_cohorts)
+    for _, arr in cohort_items:
+        if not isinstance(arr, dict):
             continue
-        for cohort, arr in cohorts.items():
-            cohort = str(cohort)
-            if hasattr(arr, "coords") and hasattr(arr, "dims"):
-                sample_ids = np.asarray(arr.coords[arr.dims[1]].values).astype(str)
-                gene_ids = np.asarray(arr.coords[arr.dims[0]].values).astype(str)
-                raw_values = arr.values
-            elif isinstance(arr, pd.DataFrame):
-                sample_ids = np.asarray(arr.columns).astype(str)
-                gene_ids = np.asarray(arr.index).astype(str)
-                raw_values = arr.to_numpy()
-            else:
-                continue
-            keep = np.array([sid in target_ids for sid in sample_ids])
-            if not keep.any():
-                continue
-            values = np.asarray(raw_values[:, keep], dtype=float)
-            kept_ids = sample_ids[keep]
-            for anchor, spec in selected.items():
-                wanted = set(spec["genes"])
-                idx = np.flatnonzero(np.isin(gene_ids, list(wanted)))
-                coverage_rows.append({
-                    "tissue": str(tissue), "cohort": cohort, "cohort_key": f"{tissue}/{cohort}",
-                    "anchor": anchor, "signature": spec["name"], "genes_required": len(wanted),
-                    "genes_found": int(idx.size), "coverage": float(idx.size / len(wanted)),
-                    "sample_count": int(keep.sum()),
-                    "external_query_cohort": f"{tissue}/{cohort}" in manifest_external,
-                })
-                if idx.size >= 2:
-                    score = _zscore_score(values, idx)
-                    scores[anchor].update({sid: float(v) for sid, v in zip(kept_ids, score) if np.isfinite(v)})
+        tissue = str(_scalar(arr.get("tissue", "")))
+        cohort = str(_scalar(arr.get("cohort", "")))
+        sample_ids = np.asarray([str(_scalar(v)) for v in np.asarray(arr.get("sample_id", [])).reshape(-1)])
+        gene_ids = np.asarray([str(_scalar(v)) for v in np.asarray(arr.get("gene_id", [])).reshape(-1)])
+        values = np.asarray(arr.get("expression"), dtype=float)
+        if values.ndim != 2 or sample_ids.size == 0:
+            continue
+        for anchor, spec in selected.items():
+            wanted = set(spec["genes"])
+            idx = np.flatnonzero(np.isin(gene_ids, list(wanted)))
+            coverage_rows.append({
+                "tissue": str(tissue), "cohort": cohort, "cohort_key": f"{tissue}/{cohort}",
+                "anchor": anchor, "signature": spec["name"], "genes_required": len(wanted),
+                "genes_found": int(idx.size), "coverage": float(idx.size / len(wanted)),
+                "sample_count": int(sample_ids.size),
+                "external_query_cohort": f"{tissue}/{cohort}" in manifest_external,
+            })
+            if idx.size >= 2:
+                score = _zscore_score(values, idx)
+                scores[anchor].update({sid: float(v) for sid, v in zip(sample_ids, score) if np.isfinite(v)})
     coverage = pd.DataFrame(coverage_rows)
 
     # Biological utility is an anchor-profile agreement of retrieved neighbours.
