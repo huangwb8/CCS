@@ -8,6 +8,8 @@
 
 - 补充 Windows 开发环境约定：R 环境路径为 `C:\R\R-4.3.1`，用于 `Rscript`、包构建、检查和场景测试。
 
+- 优化 `ablation-03` 生物学锚点流程：新增一次性表达矩阵/冻结 signature 子集缓存，记录来源、签名与样本键哈希及覆盖审计；R/Python readout 默认只消费缓存，并在缺失或失效时显式报错，不再静默回退读取完整矩阵。
+
 - 重构 `ablation()` 的 d1 输入边界：移除少见场景专用的 `d1_source` 与
   `external-d1-cache.rds`，统一接收单一 CCS 对象；对象已有的 d1 行直接复用，
   缺失的 query 行才按冻结 model bank 按需编码。`ablation-03` 在数据入口将完整
