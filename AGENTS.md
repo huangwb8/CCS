@@ -115,6 +115,8 @@ Core package code lives in `R/`, with `ccs*.R` owning S4 classes, `hyperTuningGS
 
 Refresh documentation before committing with `Rscript -e "devtools::document()"`. Package locally with `R CMD build .`, then run `R CMD check CCS_<version>.tar.gz` against the tarball version read from `DESCRIPTION`. During interactive work `Rscript -e "devtools::load_all()"` mirrors `library(CCS)` without reinstalling. Scenario tests run via plain scripts; e.g., `Rscript test/03.test.Classes.R` validates the class definitions and `Rscript test/test.classifier_performance.R` exercises the classifier benchmarks.
 
+On Windows computers, use the R installation at `C:\R\R-4.3.1` for `Rscript`, package builds, checks, and scenario tests.
+
 ## Coding Style & Naming Conventions
 
 Match the existing tidy R style: two-space indent, `<-` for assignment, and `snake_case` for functions and variables while keeping S4 classes and exported methods in `CamelCase`. Keep roxygen headers complete (`@description`, `@param`, `@return`, `@examples`) so `man/` stays in sync after `devtools::document()`. Reuse verbs from the packages declared in `DESCRIPTION`, and update that file before relying on new imports.
