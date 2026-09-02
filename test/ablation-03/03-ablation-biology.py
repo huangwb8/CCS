@@ -129,6 +129,31 @@ def _bar_svg(labels, values, x_label, stem, width=720, height=420, horizontal=Fa
     _svg_to_deliverables("".join(out), stem)
 
 
+def _write_not_estimable(reason, manifest_external=None, retrieval_rows=0):
+    """Persist an explicit no-result contract instead of fabricating scores."""
+    pd.DataFrame(columns=[
+        "tissue", "cohort", "cohort_key", "anchor", "signature",
+        "genes_required", "genes_found", "coverage", "sample_count",
+        "external_query_cohort", "status", "reason",
+    ]).to_csv(OUT / "anchor_coverage.csv", index=False)
+    pd.DataFrame(columns=[
+        "anchor", "representation", "query_count", "neighbour_pairs",
+        "mean_abs_delta", "abs_delta_ci_low", "abs_delta_ci_high",
+        "utility", "utility_ci_low", "utility_ci_high", "status", "reason",
+    ]).to_csv(OUT / "anchor_utility.csv", index=False)
+    pd.DataFrame(columns=[
+        "anchor", "d1_minus_direct_abs_delta", "d1_minus_direct_utility",
+        "interpretation", "status", "reason",
+    ]).to_csv(OUT / "anchor_contrasts.csv", index=False)
+    with open(OUT / "anchor_manifest.json", "w", encoding="utf-8") as handle:
+        json.dump({
+            "status": "not_estimable", "reason": reason,
+            "external_cohort_count": int(len(manifest_external or [])),
+            "retrieval_rows_top15": int(retrieval_rows),
+            "source": str(SIG_RDS),
+        }, handle, ensure_ascii=False, indent=2)
+
+
 def main():
     manifest = rdata.read_rds(str(MANIFEST_RDS))
     retrieval = rdata.read_rds(str(RETRIEVAL_RDS))
@@ -140,7 +165,13 @@ def main():
     manifest_external = {str(v) for v in manifest_external}
     target_ids = set(neighbors["query_sample"].astype(str)) | set(neighbors["reference_sample"].astype(str))
 
-    signatures = rdata.read_rds(str(SIG_RDS))
+    try:
+        signatures = rdata.read_rds(str(SIG_RDS))
+    except Exception as exc:
+        _write_not_estimable(f"signature_rds_unreadable:{type(exc).__name__}", manifest_external,
+                             len(neighbors))
+        print(json.dumps({"status": "not_estimable", "reason": "signature_rds_unreadable"}, ensure_ascii=False))
+        return
     selected = {}
     specs = {
         "proliferation": lambda n: "Tumor proliferation rate" in n,
@@ -161,7 +192,20 @@ def main():
     # becoming a biological signal.
     scores = {anchor: {} for anchor in selected}
     coverage_rows = []
-    atlas = rdata.read_rds(str(FULL_RDS))
+    try:
+        atlas = rdata.read_rds(str(FULL_RDS))
+    except (MemoryError, OSError, ValueError) as exc:
+        _write_not_estimable(
+            f"expression_atlas_unreadable:{type(exc).__name__}",
+            manifest_external,
+            len(neighbors),
+        )
+        print(json.dumps({
+            "status": "not_estimable",
+            "reason": "expression_atlas_unreadable",
+            "error_type": type(exc).__name__,
+        }, ensure_ascii=False))
+        return
     for tissue, cohorts in atlas.items():
         if not isinstance(cohorts, dict):
             continue

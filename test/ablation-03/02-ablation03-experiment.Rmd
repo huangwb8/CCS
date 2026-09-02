@@ -85,9 +85,25 @@ cohort_scaling <- readRDS(file.path(result_dir, "cohort_scaling.rds"))
 tradeoffs <- readRDS(file.path(result_dir, "tradeoffs.rds"))
 ablation_result <- readRDS(file.path(result_dir, "ablation-result.rds"))
 biology_dir <- .ablation03_path("tmp", "ablation-biology")
-biology_coverage <- read.csv(file.path(biology_dir, "anchor_coverage.csv"), check.names = FALSE)
-biology_utility <- read.csv(file.path(biology_dir, "anchor_utility.csv"), check.names = FALSE)
-biology_contrasts <- read.csv(file.path(biology_dir, "anchor_contrasts.csv"), check.names = FALSE)
+biology_files <- file.path(
+  biology_dir,
+  c("anchor_coverage.csv", "anchor_utility.csv", "anchor_contrasts.csv")
+)
+biology_available <- all(file.exists(biology_files))
+if (biology_available) {
+  biology_coverage <- read.csv(biology_files[1L], check.names = FALSE)
+  biology_utility <- read.csv(biology_files[2L], check.names = FALSE)
+  biology_contrasts <- read.csv(biology_files[3L], check.names = FALSE)
+} else {
+  biology_coverage <- data.frame()
+  biology_utility <- data.frame()
+  biology_contrasts <- data.frame()
+}
+biology_status <- if (biology_available && nrow(biology_utility) > 0L) {
+  "complete"
+} else {
+  "not_estimable"
+}
 
 # ablation-03 extends, rather than replaces, every ablation-02 result loaded above.
 if (cohort_scaling$status != "complete") {
@@ -1432,6 +1448,55 @@ Matched-size 结果显示的是“breadth-heavy 减 depth-heavy”的配对差�
 Module redundancy 差为 `r fmt(redundancy_matched$estimate)`（95% CI `r fmt(redundancy_matched$ci_low)` 至 `r fmt(redundancy_matched$ci_high)`），区间完全高于零，即 breadth-heavy 的平均绝对 module 相关性高出约 `r fmt(100 * abs(redundancy_matched$estimate), 1L)` 个百分点；neighbor stability 差为 `r fmt(stability_matched$estimate)`（95% CI `r fmt(stability_matched$ci_low)` 至 `r fmt(stability_matched$ci_high)`），区间完全低于零，即 breadth-heavy 的邻居重合低约 `r fmt(100 * abs(stability_matched$estimate), 1L)` 个百分点。**在当前 matched-size 设计中，breadth-heavy 没有表现出更高 effective rank，反而更冗余且邻域更不稳定；现有证据不支持仅靠扩大 tissue breadth 就能改善这三项内部性质。** 这与 sequence 中“沿 breadth 路径增加 tissue 时 redundancy 下降”并不矛盾：sequence 问同一路径随 bank 变大如何变化，matched-size 问相同 module 预算下两种组成谁更高，两者的参照组不同。所有区间以 `r manifest$config$scaling$sequences` 个 bank-design repeats 为重采样单位，未把同一 repeat 内的多个 grid cells 或 query 样本误作独立重复；只有 `r manifest$config$scaling$sequences` 个 repeats，因此区间仍需谨慎解释。
 
 独立外部生物效用当前标记为 **`r biology_scaling_status$status`**，原因为 `r biology_scaling_status$reason`。因此，二维结果只能说明当前 150-module 冻结 bank 内部的组成性质；即便最大 bank 附近出现平台，也不能推断 cohort congress 在 150 个 modules 达到普遍饱和，更不能外推到尚未训练的新 cohort models。Cancer-type balanced accuracy、macro-AUROC、top-k 和 MRR 继续保存在 `metrics` 中，但统一标记为 `diagnostic_lineage`，不进入 CCS 成败判断。
+
+## 独立生物学锚点 readout
+
+本节把 retrieval 邻居与预先冻结的生物学锚点分开评估。连续锚点采用每个 cohort 内的 z-score signature mean；`utility = exp(-|query-reference|)` 只是将绝对差异映射到 0–1 的辅助尺度，越接近 1 表示邻居在该锚点上越接近，不等同于临床效用或显著性。所有比较沿用同一批 query、reference 和 top-k 邻居，且不参与 bank/module 选择。
+
+```{r biology-anchor-status, echo=FALSE}
+if (identical(biology_status, "complete")) {
+  cat(sprintf(
+    "已完成 %d 个 anchor 的独立 readout；覆盖表包含 %d 个 cohort-anchor 单元，utility 表包含 %d 个表示层结果。",
+    length(unique(biology_utility$anchor)),
+    nrow(biology_coverage),
+    nrow(biology_utility)
+  ))
+} else {
+  cat("当前环境未能安全载入完整表达矩阵，因此 anchor readout 标记为 `not_estimable`；下表仅保留空结果契约，不将缺失当作零效用。")
+}
+```
+
+```{r biology-anchor-coverage, echo=FALSE}
+biology_coverage_widget <- htmltools::tagList()
+if (identical(biology_status, "complete")) {
+  biology_coverage_widget <- render_dt(biology_coverage, pageLength = 10)
+}
+biology_coverage_widget
+```
+
+解读：覆盖率表格显示当前 cohort 表达矩阵中可用于该 anchor 的基因比例，并同时记录所需基因数、实际命中数与样本数。不同 cohort 之间的覆盖率差异反映输入可用性差异；低覆盖率单元意味着该锚点在该队列上不可稳定估计，不应通过补零、跨 cohort 借值或临时替代 signature 强行进入 Direct/d1 比较。因此覆盖率首先是数据可用性审计，而不是效用高低的评分。
+
+```{r biology-anchor-utility, echo=FALSE}
+biology_utility_widget <- htmltools::tagList()
+if (identical(biology_status, "complete")) {
+  biology_utility_widget <- render_dt(biology_utility, pageLength = 10)
+}
+biology_utility_widget
+```
+
+解读：utility 越接近 1 代表 query 与其邻居在该连续锚点上的 z-score 差异越小，数值接近 0 则表示邻居在该锚点上差异较大。它是配对距离的有界展示量，便于在多个 anchor 间查看方向，却不能单独解释为效应显著、分型正确或临床获益；正式判断仍需结合 cohort-level 不确定性、预先定义的独立目标以及多重比较控制。
+
+```{r biology-anchor-interpretation, echo=FALSE}
+if (identical(biology_status, "complete")) {
+  best <- biology_contrasts[which.max(biology_contrasts$d1_minus_direct_utility), , drop = FALSE]
+  cat(sprintf(
+    "在本次已计算的 anchor 中，d1 相对 Direct 的 utility 差异最大值为 %+.3f（anchor=%s）。该差异只说明冻结邻居边界上的锚点接近程度，不能替代独立状态 readout 或 outcome 验证。",
+    best$d1_minus_direct_utility[1L], best$anchor[1L]
+  ))
+}
+```
+
+该层结果的判读门槛是“是否在预先定义的独立目标上保持跨 cohort 的方向与覆盖”，而不是选择 utility 最大的 anchor。若 `status = not_estimable`，后续结论只能停留在几何、技术来源和 lineage 诊断层，不能声称 d1 已经恢复或创造了新的生物学状态。
 
 ## 技术来源与癌种锚点的联合评估
 

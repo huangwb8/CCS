@@ -1,0 +1,98 @@
+<!doctype html><html lang="zh-CN"><head><meta charset="utf-8"><title>CCS ablation-03 分析</title>
+<style>body{font-family:Arial,"Microsoft YaHei",sans-serif;max-width:1200px;margin:32px auto;padding:0 24px;color:#243447;background:#f5f8fb}h1,h2{color:#17324d}.cards{display:grid;grid-template-columns:repeat(auto-fit,minmax(160px,1fr));gap:12px}.card{background:#fff;border:1px solid #d8e2ec;border-radius:10px;padding:14px;box-shadow:0 2px 8px #17324d12}.card span{display:block;color:#60758a;font-size:13px}.card b{font-size:24px}.data{border-collapse:collapse;background:#fff;margin:12px 0;width:100%;font-size:13px}.data th,.data td{border:1px solid #d8e2ec;padding:6px;text-align:left}.data th{background:#eaf1f7}.notice{padding:14px;background:#fff5df;border-left:4px solid #d99a20}.muted{color:#6b7d8d}</style></head><body>
+<h1>CCS ablation-03：生物学锚点与表示性质分析</h1><p>本 HTML 由冻结的 ablation-03 RDS 结果和独立 biology readout 契约生成；不改写原始表达矩阵。</p>
+<div class="cards"><div class="card"><span>Reference samples</span><b>24487</b></div><div class="card"><span>External query samples</span><b>5705</b></div><div class="card"><span>Reference cohorts</span><b>147</b></div><div class="card"><span>External cohorts</span><b>17</b></div><div class="card"><span>Direct features</span><b>529</b></div><div class="card"><span>d1 modules</span><b>150</b></div></div>
+<h2>表示几何与检索摘要</h2><p>CKA、距离 Spearman 与 kNN Jaccard 描述 d1 对原生空间的保留与重排；癌种检索仅作为 lineage 诊断，不作为生物学效用判据。</p><table class="dataframe data">
+  <thead>
+    <tr style="text-align: right;">
+      <th>metric_name</th>
+      <th>metric_value</th>
+      <th>sample_count</th>
+    </tr>
+  </thead>
+  <tbody>
+    <tr>
+      <td>linear_cka</td>
+      <td>0.721135</td>
+      <td>5000</td>
+    </tr>
+    <tr>
+      <td>distance_spearman</td>
+      <td>0.666979</td>
+      <td>5000</td>
+    </tr>
+    <tr>
+      <td>knn_jaccard</td>
+      <td>0.334875</td>
+      <td>5000</td>
+    </tr>
+    <tr>
+      <td>direct_effective_rank</td>
+      <td>97.275472</td>
+      <td>5000</td>
+    </tr>
+    <tr>
+      <td>d1_effective_rank</td>
+      <td>48.167351</td>
+      <td>5000</td>
+    </tr>
+  </tbody>
+</table><h2>外部检索</h2><table class="dataframe data">
+  <thead>
+    <tr style="text-align: right;">
+      <th>k</th>
+      <th>top1_label_match</th>
+      <th>top_k_label_rate</th>
+      <th>mrr</th>
+      <th>representation</th>
+    </tr>
+  </thead>
+  <tbody>
+    <tr>
+      <td>5</td>
+      <td>0.377388</td>
+      <td>0.350184</td>
+      <td>0.459749</td>
+      <td>Direct-GSClassifier</td>
+    </tr>
+    <tr>
+      <td>15</td>
+      <td>0.377388</td>
+      <td>0.324709</td>
+      <td>0.459749</td>
+      <td>Direct-GSClassifier</td>
+    </tr>
+    <tr>
+      <td>30</td>
+      <td>0.377388</td>
+      <td>0.306082</td>
+      <td>0.459749</td>
+      <td>Direct-GSClassifier</td>
+    </tr>
+    <tr>
+      <td>5</td>
+      <td>0.293076</td>
+      <td>0.282664</td>
+      <td>0.382542</td>
+      <td>Cohort-d1</td>
+    </tr>
+    <tr>
+      <td>15</td>
+      <td>0.293076</td>
+      <td>0.267987</td>
+      <td>0.382542</td>
+      <td>Cohort-d1</td>
+    </tr>
+    <tr>
+      <td>30</td>
+      <td>0.293076</td>
+      <td>0.257622</td>
+      <td>0.382542</td>
+      <td>Cohort-d1</td>
+    </tr>
+  </tbody>
+</table>
+<h2>独立生物学锚点 readout</h2><div class="notice">完整表达矩阵在当前环境无法安全载入，anchor readout 标记为 <code>not_estimable</code>；未将缺失结果当作零效用。</div><p class="muted">无可估计结果（not_estimable）。</p><p class="muted">无可估计结果（not_estimable）。</p><p class="muted">无可估计结果（not_estimable）。</p>
+<h2>判读边界</h2><p>连续锚点 utility = exp(-|query-reference|) 仅表示冻结邻居边界上的锚点接近程度。只有在预先定义的独立 pathway/TME/outcome 目标上跨 cohort 重现，才能支持“有目的的生物学重表达”；当前 not_estimable 状态下不作该结论。</p>
+<h2>复现入口</h2><p>有 R 环境时运行 <code>Rscript test/ablation-03/03-ablation-biology.R</code>，随后 knit <code>test/ablation-03/02-ablation03-experiment.Rmd</code>；无 R 环境时可先运行项目内 Python fallback。</p>
+</body></html>
