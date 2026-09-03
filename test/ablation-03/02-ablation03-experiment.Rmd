@@ -87,19 +87,23 @@ ablation_result <- readRDS(file.path(result_dir, "ablation-result.rds"))
 biology_dir <- .ablation03_path("tmp", "ablation-biology")
 biology_files <- file.path(
   biology_dir,
-  c("anchor_coverage.csv", "anchor_utility.csv", "anchor_contrasts.csv")
+  c("anchor_coverage.csv", "anchor_utility.csv", "anchor_contrasts.csv",
+    "anchor_inference.csv")
 )
 biology_available <- all(file.exists(biology_files))
 if (biology_available) {
   biology_coverage <- read.csv(biology_files[1L], check.names = FALSE)
   biology_utility <- read.csv(biology_files[2L], check.names = FALSE)
   biology_contrasts <- read.csv(biology_files[3L], check.names = FALSE)
+  biology_inference <- read.csv(biology_files[4L], check.names = FALSE)
 } else {
   biology_coverage <- data.frame()
   biology_utility <- data.frame()
   biology_contrasts <- data.frame()
+  biology_inference <- data.frame()
 }
-biology_status <- if (biology_available && nrow(biology_utility) > 0L) {
+biology_status <- if (biology_available && nrow(biology_utility) > 0L &&
+  nrow(biology_inference) > 0L) {
   "complete"
 } else {
   "not_estimable"
@@ -1486,6 +1490,23 @@ biology_utility_widget
 
 解读：utility 越接近 1 代表 query 与其邻居在该连续锚点上的 z-score 差异越小，数值接近 0 则表示邻居在该锚点上差异较大。它是配对距离的有界展示量，便于在多个 anchor 间查看方向，却不能单独解释为效应显著、分型正确或临床获益；正式判断仍需结合 cohort-level 不确定性、预先定义的独立目标以及多重比较控制。
 
+```{r biology-anchor-inference, echo=FALSE}
+biology_inference_widget <- htmltools::tagList()
+if (identical(biology_status, "complete")) {
+  biology_inference_widget <- render_dt(
+    biology_inference[, c(
+      "anchor", "estimate", "ci_low", "ci_high", "p_value",
+      "p_value_adj", "p_method", "cohort_count", "query_count",
+      "inference_status"
+    )],
+    pageLength = 10
+  )
+}
+biology_inference_widget
+```
+
+解读：这里的 `estimate` 是每个外部 query cohort 的 d1−Direct utility 差异，再对 cohort 等权平均；95% CI 通过重采样 query cohort 获得，P 值通过配对符号置换获得，并用 Benjamini–Hochberg 方法对四个 anchor 做 FDR 校正。只有校正后的 P 值较小且 95% CI 不跨 0，才可认为两种表示在该锚点上的差异有统计学证据；CI 跨 0 或校正后 P 值较大时，结论应写成“未观察到显著差异”，而不是“证明两者完全相同”。
+
 ```{r biology-anchor-interpretation, echo=FALSE}
 if (identical(biology_status, "complete")) {
   best <- biology_contrasts[which.max(biology_contrasts$d1_minus_direct_utility), , drop = FALSE]
@@ -1493,6 +1514,23 @@ if (identical(biology_status, "complete")) {
     "在本次已计算的 anchor 中，d1 相对 Direct 的 utility 差异最大值为 %+.3f（anchor=%s）。该差异只说明冻结邻居边界上的锚点接近程度，不能替代独立状态 readout 或 outcome 验证。",
     best$d1_minus_direct_utility[1L], best$anchor[1L]
   ))
+  if (nrow(biology_inference) > 0L) {
+    inference_text <- paste(vapply(seq_len(nrow(biology_inference)), function(i) {
+      row <- biology_inference[i, , drop = FALSE]
+      verdict <- if (is.finite(row$p_value_adj) && row$p_value_adj < 0.05 &&
+        (row$ci_low > 0 || row$ci_high < 0)) {
+        "有统计学证据支持差异"
+      } else {
+        "未观察到统计学显著差异"
+      }
+      sprintf(
+        "%s：d1−Direct=%+.3f，95%% CI [%+.3f, %+.3f]，BH 校正 P=%s（%s）",
+        row$anchor, row$estimate, row$ci_low, row$ci_high,
+        format.pval(row$p_value_adj, digits = 3, eps = 1e-3), verdict
+      )
+    }, character(1L)), collapse = "；")
+    cat(paste0("cohort-level 推断：", inference_text, "。"))
+  }
 }
 ```
 

@@ -52,6 +52,7 @@ if (file.exists(full_path)) {
     stop("ablation-03 biology: expression source hash mismatch; rebuild the cache.", call. = FALSE)
   }
 }
+source(file.path(.ablation03_dir, "03-ablation-biology_functions.R"))
 anchors <- cache$anchors
 coverage <- cache$coverage
 coverage$external_query_cohort <- coverage$cohort_key %in% manifest$external_cohorts
@@ -79,6 +80,7 @@ boot_ci <- function(x, seed = 20260830L, B = 500L) {
   c(mean = mean(x), low = unname(quantile(draws, .025)), high = unname(quantile(draws, .975)))
 }
 utility_rows <- list(); kk <- 0L
+per_query_rows <- list(); pp <- 0L
 for (anchor in names(anchors)) {
   sc <- scores[scores$anchor == anchor, c("sample_id", "score")]
   q <- merge(neighbours, sc, by.x = "query_sample", by.y = "sample_id")
@@ -87,8 +89,13 @@ for (anchor in names(anchors)) {
   names(q)[names(q) == "score"] <- "reference_score"
   q$abs_delta <- abs(q$query_score - q$reference_score)
   q$utility <- exp(-q$abs_delta)
-  per_query <- aggregate(cbind(abs_delta, utility) ~ representation + query_sample,
+  per_query <- aggregate(cbind(abs_delta, utility) ~ representation + query_sample + query_cohort,
     data = q, FUN = mean)
+  per_query$anchor <- anchor
+  pp <- pp + 1L
+  per_query_rows[[pp]] <- per_query[, c(
+    "anchor", "representation", "query_sample", "query_cohort", "utility"
+  )]
   for (rep in unique(per_query$representation)) {
     d <- per_query[per_query$representation == rep, , drop = FALSE]
     ci_u <- boot_ci(d$utility, seed = 20260830L + kk)
@@ -102,6 +109,12 @@ for (anchor in names(anchors)) {
   }
 }
 utility <- do.call(rbind, utility_rows)
+per_query_utility <- do.call(rbind, per_query_rows)
+anchor_inference <- .biology_paired_contrast(
+  per_query_utility,
+  n_boot = 2000L,
+  seed = 20260830L
+)
 direct <- utility[utility$representation == "Direct-GSClassifier", , drop = FALSE]
 d1 <- utility[utility$representation == "Cohort-d1", , drop = FALSE]
 contrasts <- merge(d1, direct, by = "anchor", suffixes = c("_d1", "_direct"))
@@ -113,7 +126,9 @@ contrasts$interpretation <- ifelse(contrasts$d1_minus_direct_utility > 0, "d1 hi
 write.csv(coverage, file.path(out_dir, "anchor_coverage.csv"), row.names = FALSE)
 write.csv(utility, file.path(out_dir, "anchor_utility.csv"), row.names = FALSE)
 write.csv(contrasts, file.path(out_dir, "anchor_contrasts.csv"), row.names = FALSE)
+write.csv(anchor_inference, file.path(out_dir, "anchor_inference.csv"), row.names = FALSE)
 saveRDS(list(anchors = anchors, coverage = coverage, utility = utility, contrasts = contrasts,
+             inference = anchor_inference,
              retrieval_rows_top15 = nrow(neighbours), source_signature = sig_path,
              cache_path = cache_path, cache_schema_version = cache$schema_version,
              cache_source_md5 = cache$source$md5, cache_sample_key_hash = cache$sample_key_hash),
