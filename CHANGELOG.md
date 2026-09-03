@@ -6,6 +6,8 @@
 
 ## [Unreleased]
 
+- 严格化 `ablation-03` biological-anchor 比较：保留原始 utility，同时以外部 query cohort 为统计单位新增 d1−Direct 效应量、cohort bootstrap 95% CI、精确配对符号置换 P 值和 Benjamini–Hochberg 多重比较校正，并将推断结果写入 `anchor_inference.csv` 与 HTML 报告。
+
 - 补充 Windows 开发环境约定：R 环境路径为 `C:\R\R-4.3.1`，用于 `Rscript`、包构建、检查和场景测试。
 
 - 优化 `ablation-03` 生物学锚点流程：新增一次性表达矩阵/冻结 signature 子集缓存，记录来源、签名与样本键哈希及覆盖审计；R/Python readout 默认只消费缓存，并在缺失或失效时显式报错，不再静默回退读取完整矩阵。
