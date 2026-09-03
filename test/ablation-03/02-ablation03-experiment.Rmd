@@ -320,6 +320,20 @@ forest_data <- rbind(
   )
 )
 forest_data$endpoint <- factor(forest_data$endpoint, levels = rev(forest_data$endpoint))
+forest_p_text <- paste(
+  strwrap(
+    paste(
+      paste0(
+        as.character(forest_data$endpoint),
+        ": p = ",
+        vapply(forest_data$p_value, fmt_p, character(1L))
+      ),
+      collapse = "; "
+    ),
+    width = 70
+  ),
+  collapse = "\n"
+)
 
 if (!identical(cohort_scaling$schema_version, 2L)) {
   stop("The cohort scaling result must use schema version 2.", call. = FALSE)
@@ -837,7 +851,7 @@ fig1_jpg <- .ae_save_plot(
 knitr::include_graphics(fig1_jpg)
 ```
 
-Figure 1 显示三个几何指标来自一次冻结 reference 几何计算；当前 RDS 未保存可按 cohort 重抽取的样本级矩阵或独立 geometry repeats，因此不能把单次 CKA、Distance Spearman 或 kNN Jaccard 的差异人为扩展成置信区间。这里将它们明确标记为 `not_estimable`，而不是用样本数当作独立重复。后续若保存每个 cohort 的几何矩阵或重复计算结果，再补充真正的 geometry-level CI。
+结果解读：Figure `r 1L` 显示三个几何指标来自一次冻结 reference 几何计算；当前 RDS 未保存可按 cohort 重抽取的样本级矩阵或独立 geometry repeats，因此不能把单次 CKA、Distance Spearman 或 kNN Jaccard 的差异人为扩展成置信区间。这里将它们明确标记为 `not_estimable`，而不是用样本数当作独立重复。后续若保存每个 cohort 的几何矩阵或重复计算结果，再补充真正的 geometry-level CI。
 
 ```{r geometry-inference-table}
 geometry_inference_table <- geometry_inference[, c(
@@ -860,7 +874,7 @@ $$
 \frac{\sum_{j\in\mathcal{N}_k(q)}I(c_j=c_q)}{|\mathcal{N}_k(q)|},
 $$
 
-也就是前 $k$ 个邻居中与 query 同癌种的比例。MRR 是 mean reciprocal rank：若第一个同癌种邻居排在第 $r_q$ 名，则该样本得分为 $1/r_q$，最后对所有 query 取平均；排第一得一分，排第二得二分之一，越靠后分数越小。当前实现只在最多 `r max(manifest$config$geometry$k)` 名邻居内寻找首次命中，未找到记零，因此本报告中的 MRR 应理解为截断到前 `r max(manifest$config$geometry$k)` 名的 MRR。本次展示参数也是 `r params$display_k`，两者恰好一致；若以后只修改展示用 $k$，不能自动把 MRR 解释成新的 `MRR@k`。
+也就是前 $k$ 个邻居中与 query 同癌种的比例。MRR 是 mean reciprocal rank：若第一个同癌种邻居排在第 $r_q$ 名，则该样本得分为 $1/r_q$，最后对所有 query 取平均；排第一得一分，排第二得二分之一，越靠后分数越小。当前实现只在最多 `r max(manifest$config$geometry$k)` 名邻居内寻找首次命中，未找到记零，因此本报告中的 MRR 应理解为截断到前 `r max(manifest$config$geometry$k)` 名的 MRR。本次展示参数也是 `r params$display_k`，两者恰好一致；实现会对每个候选 $k$ 单独截断首次命中，因此若以后修改展示用 $k$，对应的 MRR 会同步成为新的 `MRR@k`。
 
 图中展示的是每个样本的“d1 减 Direct”配对差，再在 cohort 内取平均。差值为正表示 d1 更容易恢复旧癌种标签，负值表示 d1 的邻域更少由旧癌种主导；它衡量的是 lineage recoverability，不是 CCS 新状态的正确率。虚线是所有 query 的样本级平均，因此样本多的 cohort 权重更大；散点则是各 cohort 内的样本均值，用于识别异质性。Top-k 与 MRR 的绝对值没有减去“该癌种在合格 reference 中所占比例”的机会基线，不同癌种不能只凭绝对分数横向判优；本报告主要依靠同一 query、同一 reference 候选池下的 d1−Direct 配对差保证比较口径一致。
 
@@ -1261,8 +1275,8 @@ knitr::include_graphics(fig4_jpg)
 # ==== Figure 10: Inference summary forest plot (user-adjustable parameters) ====
 fig10 <- list(
   # Canvas size in inches. Increase height if endpoint labels become crowded.
-  width_in = 7.2,
-  height_in = 4.6,
+  width_in = 8.0,
+  height_in = 5.2,
   base_size = 10,
   point_size = 2.8,
   line_size = 0.75,
@@ -1295,7 +1309,7 @@ p10 <- ggplot2::ggplot(
     y = NULL,
     caption = paste0(
       "Points: estimates; lines: 95% bootstrap CI; dashed line: zero difference; ",
-      "p = ", fmt_p(forest_data$p_value)
+      forest_p_text
     )
   ) +
   theme_nature_readable(
@@ -1313,7 +1327,7 @@ fig10_jpg <- .ae_save_plot(
 knitr::include_graphics(fig10_jpg)
 ```
 
-图中显示四个区间，分别对应检索 top-k、检索 MRR、外部 readout balanced accuracy 和 100% learning fraction。**结果解读：**区间跨零的终点只能表述为证据不足以拒绝零差异；区间完全位于零的一侧时，表明在当前统计单位和重采样设计下方向更稳定。该图用于比较不确定性范围，不把 p-value 当作 CCS 新状态效用的替代终点。
+图中显示四个区间，分别对应检索 top-k、检索 MRR、外部 readout balanced accuracy 和 `r scales::percent(1, accuracy = 1)` learning fraction。**结果解读：**区间跨零的终点只能表述为证据不足以拒绝零差异；区间完全位于零的一侧时，表明在当前统计单位和重采样设计下方向更稳定。该图用于比较不确定性范围，不把 p-value 当作 CCS 新状态效用的替代终点。
 
 ## cohort evidence 的二维 scaling
 
@@ -1404,7 +1418,7 @@ fig8_jpg <- .ae_save_plot(
 knitr::include_graphics(fig8_jpg)
 ```
 
-Figure 8 的阴影区间现在按每个 scaling cell 的 design repeat 重新抽取计算。结果解读：它显示同一 bank 设计在不同重复下的估计范围，并表明不同设计的差异不应由 query 数量解释；它不把同一 repeat 内的多个 query 当作独立样本。区间较宽时，说明当前独立 bank-design repeats 对该 scaling cell 的估计仍不稳定。
+Figure `r 8L` 的阴影区间现在按每个 scaling cell 的 design repeat 重新抽取计算。结果解读：它显示同一 bank 设计在不同重复下的估计范围，并表明不同设计的差异不应由 query 数量解释；它不把同一 repeat 内的多个 query 当作独立样本。区间较宽时，说明当前独立 bank-design repeats 对该 scaling cell 的估计仍不稳定。
 
 ```{r scaling-inference-table}
 scaling_inference_table <- scaling_inference[, c(
@@ -1495,7 +1509,7 @@ Module redundancy 差为 `r fmt(redundancy_matched$estimate)`（95% CI `r fmt(re
 
 ## 独立生物学锚点 readout
 
-本节把 retrieval 邻居与预先冻结的生物学锚点分开评估。连续锚点采用每个 cohort 内的 z-score signature mean；`utility = exp(-|query-reference|)` 只是将绝对差异映射到 0–1 的辅助尺度，越接近 1 表示邻居在该锚点上越接近，不等同于临床效用或显著性。所有比较沿用同一批 query、reference 和 top-k 邻居，且不参与 bank/module 选择。
+本节把 retrieval 邻居与预先冻结的生物学锚点分开评估。连续锚点采用每个 cohort 内的 z-score signature mean；`utility = exp(-|query-reference|)` 只是将绝对差异映射到 `r paste(0, 1, sep = "–")` 的辅助尺度，越接近 `r 1L` 表示邻居在该锚点上越接近，不等同于临床效用或显著性。所有比较沿用同一批 query、reference 和 top-k 邻居，且不参与 bank/module 选择。
 
 ```{r biology-anchor-status, echo=FALSE}
 if (identical(biology_status, "complete")) {
@@ -1528,7 +1542,7 @@ if (identical(biology_status, "complete")) {
 biology_utility_widget
 ```
 
-解读：utility 越接近 1 代表 query 与其邻居在该连续锚点上的 z-score 差异越小，数值接近 0 则表示邻居在该锚点上差异较大。它是配对距离的有界展示量，便于在多个 anchor 间查看方向，却不能单独解释为效应显著、分型正确或临床获益；正式判断仍需结合 cohort-level 不确定性、预先定义的独立目标以及多重比较控制。
+解读：utility 越接近 `r 1L` 代表 query 与其邻居在该连续锚点上的 z-score 差异越小，数值接近 `r 0L` 则表示邻居在该锚点上差异较大。它是配对距离的有界展示量，便于在多个 anchor 间查看方向，却不能单独解释为效应显著、分型正确或临床获益；正式判断仍需结合 cohort-level 不确定性、预先定义的独立目标以及多重比较控制。
 
 ```{r biology-anchor-inference, echo=FALSE}
 biology_inference_widget <- htmltools::tagList()
@@ -1545,7 +1559,7 @@ if (identical(biology_status, "complete")) {
 biology_inference_widget
 ```
 
-解读：这里的 `estimate` 是每个外部 query cohort 的 d1−Direct utility 差异，再对 cohort 等权平均；95% CI 通过重采样 query cohort 获得，P 值通过配对符号置换获得，并用 Benjamini–Hochberg 方法对四个 anchor 做 FDR 校正。只有校正后的 P 值较小且 95% CI 不跨 0，才可认为两种表示在该锚点上的差异有统计学证据；CI 跨 0 或校正后 P 值较大时，结论应写成“未观察到显著差异”，而不是“证明两者完全相同”。
+解读：这里的 `estimate` 是每个外部 query cohort 的 d1−Direct utility 差异，再对 cohort 等权平均；95% CI 通过重采样 query cohort 获得，P 值通过配对符号置换获得，并用 Benjamini–Hochberg 方法对 `r length(unique(biology_inference$anchor))` 个 anchor 做 FDR 校正。只有校正后的 P 值较小且 95% CI 不跨 `r 0L`，才可认为两种表示在该锚点上的差异有统计学证据；CI 跨 `r 0L` 或校正后 P 值较大时，结论应写成“未观察到显著差异”，而不是“证明两者完全相同”。
 
 ```{r biology-anchor-interpretation, echo=FALSE}
 if (identical(biology_status, "complete")) {
@@ -1668,7 +1682,7 @@ technical_inference_table <- technical_inference_table[, c(
 render_dt(technical_inference_table, pageLength = 3L)
 ```
 
-解读：技术来源推断以 query cohort 为独立统计单位：`estimate` 是 d1−Direct 的 excess 差异，95% CI 来自 cohort bootstrap，P 值来自配对 sign-flip，并对 assay、platform、source 三个预先指定因子进行 Holm 校正。表中的 `n_query_sample` 是原始配对 query sample 数，`n_sample` 是进入推断的 cohort-level observation 数；真正用于 P 值和 CI 的独立单位是 `n_cohort`，不是把数千个 sample 当作相互独立。因而“下降”只有在校正后 P 值支持且区间不跨 0 时才可称为统计学证据；否则只能报告为方向性描述。即使达到统计显著，也应同时报告效应量和区间，不能把小幅度差异直接解释为批次效应已被完全移除。
+解读：技术来源推断以 query cohort 为独立统计单位：`estimate` 是 d1−Direct 的 excess 差异，95% CI 来自 cohort bootstrap，P 值来自配对 sign-flip，并对 `r length(unique(technical_inference$technical_factor))` 个预先指定因子进行 Holm 校正。表中的 `n_query_sample` 是原始配对 query sample 数，`n_sample` 是进入推断的 cohort-level observation 数；真正用于 P 值和 CI 的独立单位是 `n_cohort`，不是把数千个 sample 当作相互独立。因而“下降”只有在校正后 P 值支持且区间不跨 `r 0L` 时才可称为统计学证据；否则只能报告为方向性描述。即使达到统计显著，也应同时报告效应量和区间，不能把小幅度差异直接解释为批次效应已被完全移除。
 
 本次三个技术因子的具体推断为：`r technical_inference_summary`。按双侧 0.05 阈值和 Holm 校正，达到统计学证据标准的因子为：`r ifelse(nchar(technical_inference_significant) > 0L, technical_inference_significant, "无")`。这里的统计显著性只表示跨 cohort 的 d1−Direct excess 差异较为稳定，不等于已经证明所有批次效应都被去除。
 

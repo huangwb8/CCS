@@ -6,6 +6,8 @@
 
 ## [Unreleased]
 
+- 修正 `ablation-03` 检索指标的 MRR@k 计算：每个候选 `k` 仅计入前 `k` 名内的首次同标签邻居，并补充回归测试；重新渲染出版前 HTML 与矢量图。
+
 - 严格化 `ablation-03` biological-anchor 比较：保留原始 utility，同时以外部 query cohort 为统计单位新增 d1−Direct 效应量、cohort bootstrap 95% CI、精确配对符号置换 P 值和 Benjamini–Hochberg 多重比较校正，并将推断结果写入 `anchor_inference.csv` 与 HTML 报告。
 - 严格化 `ablation-03` technical-neighbor excess 比较：对 assay、platform、source 三个预先指定技术因子复用 cohort-level 配对 bootstrap/sign-flip 推断，并在 HTML 中报告 Holm 校正后的 P 值与区间。
 
