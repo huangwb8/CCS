@@ -569,6 +569,46 @@ technical_delta <- .ae_technical_delta(
   params$display_k,
   technical_columns
 )
+technical_inference <- .ae_technical_inference(
+  retrieval,
+  params$display_k,
+  technical_columns,
+  n_boot = params$inference_bootstrap,
+  seed = params$inference_seed + 400L,
+  multiplicity_method = "holm"
+)
+technical_inference_summary <- if (nrow(technical_inference) > 0L) {
+  paste(
+    technical_inference$technical_factor,
+    sprintf(
+      "d1−Direct=%+.3f, 95%% CI [%+.3f, %+.3f], Holm P=%s",
+      technical_inference$estimate,
+      technical_inference$ci_low,
+      technical_inference$ci_high,
+      vapply(
+        technical_inference$p_value_adj,
+        fmt_p,
+        character(1L)
+      )
+    ),
+    sep = ": ",
+    collapse = "; "
+  )
+} else {
+  "not_estimable"
+}
+technical_inference_significant <- if (nrow(technical_inference) > 0L) {
+  paste(
+    technical_inference$technical_factor[
+      is.finite(technical_inference$p_value_adj) &
+        technical_inference$p_value_adj < 0.05 &
+        technical_inference$ci_high < 0
+    ],
+    collapse = ", "
+  )
+} else {
+  ""
+}
 technical_summary <- technical_delta |>
   dplyr::group_by(.data$technical_factor) |>
   dplyr::summarise(
@@ -1610,6 +1650,27 @@ knitr::include_graphics(fig5_jpg)
 ```
 
 本次 technical-excess 结果的直接解读是：在同一 `r manifest$anchor` 背景内校正后，三个技术因子的均值差分别为 `r paste(technical_summary$technical_factor, sprintf("%+.3f", technical_summary$mean_delta), sep = " = ", collapse = "; ")`。三者均为负值，意味着 assay、platform 和 source 的额外邻居聚集分别减少约 `r paste(fmt(100 * abs(technical_summary$mean_delta), 1L), collapse = "、")` 个百分点；这是本轮实验中支持 cohort-conditioned integration 的**最强正向信号**。与此同时，癌种一致率也从 `r fmt(direct_top_k_rate)` 降至 `r fmt(d1_top_k_rate)`，表明技术边界减弱与去癌种中心化同时发生。
+
+图中显示这三个方向的一致性，提示 d1 的技术来源聚集下降并非由单一技术字段驱动；但是否具有统计学证据应以同一 query cohort 配对后的置信区间和校正 P 值为准，而不能只看三条均值曲线。
+
+```{r technical-inference-table, echo=FALSE}
+technical_inference_table <- technical_inference[, c(
+  "technical_factor", "estimate", "ci_low", "ci_high", "p_value",
+  "p_value_adj", "n_cohort", "n_sample", "resamples",
+  "multiplicity_method", "status"
+)]
+technical_inference_table$n_query_sample <- sum(technical_delta$sample_count)
+technical_inference_table <- technical_inference_table[, c(
+  "technical_factor", "estimate", "ci_low", "ci_high", "p_value",
+  "p_value_adj", "n_cohort", "n_query_sample", "n_sample", "resamples",
+  "multiplicity_method", "status"
+)]
+render_dt(technical_inference_table, pageLength = 3L)
+```
+
+解读：技术来源推断以 query cohort 为独立统计单位：`estimate` 是 d1−Direct 的 excess 差异，95% CI 来自 cohort bootstrap，P 值来自配对 sign-flip，并对 assay、platform、source 三个预先指定因子进行 Holm 校正。表中的 `n_query_sample` 是原始配对 query sample 数，`n_sample` 是进入推断的 cohort-level observation 数；真正用于 P 值和 CI 的独立单位是 `n_cohort`，不是把数千个 sample 当作相互独立。因而“下降”只有在校正后 P 值支持且区间不跨 0 时才可称为统计学证据；否则只能报告为方向性描述。即使达到统计显著，也应同时报告效应量和区间，不能把小幅度差异直接解释为批次效应已被完全移除。
+
+本次三个技术因子的具体推断为：`r technical_inference_summary`。按双侧 0.05 阈值和 Holm 校正，达到统计学证据标准的因子为：`r ifelse(nchar(technical_inference_significant) > 0L, technical_inference_significant, "无")`。这里的统计显著性只表示跨 cohort 的 d1−Direct excess 差异较为稳定，不等于已经证明所有批次效应都被去除。
 
 但这里的“背景校正”只控制了 `r manifest$anchor` 的总体组成，没有控制全部潜在生物差异，也没有证明每个 cohort 都同向变化。由于 cancer type 仍是粗粒度锚点，现有数据无法区分“保留共享肿瘤状态的有目的融合”和“无选择混合”。因此，technical excess 的下降可作为机制线索，但不足以断言 batch removal 已经成功，也不能反向认定生物信号已被抹平。
 

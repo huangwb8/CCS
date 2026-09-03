@@ -139,6 +139,39 @@
     )
 }
 
+.ae_technical_inference <- function(
+    retrieval,
+    k,
+    technical_columns,
+    n_boot = 2000L,
+    seed = 20260829L,
+    multiplicity_method = "holm") {
+  delta <- .ae_technical_delta(retrieval, k, technical_columns)
+  rows <- lapply(seq_along(technical_columns), function(i) {
+    factor <- technical_columns[i]
+    part <- delta[delta$technical_factor == factor, , drop = FALSE]
+    out <- .ae_paired_inference(
+      part,
+      delta_column = "estimate",
+      cluster_column = "cohort",
+      n_boot = n_boot,
+      seed = seed + i - 1L,
+      unit = "cohort",
+      method = "technical_cohort_bootstrap_sign_flip",
+      multiplicity_method = multiplicity_method,
+      min_clusters = 2L
+    )
+    out$technical_factor <- factor
+    out
+  })
+  result <- do.call(rbind, rows)
+  result <- .ae_adjust_inference(result, multiplicity_method)
+  result[, c(
+    "technical_factor",
+    setdiff(names(result), "technical_factor")
+  ), drop = FALSE]
+}
+
 .ae_learning_summary <- function(curve) {
   curve$metrics |>
     dplyr::group_by(.data$representation, .data$requested_fraction) |>

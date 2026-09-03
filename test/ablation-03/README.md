@@ -22,6 +22,7 @@
 4. 以 cohort 内 z-score signature mean 计算增殖、免疫 TME、基质 TME、IFN/IL6 四类独立 anchor。
 5. 在相同 top-15 邻居边界上配对比较 Direct-GSClassifier 与 Cohort-d1，输出覆盖审计、utility、bootstrap 区间和图形；结果作为 HTML 的新增章节。
 6. 以外部 query cohort 为独立统计单位，对 d1−Direct utility 计算 cohort bootstrap 95% CI、精确配对符号置换 P 值，并对四个 anchor 做 BH 校正。
+7. 对 assay、platform、source 的 technical-neighbor excess 使用同一 cohort-level 配对框架，计算 95% CI、sign-flip P 值和 Holm 校正。
 
 ## 主要产物
 
