@@ -4101,7 +4101,15 @@ ablation <- function(
       top_k_label_rate = label_rate$label_match[
         match(query_metadata$sample_id, label_rate$query_sample)
       ],
-      mrr = ifelse(is.na(first_match), 0, 1 / first_match),
+      # MRR@k must only credit a relevant neighbor when its first hit is
+      # inside the requested top-k list.  Reusing the max-k reciprocal rank
+      # for smaller k would leak information from ranks that are not part of
+      # that endpoint (and incorrectly make MRR identical for every k).
+      mrr = ifelse(
+        is.na(first_match) | first_match > k_i,
+        0,
+        1 / first_match
+      ),
       stringsAsFactors = FALSE
     )
     for (column in technical_columns) {
