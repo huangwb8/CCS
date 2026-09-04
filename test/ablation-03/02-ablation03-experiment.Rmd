@@ -175,6 +175,8 @@ retrieval_mean_delta <- mean(
   na.rm = TRUE
 )
 retrieval_mrr_delta <- mean(retrieval_overall$delta_mrr, na.rm = TRUE)
+retrieval_sample_mean_delta <- retrieval_mean_delta
+retrieval_sample_mrr_delta <- retrieval_mrr_delta
 retrieval_direct_mrr <- mean(retrieval_overall$mrr_direct, na.rm = TRUE)
 retrieval_d1_mrr <- mean(retrieval_overall$mrr_d1, na.rm = TRUE)
 
@@ -186,6 +188,12 @@ retrieval_inference <- .ae_retrieval_inference(
   n_boot = params$inference_bootstrap,
   seed = params$inference_seed
 )
+retrieval_cohort_mean_delta <- retrieval_inference$estimate[
+  retrieval_inference$endpoint == "top_k_label_rate"
+]
+retrieval_cohort_mrr_delta <- retrieval_inference$estimate[
+  retrieval_inference$endpoint == "mrr"
+]
 
 readout_overall <- readout$overall
 readout_direct <- readout_overall[
@@ -221,6 +229,9 @@ readout_inference <- .ae_readout_inference(
   n_boot = params$inference_bootstrap,
   seed = params$inference_seed + 100L
 )
+readout_inference_delta <- readout_inference$estimate[
+  readout_inference$endpoint == "balanced_accuracy"
+]
 
 learning_summary <- .ae_learning_summary(learning_curve)
 learning_delta <- learning_curve$paired |>
@@ -902,7 +913,7 @@ fig2 <- list(
   # Larger height protects cohort labels from overlap; adjust with cohort count.
   width_in = 8.0,
   height_in = 8.5,
-  base_size = 9,
+  base_size = 10,
   point_size = 2.2,
   zero_line_width = 0.55,
   legend_position = "bottom"
@@ -925,7 +936,7 @@ retrieval_overall_plot <- data.frame(
     c("Top-k label rate", "Mean reciprocal rank"),
     levels = levels(plot_retrieval$metric)
   ),
-  estimate = c(retrieval_mean_delta, retrieval_mrr_delta),
+  estimate = c(retrieval_cohort_mean_delta, retrieval_cohort_mrr_delta),
   ci_low = c(
     retrieval_inference$ci_low[retrieval_inference$endpoint == "top_k_label_rate"],
     retrieval_inference$ci_low[retrieval_inference$endpoint == "mrr"]
@@ -946,7 +957,7 @@ retrieval_reference <- data.frame(
     c("Top-k label rate", "Mean reciprocal rank"),
     levels = levels(plot_retrieval$metric)
   ),
-  estimate = c(retrieval_mean_delta, retrieval_mrr_delta),
+  estimate = c(retrieval_cohort_mean_delta, retrieval_cohort_mrr_delta),
   ci_low = c(
     retrieval_inference$ci_low[retrieval_inference$endpoint == "top_k_label_rate"],
     retrieval_inference$ci_low[retrieval_inference$endpoint == "mrr"]
@@ -1000,7 +1011,7 @@ p2 <- ggplot2::ggplot(
     y = "External query cohort",
     color = "Metric",
     caption = paste0(
-      "Dashed lines: sample-level means; overall cohort-bootstrap 95% CI [",
+      "Dashed lines: cohort-equal means; overall cohort-bootstrap 95% CI [",
       paste(fmt(retrieval_reference$ci_low), fmt(retrieval_reference$ci_high), collapse = "; "),
       "]; p(top-k) = ", fmt_p(retrieval_inference$p_value[retrieval_inference$endpoint == "top_k_label_rate"]),
       "; p(MRR) = ", fmt_p(retrieval_inference$p_value[retrieval_inference$endpoint == "mrr"])
@@ -1084,7 +1095,7 @@ balanced accuracy 的 query-cohort 配对差为 `r fmt(readout_inference$estimat
 fig3 <- list(
   width_in = 7.2,
   height_in = 7.5,
-  base_size = 9,
+  base_size = 10,
   point_size = 2.4,
   zero_line_width = 0.55,
   legend_position = "none"
@@ -1162,9 +1173,9 @@ fig3_jpg <- .ae_save_plot(
 knitr::include_graphics(fig3_jpg)
 ```
 
-本次 readout 结果的直接解读是：使用全部 reference cohorts 时，Direct-GSClassifier 的外部 balanced accuracy 为 `r fmt(readout_direct$balanced_accuracy)`，即各癌种召回率平均约为 `r fmt_pct(readout_direct$balanced_accuracy)`；Cohort-d1 为 `r fmt(readout_d1$balanced_accuracy)`，约为 `r fmt_pct(readout_d1$balanced_accuracy)`。**d1 减 Direct 的总体差为 `r fmt(readout_delta)`，即下降 `r fmt(100 * abs(readout_delta), 1L)` 个百分点。**
+本次 readout 结果的直接解读是：使用全部 reference cohorts 时，Direct-GSClassifier 的外部 balanced accuracy 为 `r fmt(readout_direct$balanced_accuracy)`，即各癌种召回率平均约为 `r fmt_pct(readout_direct$balanced_accuracy)`；Cohort-d1 为 `r fmt(readout_d1$balanced_accuracy)`，约为 `r fmt_pct(readout_d1$balanced_accuracy)`。按样本加权的总体差为 `r fmt(readout_delta)`（`r ifelse(readout_delta > 0, "提高", ifelse(readout_delta < 0, "降低", "无变化"))` `r fmt(100 * abs(readout_delta), 1L)` 个百分点），但按 query cohort 等权的推断估计为 `r fmt(readout_inference_delta)`；后者才是图中 CI 和 P 值对应的效应量。**
 
-当前数据中，d1 表现最好的 readout cohort 是 `r readout_top$cohort[1]`（差值 `r fmt(readout_top$delta_balanced_accuracy[1])`），表现最差的是 `r readout_bottom$cohort[1]`（差值 `r fmt(readout_bottom$delta_balanced_accuracy[1])`）。**这一 cohort 间差异表明，总体下降并不是所有 cohort 等幅变化。** 该比较采用 `r manifest$config$validation$inner_folds`-fold grouped CV，两种表示使用相同的预处理流程和调参预算，保证了比较口径一致。结果不支持“d1 能让低复杂度模型更容易利用旧癌种标签”这一狭义主张；至于它是否更有利于读出 ICI response、pathway state 或新的 pan-cancer subtype，本实验尚无法回答。
+当前数据中，d1 表现最好的 readout cohort 是 `r readout_top$cohort[1]`（差值 `r fmt(readout_top$delta_balanced_accuracy[1])`），表现最差的是 `r readout_bottom$cohort[1]`（差值 `r fmt(readout_bottom$delta_balanced_accuracy[1])`）。**cohort 间差异表明，总体方向并不是所有 cohort 等幅变化。** 该比较采用 `r manifest$config$validation$inner_folds`-fold grouped CV，两种表示使用相同的预处理流程和调参预算，保证了比较口径一致。结果不支持“d1 能让低复杂度模型更容易利用旧癌种标签”这一狭义主张；至于它是否更有利于读出 ICI response、pathway state 或新的 pan-cancer subtype，本实验尚无法回答。
 
 ## 癌种 readout 的样本效率
 
@@ -1819,7 +1830,7 @@ Null-Perm 的资格状态为 **`r null_perm_status`**。`r manifest$query_cohort
 
 ## 讨论与分析
 
-本次结果显示，在旧癌种标签恢复任务中，d1 的 top-k 一致率平均差为 `r fmt(retrieval_mean_delta)`，MRR 平均差为 `r fmt(retrieval_mrr_delta)`，总体癌种 readout 差为 `r fmt(readout_delta)`，三者相对 Direct 均为负值。即使使用全部训练数据，癌种学习曲线差仍为 `r fmt(learning_delta$estimate[match(1, learning_delta$requested_fraction)])`，说明增加训练数据并未消除差距。因此，在恢复旧癌种标签这一任务上，Direct-GSClassifier 是更简单、表现也更好的表示。
+本次结果显示，在旧癌种标签恢复任务中，d1 的 top-k 一致率和 MRR 相对 Direct 的 cohort 等权差分别为 `r fmt(retrieval_cohort_mean_delta)` 和 `r fmt(retrieval_cohort_mrr_delta)`，均为负方向；readout 的样本加权差为 `r fmt(readout_delta)`，而 query cohort 等权推断差为 `r fmt(readout_inference_delta)`，两种统计单位方向并不一致。因此，检索恢复性支持 Direct 优于 d1，但 readout 结果必须以预先指定的 cohort-level CI/P 值为准，不能用样本加权总体差替代。即使使用全部训练数据，癌种学习曲线差仍为 `r fmt(learning_delta$estimate[match(1, learning_delta$requested_fraction)])`，说明增加训练数据并未消除检索/学习曲线差距。
 
 从机制上看，当前最有证据支持的解释不是“d1 把癌种标签简单平均掉了”，而是 cohort bank 对同一份 Direct feature 进行了选择性的重编码和重新加权：同一样本被多个冻结 cohort 模型分别读取，d1 保存的是这些模型输出组成的证据向量，而不是某一个已知 cohort 的标签。几何指标显示这种重编码确实改变了局部邻域；同时，三个技术来源的 excess 均下降，说明与 cohort/技术来源相关的方向被削弱。由于部分 cancer type 与 cohort、assay 或 platform 绑定，技术边界减弱可能连带降低旧癌种标签的可恢复性。因此，“癌种信号被稀释”的直觉可以保留，但更准确的说法是：癌种相关方向被重新分散、降权，且其中一部分可能与技术或队列捷径重叠。
 
