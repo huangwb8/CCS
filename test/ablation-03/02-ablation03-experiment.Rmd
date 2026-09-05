@@ -302,7 +302,7 @@ forest_data <- rbind(
     estimate = retrieval_inference$estimate[retrieval_inference$endpoint == "top_k_label_rate"],
     ci_low = retrieval_inference$ci_low[retrieval_inference$endpoint == "top_k_label_rate"],
     ci_high = retrieval_inference$ci_high[retrieval_inference$endpoint == "top_k_label_rate"],
-    p_value = retrieval_inference$p_value[retrieval_inference$endpoint == "top_k_label_rate"],
+    p_value = retrieval_inference$p_value_adj[retrieval_inference$endpoint == "top_k_label_rate"],
     unit = "cohort"
   ),
   data.frame(
@@ -310,7 +310,7 @@ forest_data <- rbind(
     estimate = retrieval_inference$estimate[retrieval_inference$endpoint == "mrr"],
     ci_low = retrieval_inference$ci_low[retrieval_inference$endpoint == "mrr"],
     ci_high = retrieval_inference$ci_high[retrieval_inference$endpoint == "mrr"],
-    p_value = retrieval_inference$p_value[retrieval_inference$endpoint == "mrr"],
+    p_value = retrieval_inference$p_value_adj[retrieval_inference$endpoint == "mrr"],
     unit = "cohort"
   ),
   data.frame(
@@ -318,7 +318,7 @@ forest_data <- rbind(
     estimate = readout_inference$estimate[readout_inference$endpoint == "balanced_accuracy"],
     ci_low = readout_inference$ci_low[readout_inference$endpoint == "balanced_accuracy"],
     ci_high = readout_inference$ci_high[readout_inference$endpoint == "balanced_accuracy"],
-    p_value = readout_inference$p_value[readout_inference$endpoint == "balanced_accuracy"],
+    p_value = readout_inference$p_value_adj[readout_inference$endpoint == "balanced_accuracy"],
     unit = "query cohort"
   ),
   data.frame(
@@ -326,7 +326,7 @@ forest_data <- rbind(
     estimate = learning_inference$estimate[learning_inference$requested_fraction == 1],
     ci_low = learning_inference$ci_low[learning_inference$requested_fraction == 1],
     ci_high = learning_inference$ci_high[learning_inference$requested_fraction == 1],
-    p_value = learning_inference$p_value[learning_inference$requested_fraction == 1],
+    p_value = learning_inference$p_value_adj[learning_inference$requested_fraction == 1],
     unit = "design repeat"
   )
 )
@@ -336,7 +336,7 @@ forest_p_text <- paste(
     paste(
       paste0(
         as.character(forest_data$endpoint),
-        ": p = ",
+        ": family-adjusted p = ",
         vapply(forest_data$p_value, fmt_p, character(1L))
       ),
       collapse = "; "
@@ -1013,8 +1013,8 @@ p2 <- ggplot2::ggplot(
     caption = paste0(
       "Dashed lines: cohort-equal means; overall cohort-bootstrap 95% CI [",
       paste(fmt(retrieval_reference$ci_low), fmt(retrieval_reference$ci_high), collapse = "; "),
-      "]; p(top-k) = ", fmt_p(retrieval_inference$p_value[retrieval_inference$endpoint == "top_k_label_rate"]),
-      "; p(MRR) = ", fmt_p(retrieval_inference$p_value[retrieval_inference$endpoint == "mrr"])
+      "]; Holm-adjusted p(top-k) = ", fmt_p(retrieval_inference$p_value_adj[retrieval_inference$endpoint == "top_k_label_rate"]),
+      "; Holm-adjusted p(MRR) = ", fmt_p(retrieval_inference$p_value_adj[retrieval_inference$endpoint == "mrr"])
     )
   ) +
   theme_nature_readable(
@@ -1154,8 +1154,8 @@ p3 <- ggplot2::ggplot(
     caption = paste0(
       "Overall query-cohort bootstrap 95% CI: ",
       fmt_ci(readout_inference[readout_inference$endpoint == "balanced_accuracy", ]),
-      "; p = ",
-      fmt_p(readout_inference$p_value[readout_inference$endpoint == "balanced_accuracy"])
+      "; family-adjusted p = ",
+      fmt_p(readout_inference$p_value_adj[readout_inference$endpoint == "balanced_accuracy"])
     )
   ) +
   theme_nature_readable(
@@ -1199,7 +1199,7 @@ render_dt(learning_inference_table, pageLength = nrow(learning_inference_table))
 
 #### 学习曲线推断结果解读
 
-在 100% reference fraction 的主要比较点，d1−Direct 差异为 `r fmt(learning_inference$estimate[learning_inference$requested_fraction == 1])`，95% CI 为 `r fmt_ci(learning_inference[learning_inference$requested_fraction == 1, ])`，p = `r fmt_p(learning_inference$p_value[learning_inference$requested_fraction == 1])`。该 CI 反映共享 cohort subset 的重复设计不确定性；其余 fraction 的校正 p 值用于样本效率敏感性分析，不能与主要终点等量齐观，也不能据此宣称端到端 refit 的确认性证据。
+在 100% reference fraction 的主要比较点，d1−Direct 差异为 `r fmt(learning_inference$estimate[learning_inference$requested_fraction == 1])`，95% CI 为 `r fmt_ci(learning_inference[learning_inference$requested_fraction == 1, ])`，Holm 校正后 p = `r fmt_p(learning_inference$p_value_adj[learning_inference$requested_fraction == 1])`。该 CI 反映共享 cohort subset 的重复设计不确定性；其余 fraction 的校正 p 值用于样本效率敏感性分析，不能与主要终点等量齐观，也不能据此宣称端到端 refit 的确认性证据。
 
 100% fraction 的有效 design repeat 数为 `r learning_inference$n_cohort[learning_inference$requested_fraction == 1]`，重复数偏少时 p 值分辨率有限，报告中的 status 会保留这一限制。
 
@@ -1258,7 +1258,7 @@ p4 <- ggplot2::ggplot(
     caption = paste0(
       "Shaded bands: representation-specific repeat-bootstrap 95% CI; ",
       "primary paired p (100% fraction) = ",
-      fmt_p(learning_inference$p_value[learning_inference$requested_fraction == 1])
+      fmt_p(learning_inference$p_value_adj[learning_inference$requested_fraction == 1])
     )
   ) +
   theme_nature_readable(
@@ -1767,7 +1767,7 @@ fig7 <- list(
 decoder_plot <- rbind(
   data.frame(
     feature_type = "gene_pair",
-    metric = c("Balanced accuracy", "1 - Brier"),
+    metric = c("Balanced accuracy", "1 - Brier score"),
     value = c(
       decoder_summary$balanced_accuracy[decoder_summary$feature_type == "gene_pair"],
       1 - decoder_summary$brier[decoder_summary$feature_type == "gene_pair"]
@@ -1797,6 +1797,13 @@ p7 <- ggplot2::ggplot(
   ggplot2::geom_col(
     position = "dodge",
     width = fig7$bar_width
+  ) +
+  ggplot2::scale_x_discrete(
+    labels = c(
+      gene_pair = "Gene pair",
+      single_bin = "Single bin",
+      set_pair = "Set pair"
+    )
   ) +
   ggplot2::scale_fill_manual(values = unname(nature_colors[seq_len(6L)])) +
   ggplot2::scale_y_continuous(limits = c(0, 1.02), breaks = seq(0, 1, 0.2)) +
