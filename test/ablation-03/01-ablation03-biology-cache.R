@@ -129,7 +129,8 @@ cache <- list(
   duplicate_sample_ids = unique(unlist(lapply(cohorts, function(x) x$sample_id[duplicated(x$sample_id)]))),
   required_genes = required_genes, anchors = anchors, cohorts = cohorts,
   coverage = coverage, missing_genes = missing,
-  preprocessing = list(method = "cohort_zscore_signature_mean", id_conversion = "exact_match",
+  preprocessing = list(method = "reference_cohort_global_gene_zscore_signature_mean",
+                       id_conversion = "exact_match",
                        compression = "gzip", compression_level = 6L)
 )
 saveRDS(cache, cache_path, compress = "gzip")

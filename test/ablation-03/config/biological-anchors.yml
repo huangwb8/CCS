@@ -1,7 +1,7 @@
 version: "2026-08-30"
 source: "E:/RCloud/database/Signature/report/GeneSignature-HWB.rds"
 role: "independent_biological_anchor"
-readout: "cohort_zscore_signature_mean"
+readout: "reference_cohort_global_gene_zscore_signature_mean"
 anchors:
   proliferation:
     family: "Conserved-PanCan-TME-subtypes"

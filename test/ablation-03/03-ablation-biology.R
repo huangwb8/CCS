@@ -56,14 +56,41 @@ source(file.path(.ablation03_dir, "03-ablation-biology_functions.R"))
 anchors <- cache$anchors
 coverage <- cache$coverage
 coverage$external_query_cohort <- coverage$cohort_key %in% manifest$external_cohorts
+# Fit one gene-wise reference scale across all non-query cohorts, then apply
+# that fixed transform to both query and reference samples.  Per-cohort z-scoring
+# would put every cohort in a different coordinate system and make cross-cohort
+# absolute deltas uninterpretable.
+reference_keys <- setdiff(names(cache$cohorts), manifest$external_cohorts)
+if (!length(reference_keys)) {
+  stop("ablation-03 biology: no reference cohorts available for global scaling.", call. = FALSE)
+}
+global_stats <- lapply(sort(unique(unlist(anchors, use.names = FALSE))), function(gene) {
+  values <- unlist(lapply(cache$cohorts[reference_keys], function(cohort) {
+    mat <- cohort$expression
+    if (!gene %in% rownames(mat)) return(numeric())
+    as.numeric(mat[gene, , drop = TRUE])
+  }), use.names = FALSE)
+  values <- values[is.finite(values)]
+  if (length(values) < 2L) return(c(mean = NA_real_, sd = NA_real_, n = length(values)))
+  c(mean = mean(values), sd = stats::sd(values), n = length(values))
+})
+global_stats <- do.call(rbind, global_stats)
+rownames(global_stats) <- sort(unique(unlist(anchors, use.names = FALSE)))
+global_stats <- as.data.frame(global_stats, stringsAsFactors = FALSE)
+global_stats$gene_id <- rownames(global_stats)
+global_stats <- global_stats[is.finite(global_stats$mean) & is.finite(global_stats$sd) &
+  global_stats$sd > 0, , drop = FALSE]
 score_rows <- list(); ii <- 0L
 for (cohort in cache$cohorts) {
   mat <- cohort$expression
   ids <- cohort$sample_id
   for (anchor in names(anchors)) {
-    idx <- which(rownames(mat) %in% anchors[[anchor]])
-    if (length(idx) < 2L) next
-    z <- t(scale(t(mat[idx, , drop = FALSE])))
+    genes <- intersect(anchors[[anchor]], intersect(rownames(mat), global_stats$gene_id))
+    if (length(genes) < 2L) next
+    stats <- global_stats[match(genes, global_stats$gene_id), , drop = FALSE]
+    values <- mat[genes, , drop = FALSE]
+    z <- sweep(values, 1L, stats$mean, FUN = "-")
+    z <- sweep(z, 1L, stats$sd, FUN = "/")
     score <- colMeans(z, na.rm = TRUE)
     ii <- ii + 1L
     score_rows[[ii]] <- data.frame(sample_id = ids, anchor = anchor,
@@ -81,6 +108,7 @@ boot_ci <- function(x, seed = 20260830L, B = 500L) {
 }
 utility_rows <- list(); kk <- 0L
 per_query_rows <- list(); pp <- 0L
+missing_rows <- list(); mm <- 0L
 for (anchor in names(anchors)) {
   sc <- scores[scores$anchor == anchor, c("sample_id", "score")]
   q <- merge(neighbours, sc, by.x = "query_sample", by.y = "sample_id")
@@ -101,15 +129,28 @@ for (anchor in names(anchors)) {
     ci_u <- boot_ci(d$utility, seed = 20260830L + kk)
     ci_d <- boot_ci(d$abs_delta, seed = 20300830L + kk)
     kk <- kk + 1L
+    expected_pairs <- sum(neighbours$representation == rep)
+    valid_pairs <- sum(q$representation == rep)
     utility_rows[[kk]] <- data.frame(anchor = anchor, representation = rep,
-      query_count = nrow(d), neighbour_pairs = sum(q$representation == rep),
+      query_count = nrow(d), neighbour_pairs = valid_pairs,
+      expected_neighbour_pairs = expected_pairs,
+      missing_score_pairs = expected_pairs - valid_pairs,
       mean_abs_delta = ci_d[["mean"]], abs_delta_ci_low = ci_d[["low"]],
       abs_delta_ci_high = ci_d[["high"]], utility = ci_u[["mean"]],
       utility_ci_low = ci_u[["low"]], utility_ci_high = ci_u[["high"]])
+    mm <- mm + 1L
+    missing_rows[[mm]] <- data.frame(
+      anchor = anchor, representation = rep,
+      expected_neighbour_pairs = expected_pairs,
+      valid_neighbour_pairs = valid_pairs,
+      missing_score_pairs = expected_pairs - valid_pairs,
+      stringsAsFactors = FALSE
+    )
   }
 }
 utility <- do.call(rbind, utility_rows)
 per_query_utility <- do.call(rbind, per_query_rows)
+missing_pairs <- do.call(rbind, missing_rows)
 anchor_inference <- .biology_paired_contrast(
   per_query_utility,
   n_boot = 2000L,
@@ -125,31 +166,22 @@ contrasts$interpretation <- ifelse(contrasts$d1_minus_direct_utility > 0, "d1 hi
 
 write.csv(coverage, file.path(out_dir, "anchor_coverage.csv"), row.names = FALSE)
 write.csv(utility, file.path(out_dir, "anchor_utility.csv"), row.names = FALSE)
+write.csv(missing_pairs, file.path(out_dir, "anchor_missing_pairs.csv"), row.names = FALSE)
 write.csv(contrasts, file.path(out_dir, "anchor_contrasts.csv"), row.names = FALSE)
 write.csv(anchor_inference, file.path(out_dir, "anchor_inference.csv"), row.names = FALSE)
 saveRDS(list(anchors = anchors, coverage = coverage, utility = utility, contrasts = contrasts,
              inference = anchor_inference,
              retrieval_rows_top15 = nrow(neighbours), source_signature = sig_path,
              cache_path = cache_path, cache_schema_version = cache$schema_version,
-             cache_source_md5 = cache$source$md5, cache_sample_key_hash = cache$sample_key_hash),
+             cache_source_md5 = cache$source$md5, cache_sample_key_hash = cache$sample_key_hash,
+             scaling = list(method = "reference_cohort_global_gene_zscore",
+                            reference_cohort_count = length(reference_keys),
+                            reference_cohorts = reference_keys,
+                            genes_with_finite_scale = nrow(global_stats))),
         file.path(out_dir, "ablation03-biology.rds"))
 
-means <- aggregate(coverage$coverage, list(anchor = coverage$anchor), mean)
-pdf(file.path(fig_dir, "figure-01-anchor-coverage.pdf"), width = 7, height = 4)
-par(mar = c(4, 8, 1, 1)); barplot(means$x, names.arg = means$anchor, horiz = TRUE, las = 1,
-  xlim = c(0, 1), col = "#4878A8", xlab = "Mean gene coverage across evaluated cohorts")
-dev.off()
-jpeg(file.path(fig_dir, "figure-01-anchor-coverage.jpg"), width = 1400, height = 800, quality = 95)
-par(mar = c(4, 8, 1, 1)); barplot(means$x, names.arg = means$anchor, horiz = TRUE, las = 1,
-  xlim = c(0, 1), col = "#4878A8", xlab = "Mean gene coverage across evaluated cohorts")
-dev.off()
-utility_mean <- aggregate(utility$utility, list(anchor = utility$anchor), mean)
-pdf(file.path(fig_dir, "figure-02-biological-utility.pdf"), width = 7, height = 4)
-par(mar = c(7, 4, 1, 1)); barplot(utility_mean$x, names.arg = utility_mean$anchor, las = 2,
-  ylim = c(0, 1), col = "#4878A8", ylab = "Mean paired anchor utility")
-dev.off()
-jpeg(file.path(fig_dir, "figure-02-biological-utility.jpg"), width = 1400, height = 800, quality = 95)
-par(mar = c(7, 4, 1, 1)); barplot(utility_mean$x, names.arg = utility_mean$anchor, las = 2,
-  ylim = c(0, 1), col = "#4878A8", ylab = "Mean paired anchor utility")
-dev.off()
+# Figures are rendered centrally by 02-ablation03-experiment.Rmd so that the
+# HTML, PDF, and preview outputs always share one current data source.  This
+# stage writes tabular/RDS products only and does not recreate deprecated
+# biological-anchor figures under names that could be mistaken for report plots.
 cat(sprintf("anchors=%d coverage_rows=%d utility_rows=%d output=%s\n", length(anchors), nrow(coverage), nrow(utility), out_dir))

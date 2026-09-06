@@ -20,8 +20,6 @@ output:
     theme: default
     highlight: tango
     code_folding: show
-    includes:
-      after_body: "templates/ablation03-extension.html"
     css: "templates/liquid_glass_theme.css"
 ---
 
@@ -229,8 +227,13 @@ readout_inference <- .ae_readout_inference(
   n_boot = params$inference_bootstrap,
   seed = params$inference_seed + 100L
 )
+# Each external query cohort contains one cancer label in this experiment.
+# The upstream field is retained for compatibility, but this inferential
+# endpoint is a single-class cohort accuracy, not multiclass balanced accuracy.
+readout_inference$endpoint[readout_inference$endpoint == "balanced_accuracy"] <-
+  "cohort_accuracy"
 readout_inference_delta <- readout_inference$estimate[
-  readout_inference$endpoint == "balanced_accuracy"
+  readout_inference$endpoint == "cohort_accuracy"
 ]
 
 learning_summary <- .ae_learning_summary(learning_curve)
@@ -314,11 +317,11 @@ forest_data <- rbind(
     unit = "cohort"
   ),
   data.frame(
-    endpoint = "Readout balanced accuracy",
-    estimate = readout_inference$estimate[readout_inference$endpoint == "balanced_accuracy"],
-    ci_low = readout_inference$ci_low[readout_inference$endpoint == "balanced_accuracy"],
-    ci_high = readout_inference$ci_high[readout_inference$endpoint == "balanced_accuracy"],
-    p_value = readout_inference$p_value_adj[readout_inference$endpoint == "balanced_accuracy"],
+    endpoint = "Readout cohort accuracy",
+    estimate = readout_inference$estimate[readout_inference$endpoint == "cohort_accuracy"],
+    ci_low = readout_inference$ci_low[readout_inference$endpoint == "cohort_accuracy"],
+    ci_high = readout_inference$ci_high[readout_inference$endpoint == "cohort_accuracy"],
+    p_value = readout_inference$p_value_adj[readout_inference$endpoint == "cohort_accuracy"],
     unit = "query cohort"
   ),
   data.frame(
@@ -836,10 +839,10 @@ p1 <- ggplot2::ggplot(
     size = 3.6
   ) +
   ggplot2::geom_text(
-    ggplot2::aes(label = "CI / p: not estimable"),
+    ggplot2::aes(label = "CI/p not estimable"),
     vjust = 1.8,
-    size = 2.7,
-    color = "grey35"
+    size = 3.0,
+    color = "grey20"
   ) +
   ggplot2::scale_y_continuous(
     limits = c(0, 1.05),
@@ -1011,16 +1014,23 @@ p2 <- ggplot2::ggplot(
     y = "External query cohort",
     color = "Metric",
     caption = paste0(
-      "Dashed lines: cohort-equal means; overall cohort-bootstrap 95% CI [",
-      paste(fmt(retrieval_reference$ci_low), fmt(retrieval_reference$ci_high), collapse = "; "),
-      "]; Holm-adjusted p(top-k) = ", fmt_p(retrieval_inference$p_value_adj[retrieval_inference$endpoint == "top_k_label_rate"]),
-      "; Holm-adjusted p(MRR) = ", fmt_p(retrieval_inference$p_value_adj[retrieval_inference$endpoint == "mrr"])
+      paste(strwrap(paste0(
+        "Dashed lines: cohort-equal means; overall cohort-bootstrap 95% CI [",
+        paste(fmt(retrieval_reference$ci_low), fmt(retrieval_reference$ci_high), collapse = "; "),
+        "]; Holm-adjusted p(top-k) = ", fmt_p(retrieval_inference$p_value_adj[retrieval_inference$endpoint == "top_k_label_rate"]),
+        "; Holm-adjusted p(MRR) = ", fmt_p(retrieval_inference$p_value_adj[retrieval_inference$endpoint == "mrr"])
+      ), width = 100), collapse = "\n")
     )
   ) +
   theme_nature_readable(
     base_size = fig2$base_size,
     x_text_angle = 0,
     legend_position = fig2$legend_position
+  ) +
+  ggplot2::theme(
+    plot.caption = ggplot2::element_text(
+      hjust = 0, lineheight = 0.95, margin = ggplot2::margin(t = 6)
+    )
   )
 
 # Readability check: cohort labels use a tall canvas, the zero line makes gain/loss
@@ -1086,9 +1096,9 @@ render_dt(readout_inference_table, pageLength = 2L)
 
 #### readout 推断结果解读
 
-balanced accuracy 的 query-cohort 配对差为 `r fmt(readout_inference$estimate[readout_inference$endpoint == "balanced_accuracy"])`，95% CI 为 `r fmt_ci(readout_inference[readout_inference$endpoint == "balanced_accuracy", ])`，p = `r fmt_p(readout_inference$p_value[readout_inference$endpoint == "balanced_accuracy"])`（Holm 校正后 `r fmt_p(readout_inference$p_value_adj[readout_inference$endpoint == "balanced_accuracy"])`）。该区间量化冻结模型在不同 query cohort 组成下的差异范围；这些 p 值只描述冻结模型下的外部 query 稳定性，不能替代独立生物任务效用，也不能把样本数较大的 cohort 当作更多独立证据。
+cohort-level accuracy 的 query-cohort 配对差为 `r fmt(readout_inference$estimate[readout_inference$endpoint == "cohort_accuracy"])`，95% CI 为 `r fmt_ci(readout_inference[readout_inference$endpoint == "cohort_accuracy", ])`，p = `r fmt_p(readout_inference$p_value[readout_inference$endpoint == "cohort_accuracy"])`（Holm 校正后 `r fmt_p(readout_inference$p_value_adj[readout_inference$endpoint == "cohort_accuracy"])`）。由于每个外部 query cohort 在当前数据中只有一个癌种标签，这个 endpoint 是单类别 cohort accuracy，而不是可估计的多类别 balanced accuracy；macro-AUROC 在这些 cohort 中均不可估计。该区间量化冻结模型在不同 query cohort 组成下的差异范围；这些 p 值只描述冻结模型下的外部 query 稳定性，不能替代独立生物任务效用，也不能把样本数较大的 cohort 当作更多独立证据。
 
-有效 query cohort 数为 `r readout_inference$n_cohort[readout_inference$endpoint == "balanced_accuracy"]`，样本数为 `r readout_inference$n_sample[readout_inference$endpoint == "balanced_accuracy"]`；因此 CI 的宽度主要反映 cohort 数量，而不是把每个 query 当作独立重复。
+有效 query cohort 数为 `r readout_inference$n_cohort[readout_inference$endpoint == "cohort_accuracy"]`，样本数为 `r readout_inference$n_sample[readout_inference$endpoint == "cohort_accuracy"]`；因此 CI 的宽度主要反映 cohort 数量，而不是把每个 query 当作独立重复。
 
 ```{r figure-readout-cohort, interp_check=TRUE}
 # ==== Figure 3: External linear readout cohort deltas (user-adjustable parameters) ====
@@ -1110,13 +1120,13 @@ readout_plot$ci_high <- NA_real_
 readout_overall_plot <- data.frame(
   cohort = "Overall",
   delta_balanced_accuracy = readout_inference$estimate[
-    readout_inference$endpoint == "balanced_accuracy"
+    readout_inference$endpoint == "cohort_accuracy"
   ],
   ci_low = readout_inference$ci_low[
-    readout_inference$endpoint == "balanced_accuracy"
+    readout_inference$endpoint == "cohort_accuracy"
   ],
   ci_high = readout_inference$ci_high[
-    readout_inference$endpoint == "balanced_accuracy"
+    readout_inference$endpoint == "cohort_accuracy"
   ],
   stringsAsFactors = FALSE
 )
@@ -1149,13 +1159,13 @@ p3 <- ggplot2::ggplot(
     color = nature_colors[["purple"]]
   ) +
   ggplot2::labs(
-    x = "Balanced accuracy: Cohort-d1 minus Direct-GSClassifier",
+    x = "Cohort accuracy: Cohort-d1 minus Direct-GSClassifier",
     y = "External query cohort",
     caption = paste0(
       "Overall query-cohort bootstrap 95% CI: ",
-      fmt_ci(readout_inference[readout_inference$endpoint == "balanced_accuracy", ]),
+      fmt_ci(readout_inference[readout_inference$endpoint == "cohort_accuracy", ]),
       "; family-adjusted p = ",
-      fmt_p(readout_inference$p_value_adj[readout_inference$endpoint == "balanced_accuracy"])
+      fmt_p(readout_inference$p_value_adj[readout_inference$endpoint == "cohort_accuracy"])
     )
   ) +
   theme_nature_readable(
@@ -1173,9 +1183,9 @@ fig3_jpg <- .ae_save_plot(
 knitr::include_graphics(fig3_jpg)
 ```
 
-本次 readout 结果的直接解读是：使用全部 reference cohorts 时，Direct-GSClassifier 的外部 balanced accuracy 为 `r fmt(readout_direct$balanced_accuracy)`，即各癌种召回率平均约为 `r fmt_pct(readout_direct$balanced_accuracy)`；Cohort-d1 为 `r fmt(readout_d1$balanced_accuracy)`，约为 `r fmt_pct(readout_d1$balanced_accuracy)`。按样本加权的总体差为 `r fmt(readout_delta)`（`r ifelse(readout_delta > 0, "提高", ifelse(readout_delta < 0, "降低", "无变化"))` `r fmt(100 * abs(readout_delta), 1L)` 个百分点），但按 query cohort 等权的推断估计为 `r fmt(readout_inference_delta)`；后者才是图中 CI 和 P 值对应的效应量。**
+本次 readout 结果的直接解读是：使用全部 reference cohorts 时，Direct-GSClassifier 的 pooled balanced accuracy 为 `r fmt(readout_direct$balanced_accuracy)`，即各癌种召回率的总体平均约为 `r fmt_pct(readout_direct$balanced_accuracy)`；Cohort-d1 为 `r fmt(readout_d1$balanced_accuracy)`，约为 `r fmt_pct(readout_d1$balanced_accuracy)`。按样本加权的 pooled balanced-accuracy 差为 `r fmt(readout_delta)`（`r ifelse(readout_delta > 0, "提高", ifelse(readout_delta < 0, "降低", "无变化"))` `r fmt(100 * abs(readout_delta), 1L)` 个百分点），但按 query cohort 等权的推断 endpoint 是单类别 cohort accuracy，估计为 `r fmt(readout_inference_delta)`；后者才是图中 CI 和 P 值对应的效应量。**
 
-当前数据中，d1 表现最好的 readout cohort 是 `r readout_top$cohort[1]`（差值 `r fmt(readout_top$delta_balanced_accuracy[1])`），表现最差的是 `r readout_bottom$cohort[1]`（差值 `r fmt(readout_bottom$delta_balanced_accuracy[1])`）。**cohort 间差异表明，总体方向并不是所有 cohort 等幅变化。** 该比较采用 `r manifest$config$validation$inner_folds`-fold grouped CV，两种表示使用相同的预处理流程和调参预算，保证了比较口径一致。结果不支持“d1 能让低复杂度模型更容易利用旧癌种标签”这一狭义主张；至于它是否更有利于读出 ICI response、pathway state 或新的 pan-cancer subtype，本实验尚无法回答。
+当前数据中，d1 表现最好的 readout cohort 是 `r readout_top$cohort[1]`（单类别 accuracy 差值 `r fmt(readout_top$delta_balanced_accuracy[1])`），表现最差的是 `r readout_bottom$cohort[1]`（差值 `r fmt(readout_bottom$delta_balanced_accuracy[1])`）。**cohort 间差异表明，总体方向并不是所有 cohort 等幅变化。** 该比较采用 `r manifest$config$validation$inner_folds`-fold grouped CV，两种表示使用相同的预处理流程和调参预算，保证了比较口径一致。由于每个 query cohort 的有效类别数为 1，这一层只能作为 cohort accuracy 的稳定性诊断；结果不支持“d1 能让低复杂度模型更容易利用旧癌种标签”这一狭义主张；至于它是否更有利于读出 ICI response、pathway state 或新的 pan-cancer subtype，本实验尚无法回答。
 
 ## 癌种 readout 的样本效率
 
@@ -1338,7 +1348,7 @@ fig10_jpg <- .ae_save_plot(
 knitr::include_graphics(fig10_jpg)
 ```
 
-图中显示四个区间，分别对应检索 top-k、检索 MRR、外部 readout balanced accuracy 和 `r scales::percent(1, accuracy = 1)` learning fraction。**结果解读：**区间跨零的终点只能表述为证据不足以拒绝零差异；区间完全位于零的一侧时，表明在当前统计单位和重采样设计下方向更稳定。该图用于比较不确定性范围，不把 p-value 当作 CCS 新状态效用的替代终点。
+图中显示四个区间，分别对应检索 top-k、检索 MRR、外部 readout cohort accuracy 和 `r scales::percent(1, accuracy = 1)` learning fraction。**结果解读：**区间跨零的终点只能表述为证据不足以拒绝零差异；区间完全位于零的一侧时，表明在当前统计单位和重采样设计下方向更稳定。该图用于比较不确定性范围，不把 p-value 当作 CCS 新状态效用的替代终点。
 
 ## cohort evidence 的二维 scaling
 
@@ -1396,7 +1406,7 @@ p8 <- ggplot2::ggplot(
   ggplot2::facet_grid(
     rows = ggplot2::vars(.data$metric_label),
     cols = ggplot2::vars(.data$design_label),
-    scales = "free"
+    scales = "free_y"
   ) +
   ggplot2::scale_color_manual(values = c(
     "Tissue breadth" = nature_colors[["blue"]],
@@ -1419,9 +1429,9 @@ p8 <- ggplot2::ggplot(
     legend_position = fig8$legend_position
   )
 
-# Readability check: each scientific property receives its own y scale, breadth
-# and depth never share an ambiguous x definition, and the external legend leaves
-# all sparse feasible cells unobstructed.
+# Readability check: each scientific property receives its own y scale while the
+# x scale is shared across breadth/depth panels; panel heights are not interpreted
+# as cross-metric effect sizes.
 fig8_jpg <- .ae_save_plot(
   p8, "figure-08-cohort-evidence-sequences", figure_dir,
   preview_dir, fig8, params$plot_preview_dpi
@@ -1488,11 +1498,10 @@ p9 <- ggplot2::ggplot(
   ) +
   ggplot2::facet_wrap(ggplot2::vars(.data$metric_label), scales = "free_y") +
   ggplot2::scale_x_continuous(
-    trans = "log2",
     breaks = sort(unique(scaling_matched$module_count))
   ) +
   ggplot2::labs(
-    x = "Matched frozen cohort modules",
+    x = "Matched frozen cohort modules (linear scale)",
     y = "Breadth-heavy minus depth-heavy",
     caption = "Shaded bands: matched-size design-repeat bootstrap 95% CI"
   ) +
@@ -1520,7 +1529,7 @@ Module redundancy 差为 `r fmt(redundancy_matched$estimate)`（95% CI `r fmt(re
 
 ## 独立生物学锚点 readout
 
-本节把 retrieval 邻居与预先冻结的生物学锚点分开评估。连续锚点采用每个 cohort 内的 z-score signature mean；`utility = exp(-|query-reference|)` 只是将绝对差异映射到 `r paste(0, 1, sep = "–")` 的辅助尺度，越接近 `r 1L` 表示邻居在该锚点上越接近，不等同于临床效用或显著性。所有比较沿用同一批 query、reference 和 top-k 邻居，且不参与 bank/module 选择。
+本节把 retrieval 邻居与预先冻结的生物学锚点分开评估。连续锚点采用仅由 reference cohorts 拟合的全局 gene-wise z-score，再计算 signature mean；同一组中心和尺度应用于 query 与 reference，避免不同 cohort 各自标准化后失去可比性。`utility = exp(-|query-reference|)` 只是将绝对差异映射到 `r paste(0, 1, sep = "–")` 的辅助尺度，越接近 `r 1L` 表示邻居在该锚点上越接近，不等同于临床效用或显著性。所有比较沿用同一批 query、reference 和 top-k 邻居，且不参与 bank/module 选择。
 
 ```{r biology-anchor-status, echo=FALSE}
 if (identical(biology_status, "complete")) {
@@ -1553,7 +1562,7 @@ if (identical(biology_status, "complete")) {
 biology_utility_widget
 ```
 
-解读：utility 越接近 `r 1L` 代表 query 与其邻居在该连续锚点上的 z-score 差异越小，数值接近 `r 0L` 则表示邻居在该锚点上差异较大。它是配对距离的有界展示量，便于在多个 anchor 间查看方向，却不能单独解释为效应显著、分型正确或临床获益；正式判断仍需结合 cohort-level 不确定性、预先定义的独立目标以及多重比较控制。
+解读：utility 越接近 `r 1L` 代表 query 与其邻居在该连续锚点上的全局 reference-scaled 差异越小，数值接近 `r 0L` 则表示邻居在该锚点上差异较大。它是配对距离的有界展示量，便于在多个 anchor 间查看方向，却不能单独解释为效应显著、分型正确或临床获益；正式判断仍需结合 cohort-level 不确定性、预先定义的独立目标以及多重比较控制。utility 表中的区间是 sample-level bootstrap 的描述性区间，主推断表中的区间则以 query cohort 为重采样单位，二者不可混用。
 
 ```{r biology-anchor-inference, echo=FALSE}
 biology_inference_widget <- htmltools::tagList()
@@ -1653,6 +1662,13 @@ p5 <- ggplot2::ggplot(
   ggplot2::scale_color_manual(
     values = unname(nature_colors[seq_along(technical_columns)])
   ) +
+  ggplot2::scale_x_discrete(
+    labels = c(
+      assay_type = "Assay type",
+      platform_id = "Platform",
+      source_system = "Source system"
+    )
+  ) +
   ggplot2::labs(
     x = "Technical factor",
     y = "Delta in same-technology excess",
@@ -1708,7 +1724,7 @@ d1 汇总了 `r manifest$module_count` 个 module，但它们不一定贡献相�
 fig6 <- list(
   width_in = 7.2,
   height_in = 5.8,
-  base_size = 9,
+  base_size = 10,
   bar_width = 0.72,
   legend_position = "none"
 )
@@ -1805,7 +1821,10 @@ p7 <- ggplot2::ggplot(
       set_pair = "Set pair"
     )
   ) +
-  ggplot2::scale_fill_manual(values = unname(nature_colors[seq_len(6L)])) +
+  ggplot2::scale_fill_manual(
+    values = unname(nature_colors[seq_len(length(unique(decoder_plot$metric)))]),
+    drop = FALSE
+  ) +
   ggplot2::scale_y_continuous(limits = c(0, 1.02), breaks = seq(0, 1, 0.2)) +
   ggplot2::labs(
     x = "Direct feature type",
@@ -1816,6 +1835,9 @@ p7 <- ggplot2::ggplot(
     base_size = fig7$base_size,
     x_text_angle = 0,
     legend_position = fig7$legend_position
+  ) +
+  ggplot2::guides(
+    fill = ggplot2::guide_legend(nrow = 2L, byrow = TRUE)
   )
 
 # Readability check: six color-blind-safe bars are separated by feature type;
@@ -1877,7 +1899,7 @@ Null-Perm 的资格状态为 **`r null_perm_status`**。`r manifest$query_cohort
 | CKA、距离相关、kNN Jaccard | `native_geometry$metrics` | `native_geometry.rds` |
 | top-k/MRR 差与最差 cohort | `retrieval$paired` → `.ae_retrieval_cohort_delta()` | `retrieval.rds` |
 | 检索 cohort-level CI 与配对 p 值 | `retrieval_inference` → `.ae_retrieval_inference()` | analysis helper script |
-| readout balanced accuracy | `readout$overall` / `readout$paired_by_cohort` | `readout.rds` |
+| readout pooled balanced accuracy；query-cohort accuracy | `readout$overall` / `readout$paired_by_cohort` | `readout.rds` |
 | readout query-cohort CI 与配对 p 值 | `readout_inference` → `.ae_readout_inference()` | analysis helper script |
 | 学习曲线与 cohort subset hash | `learning_curve$metrics` / `$paired` | `learning_curve.rds` |
 | 学习曲线 design-repeat CI 与配对 p 值 | `learning_inference` → `.ae_learning_inference()` | analysis helper script |

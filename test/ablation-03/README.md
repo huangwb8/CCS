@@ -19,7 +19,7 @@
 1. `02-ablation03-experiment.Rmd` 读取并完整展示 `test/ablation-02/tmp/ablation-experiment/` 的 02 基线结果。
 2. `01-ablation03-biology-cache.R` 在一次性准备阶段读取完整表达矩阵，按冻结 manifest 提取目标样本/基因并写入 `expression-anchor-cache.rds`；脚本完成后释放大对象。
 3. `03-ablation-biology.R` 只消费带 source/signature/sample hash 校验的缓存，不会回退读取完整表达矩阵。
-4. 以 cohort 内 z-score signature mean 计算增殖、免疫 TME、基质 TME、IFN/IL6 四类独立 anchor。
+4. 以仅由 reference cohorts 拟合的全局 gene-wise z-score signature mean 计算增殖、免疫 TME、基质 TME、IFN/IL6 四类独立 anchor，并将同一尺度应用于 query 与 reference。
 5. 在相同 top-15 邻居边界上配对比较 Direct-GSClassifier 与 Cohort-d1，输出覆盖审计、utility、bootstrap 区间和图形；结果作为 HTML 的新增章节。
 6. 以外部 query cohort 为独立统计单位，对 d1−Direct utility 计算 cohort bootstrap 95% CI、精确配对符号置换 P 值，并对四个 anchor 做 BH 校正。
 7. 对 assay、platform、source 的 technical-neighbor excess 使用同一 cohort-level 配对框架，计算 95% CI、sign-flip P 值和 Holm 校正。
@@ -31,8 +31,9 @@
 - `tmp/ablation-biology/anchor_contrasts.csv`
 - `tmp/ablation-biology/anchor_inference.csv`（cohort-level 效应量、95% CI、P 值和 BH 校正 P 值）
 - `tmp/ablation-biology/expression-anchor-cache.rds`（一次性缓存，含 schema、来源哈希、样本键哈希与覆盖审计）
-- `figures/figure-01-anchor-coverage.pdf` 与 `.jpg`
-- `figures/figure-02-biological-utility.pdf` 与 `.jpg`
+- `tmp/ablation-biology/anchor_missing_pairs.csv`（每个 anchor/表示的有效与缺失邻居对数）
+- `figures/figure-01-native-geometry.pdf` 至 `figures/figure-10-inference-summary.pdf`（出版矢量图）
+- `tmp/plot-previews/02-ablation-experiment-*/figure-*.jpg`（按运行时间戳保存的 200 dpi 预览）
 - `02-ablation03-experiment.html`
 
 外部表达矩阵和 signature RDS 均为只读输入；当前报告不把 cancer_type 当作 biological utility，也不执行 PAM50/CMS 的临时反推。
