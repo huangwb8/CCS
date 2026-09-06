@@ -2,6 +2,7 @@
 title: "CCS d1 与 Direct-GSClassifier 消融实验"
 author: "Bensz Conan"
 date: "`r Sys.Date()`"
+lang: zh-CN
 params:
   display_k: 30
   min_cohort_n: 20
@@ -32,6 +33,7 @@ output:
 # Output: Traceable variables used by inline numbers, tables, and figures.
 # Stage 01 prepares one self-consistent CCS object with complete precomputed d1
 # rows and the filtered model-bank contract.
+knitr::opts_knit$set(encoding = "UTF-8")
 knitr::opts_chunk$set(
   echo = TRUE,
   warning = FALSE,
