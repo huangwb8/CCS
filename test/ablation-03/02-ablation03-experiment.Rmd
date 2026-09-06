@@ -34,6 +34,10 @@ output:
 # Stage 01 prepares one self-consistent CCS object with complete precomputed d1
 # rows and the filtered model-bank contract.
 knitr::opts_knit$set(encoding = "UTF-8")
+if (.Platform$OS.type == "windows") {
+  utf8_locale <- Sys.setlocale("LC_CTYPE", "Chinese_China.utf8")
+  if (!nzchar(utf8_locale)) stop("A UTF-8 Windows locale is required to render this report.", call. = FALSE)
+}
 knitr::opts_chunk$set(
   echo = TRUE,
   warning = FALSE,
@@ -613,7 +617,7 @@ technical_inference_summary <- if (nrow(technical_inference) > 0L) {
   paste(
     technical_inference$technical_factor,
     sprintf(
-      "d1−Direct=%+.3f, 95%% CI [%+.3f, %+.3f], Holm P=%s",
+      "d1\u2212Direct=%+.3f, 95%% CI [%+.3f, %+.3f], Holm P=%s",
       technical_inference$estimate,
       technical_inference$ci_low,
       technical_inference$ci_high,
