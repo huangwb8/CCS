@@ -20,6 +20,8 @@ output:
     theme: default
     highlight: tango
     code_folding: show
+    includes:
+      after_body: "templates/liquid_glass_lightbox.html"
     css: "templates/liquid_glass_theme.css"
 ---
 
@@ -683,7 +685,7 @@ direct_top_k_rate <- retrieval$summary$top_k_label_rate[
 
 可以把 Direct-GSClassifier 想成一本保存原始线索的详细笔记，把 d1 想成 `r manifest$module_count` 位“队列评委”读完笔记后分别给出的判断。我们不是先问哪本笔记分数更高，而是依次确认：新笔记是否真的换了一种组织信息的方式、是否减弱了不希望保留的技术来源痕迹、压缩时丢掉了什么，以及增加更多评委时得到的是新意见还是重复意见。
 
-**核心结论的判据不再由癌种分类单独承担。** 总体结果显示，d1 一方面重新组织了 Direct 的样本几何并弱化旧癌种标签的可恢复性，另一方面降低了同技术来源样本的额外聚集；继续增加 cohort evidence 时，信息方向、module 重复性和邻域稳定性也并非同步改善。后文会在每个指标第一次进入结果解读时说明“是什么、怎么算、数值怎样读”，再结合本次动态结果给出判断。由于独立 pathway、TME 或 outcome 锚点当前为 **`r biology_scaling_status$status`**，这些结果可以约束非冗余信息、技术边界和组成稳定性，却不能把 cancer type 替代为 CCS 新状态效用的证据。
+**核心结论的判据不再由癌种分类单独承担。** 本报告的目标不是预设 d1 必须提取一个“跨癌种共享的新生物状态”，而是检查它能否利用更多、更多样的 cohort evidence，同时保留癌种和肿瘤内部真正有意义的差异。总体结果显示，d1 一方面重新组织了 Direct 的样本几何并弱化旧癌种标签的可恢复性，另一方面降低了同技术来源样本的额外聚集；继续增加 cohort evidence 时，信息方向、module 重复性和邻域稳定性也并非同步改善。后文会在每个指标第一次进入结果解读时说明“是什么、怎么算、数值怎样读”，再结合本次动态结果给出判断。由于独立 pathway、TME 或 outcome 锚点当前为 **`r biology_scaling_status$status`**，这些结果可以约束非冗余信息、技术边界和组成稳定性，却不能把 cancer type 的下降解释成 CCS 已经找到统一的新状态，也不能把它当作泛化效用的替代证据。
 
 ## 数据概览
 
@@ -1356,6 +1358,8 @@ knitr::include_graphics(fig10_jpg)
 
 这样拆分 breadth 和 depth，是为了分别评估新增组织背景与同组织新增独立队列的贡献，而不是只看 module 总数。本节并列检查三种性质，它们回答的问题不同。
 
+可以先用一个简单比喻理解两条路线：如果把 cohort model 想成参加会诊的专家，`breadth` 是请来更多不同专科的专家，扩大观察范围；`depth` 是在同一个专科里请来更多来自不同医院的专家，增加独立复核。前者主要回答“能不能看到更多类型的背景”，后者主要回答“对已有背景的判断是否更稳”。因此，breadth 和 depth 不是同一件事，也不应只用“谁的分数更高”来判断。理想的 bank 往往需要两者配合：既不能只看少数组织，也不能每个组织只有一次孤立观察。
+
 Normalized effective rank 衡量 d1 中“真正被使用的信息方向占可用方向的比例”。先对中心化 d1 做奇异值分解，把第 $j$ 个方向的能量占比记为 $p_j=s_js_j/\sum_\ell s_\ell s_\ell$，再计算
 
 $$
@@ -1453,7 +1457,9 @@ render_dt(scaling_inference_table, pageLength = nrow(scaling_inference_table))
 
 作为配套检查，module redundancy 的 breadth/depth 斜率分别为 `r fmt(redundancy_breadth$estimate)`（95% CI `r fmt(redundancy_breadth$ci_low)` 至 `r fmt(redundancy_breadth$ci_high)`）和 `r fmt(redundancy_depth$estimate)`（`r fmt(redundancy_depth$ci_low)` 至 `r fmt(redundancy_depth$ci_high)`）。Breadth 区间完全低于零，表示加入更多 tissues 时 module 间平均绝对相关性下降；depth 的区间跨零，尚未显示重复性稳定增减。Neighbor stability 的 breadth/depth 斜率分别为 `r fmt(stability_breadth$estimate)`（`r fmt(stability_breadth$ci_low)` 至 `r fmt(stability_breadth$ci_high)`）和 `r fmt(stability_depth$estimate)`（`r fmt(stability_depth$ci_low)` 至 `r fmt(stability_depth$ci_high)`），两条区间都高于零，说明两种扩展都提高了邻域稳定性；由于两条轴单位不同，不比较斜率大小。
 
-三项指标合看，**effective-rank 比例下降并没有伴随邻域不稳定：新增 evidence 让不同 bank 抽样得到的邻居更一致，但新增独立方向没有跟上容量扩张。** Breadth 还减少了 module 间的线性重复，说明其新增证据并非简单复制；更准确的解释是，新方向的增量相对于不断扩大的 bank 容量逐渐变小，而不是新增 modules 只带来不稳定噪声。
+三项指标合看，**effective-rank 比例下降并没有伴随邻域不稳定：新增 evidence 让不同 bank 抽样得到的邻居更一致，但新增独立方向没有跟上容量扩张。** 这里的“比例下降”不要理解成原有信息被直接删除；更像是 bank 变大以后，容量增加得比真正的新方向更快。Breadth 还减少了 module 间的线性重复，说明其新增证据并非简单复制；更准确的解释是，新方向的增量相对于不断扩大的 bank 容量逐渐变小，而不是新增 modules 只带来不稳定噪声。
+
+用更通俗的话说，沿着 breadth 路线增加 tissue，像是让会诊团队接触更多不同类型的病例：视野变宽，专家之间的意见可能更有差异，但整体邻居关系仍更容易复现。沿着 depth 路线增加同一 tissue 的 cohort，像是让同一类病例接受更多独立复核：视野不一定明显变宽，但判断更容易稳定下来。两种路线都可能有用，只是“有用”的方式不同。
 
 上一张图的 breadth 和 depth 使用不同横轴单位，不能直接拿斜率大小判胜负。所以下一张 matched-size 图锁定完全相同的 module 总数，再比较 breadth-heavy 与 depth-heavy 的 evidence 分配方式。
 
@@ -1524,6 +1530,8 @@ knitr::include_graphics(fig9_jpg)
 Matched-size 结果显示的是“breadth-heavy 减 depth-heavy”的配对差异。这里锁定的是 module 预算，不要求三列或四列输出的 d1 总列数完全相同；前述 module-balanced 距离确保宽 block 不会因此获得更大权重。Effective rank 和 stability 的正值偏向 breadth-heavy；redundancy 则相反，负值才表示 breadth-heavy 的重复信息更少。本次 normalized effective rank 差为 `r fmt(rank_matched$estimate)`（95% CI `r fmt(rank_matched$ci_low)` 至 `r fmt(rank_matched$ci_high)`），接近零且区间跨零，**没有显示相同 module 数下 breadth-heavy 拥有更高非重复方向比例**。
 
 Module redundancy 差为 `r fmt(redundancy_matched$estimate)`（95% CI `r fmt(redundancy_matched$ci_low)` 至 `r fmt(redundancy_matched$ci_high)`），区间完全高于零，即 breadth-heavy 的平均绝对 module 相关性高出约 `r fmt(100 * abs(redundancy_matched$estimate), 1L)` 个百分点；neighbor stability 差为 `r fmt(stability_matched$estimate)`（95% CI `r fmt(stability_matched$ci_low)` 至 `r fmt(stability_matched$ci_high)`），区间完全低于零，即 breadth-heavy 的邻居重合低约 `r fmt(100 * abs(stability_matched$estimate), 1L)` 个百分点。**在当前 matched-size 设计中，breadth-heavy 没有表现出更高 effective rank，反而更冗余且邻域更不稳定；现有证据不支持仅靠扩大 tissue breadth 就能改善这三项内部性质。** 这与 sequence 中“沿 breadth 路径增加 tissue 时 redundancy 下降”并不矛盾：sequence 问同一路径随 bank 变大如何变化，matched-size 问相同 module 预算下两种组成谁更高，两者的参照组不同。所有区间以 `r manifest$config$scaling$sequences` 个 bank-design repeats 为重采样单位，未把同一 repeat 内的多个 grid cells 或 query 样本误作独立重复；只有 `r manifest$config$scaling$sequences` 个 repeats，因此区间仍需谨慎解释。
+
+这张图可以直接读成一个预算分配问题：总共只有同样多的“专家席位”时，当前数据更支持“在已有重要 tissue 中保留足够多的独立 cohort 复核”，而不是把席位全部摊到更多 tissue。它不是说新癌种没有价值，而是说新增 tissue 的价值必须和每个 tissue 的证据深度一起考虑；如果某个新 tissue 只有极少数 cohort，它带来的可能只是一个不稳定的新视角。
 
 独立外部生物效用当前标记为 **`r biology_scaling_status$status`**，原因为 `r biology_scaling_status$reason`。因此，二维结果只能说明当前 150-module 冻结 bank 内部的组成性质；即便最大 bank 附近出现平台，也不能推断 cohort congress 在 150 个 modules 达到普遍饱和，更不能外推到尚未训练的新 cohort models。Cancer-type balanced accuracy、macro-AUROC、top-k 和 MRR 继续保存在 `metrics` 中，但统一标记为 `diagnostic_lineage`，不进入 CCS 成败判断。
 
@@ -1857,13 +1865,22 @@ Null 对照像把同一盒积木随便重排后再做一次实验，用来判断
 
 Null-Perm 的资格状态为 **`r null_perm_status`**。`r manifest$query_cohort_count` 个 query cohorts 的 cancer type 在各自 cohort 内保持不变，洗牌前后标签完全相同，因而无法形成有检验力的置换零分布；本报告据此不生成形式完整却实际无效的伪对照。在 $k=$ `r params$display_k` 时，`r length(ablation_result$controls$null_rp$seeds)` 组 Null-RP 的癌种一致率介于 `r fmt(null_rp_top_k_range[1])` 和 `r fmt(null_rp_top_k_range[2])`，均高于 d1 的 `r fmt(d1_top_k_rate)`。这不支持“本次采用的稀疏随机投影会以同等程度去癌种中心化”的解释，说明 d1 的 lineage 改写不能由这几组 Null-RP 完全解释，并与 cohort-model bank 的特定映射有关联；它不是排除其他机制后的因果证明。Null-RP 只能说明 d1 比这些随机投影更不利于恢复癌种；cohort bank 对发现新状态是否必要，仍需依靠与研究目标一致的 Null 对照及状态/任务指标判断。
 
+```{r ablation03-extension, echo=FALSE, results='asis'}
+# Keep the biological-anchor extension in the report body while reserving
+# after_body for the shared Liquid Glass runtime (including dynamic TOC).
+cat(paste(
+  readLines(.ablation03_path("templates", "ablation03-extension.html"), encoding = "UTF-8"),
+  collapse = "\n"
+))
+```
+
 ## 讨论与分析
 
 本次结果显示，在旧癌种标签恢复任务中，d1 的 top-k 一致率和 MRR 相对 Direct 的 cohort 等权差分别为 `r fmt(retrieval_cohort_mean_delta)` 和 `r fmt(retrieval_cohort_mrr_delta)`，均为负方向；readout 的样本加权差为 `r fmt(readout_delta)`，而 query cohort 等权推断差为 `r fmt(readout_inference_delta)`，两种统计单位方向并不一致。因此，检索恢复性支持 Direct 优于 d1，但 readout 结果必须以预先指定的 cohort-level CI/P 值为准，不能用样本加权总体差替代。即使使用全部训练数据，癌种学习曲线差仍为 `r fmt(learning_delta$estimate[match(1, learning_delta$requested_fraction)])`，说明增加训练数据并未消除检索/学习曲线差距。
 
-从机制上看，当前最有证据支持的解释不是“d1 把癌种标签简单平均掉了”，而是 cohort bank 对同一份 Direct feature 进行了选择性的重编码和重新加权：同一样本被多个冻结 cohort 模型分别读取，d1 保存的是这些模型输出组成的证据向量，而不是某一个已知 cohort 的标签。几何指标显示这种重编码确实改变了局部邻域；同时，三个技术来源的 excess 均下降，说明与 cohort/技术来源相关的方向被削弱。由于部分 cancer type 与 cohort、assay 或 platform 绑定，技术边界减弱可能连带降低旧癌种标签的可恢复性。因此，“癌种信号被稀释”的直觉可以保留，但更准确的说法是：癌种相关方向被重新分散、降权，且其中一部分可能与技术或队列捷径重叠。
+从机制上看，当前最有证据支持的解释不是“d1 把癌种标签简单平均掉了”，而是 cohort bank 对同一份 Direct feature 进行了选择性的重编码和重新加权：同一样本被多个冻结 cohort 模型分别读取，d1 保存的是这些模型输出组成的证据向量，而不是某一个已知 cohort 的标签。几何指标显示这种重编码确实改变了局部邻域；同时，三个技术来源的 excess 均下降，说明与 cohort/技术来源相关的方向被削弱。由于部分 cancer type 与 cohort、assay 或 platform 绑定，技术边界减弱可能连带降低旧癌种标签的可恢复性。因此，“癌种信号被稀释”的直觉可以保留，但更准确的说法是：癌种相关方向被重新分散、降权，且其中一部分可能与技术或队列捷径重叠。这里的目标应理解为**更好地利用多队列证据**，而不是把不同癌种压成一个共同中心。
 
-现有结果还不支持“所有信息都被无差别破坏”。d1 仍能较好地恢复相当一部分 Direct 的概率和排序信息，随机投影对照也没有产生同等幅度的癌种下降；这更像是与具体 cohort-model bank 有关的有方向信息瓶颈，而不是一般性的降维损失。另一方面，technical excess 的下降和癌种 readout 的下降同时出现，只能说明两种变化并存，不能证明被去除的正是技术噪声，也不能证明剩余空间已经携带有用的新生物状态。换言之，当前证据可以支持“d1 改写了表示并降低了旧癌种中心化”，但还不能在“有目的的泛癌重表达”和“无选择的信息混合”之间作出因果区分。
+现有结果还不支持“所有信息都被无差别破坏”。d1 仍能较好地恢复相当一部分 Direct 的概率和排序信息，随机投影对照也没有产生同等幅度的癌种下降；这更像是与具体 cohort-model bank 有关的有方向信息瓶颈，而不是一般性的降维损失。另一方面，technical excess 的下降和癌种 readout 的下降同时出现，只能说明两种变化并存，不能证明被去除的正是技术噪声，也不能证明剩余空间已经携带有用的新生物状态。换言之，当前证据可以支持“d1 改写了表示并降低了旧癌种中心化”，但还不能在“有目的的多队列证据整合”和“无选择的信息混合”之间作出因果区分。
 
 | 可能解释 | 目前支持度 | 主要依据 |
 |---|---|---|
@@ -1875,21 +1892,61 @@ Null-Perm 的资格状态为 **`r null_perm_status`**。`r manifest$query_cohort
 
 这张表的“支持度”是对当前证据的相对判断，不是正式的概率或显著性等级；尤其“中高”只能表示多个结果方向一致，不能替代独立验证。
 
-二维 bank design 将“增加组织背景”和“同组织增加独立队列”从单一 module-count 斜率中拆开。Normalized effective rank 的 breadth/depth 斜率分别为 `r fmt(rank_breadth$estimate)` / `r fmt(rank_depth$estimate)`；matched-size breadth-heavy 减 depth-heavy 的 effective-rank、redundancy 和 stability 差分别为 `r fmt(rank_matched$estimate)`、`r fmt(redundancy_matched$estimate)` 和 `r fmt(stability_matched$estimate)`。这些效应共同约束新增 cohort evidence 是否非冗余且可重复，比旧的 d1–TSP 癌种差值曲线更贴近 CCS 的设计问题；但在 external biology 为 `r biology_scaling_status$status` 时，仍不能外推到新状态的生物或临床效用。
+二维 bank design 将“增加组织背景”和“同组织增加独立队列”从单一 module-count 斜率中拆开。Normalized effective rank 的 breadth/depth 斜率分别为 `r fmt(rank_breadth$estimate)` / `r fmt(rank_depth$estimate)`；matched-size breadth-heavy 减 depth-heavy 的 effective-rank、redundancy 和 stability 差分别为 `r fmt(rank_matched$estimate)`、`r fmt(redundancy_matched$estimate)` 和 `r fmt(stability_matched$estimate)`。这些效应共同约束新增 cohort evidence 是否非冗余且可重复，比旧的 d1–TSP 癌种差值曲线更贴近 CCS 的设计问题。就当前结果而言，breadth 更像是在扩展证据覆盖面，depth 更像是在增加同一背景下的重复证据强度；两者都不是“统一癌种状态”的替代说法。但在 external biology 为 `r biology_scaling_status$status` 时，仍不能外推到任何独立生物或临床任务的效用。
 
 三个技术来源的 excess 同向下降：`r paste(technical_summary$technical_factor, sprintf("%+.3f", technical_summary$mean_delta), sep = " = ", collapse = "; ")`，这是本次实验中最强的正向结果。`d1` 的 CKA、距离相关和局部 Jaccard 也表明，cohort bank 对原始表示进行了实质性改写。综合来看，**`d1` 同时表现出癌种中心化减弱和技术边界弱化，但本轮实验尚未检验新状态是否真正有用。** 鉴于 matched-size effective-rank 区间跨零、bank-design 仅有 `r manifest$config$scaling$sequences` 个 repeats，且独立生物锚点状态为 `r biology_scaling_status$status`，这些结果不足以证明 CCS 已经成功，也不应让与研究目标并不等价的癌种分类结果主导整体判断。
 
 当前 reference/query 的样本量分别为 `r manifest$reference_sample_count` / `r manifest$query_sample_count`，两者规模不对称，是一项重要的不确定性。reference `d1` 被保守标记为 `in_sample`，因此本报告确认的是 filtered query 对冻结 bank 的外部泛化，不把 reference 内部几何当作无泄漏的性能证据。Excel cancer_type 虽未参与冻结 bank 的训练，但部分癌种与 cohort/assay 高度绑定；technical excess 的背景校正只能减轻这种混杂，无法将其完全消除。
 
-本轮唯一的独立生物锚点是 `r manifest$anchor`，尚未纳入 pathway/TME state、独立分子表型、outcome，也没有评估 `d2`/`d3`/metaCCS 的稳定性。因此，目前还无法判断去癌种中心化后得到的是有用的新结构，还是无选择的混合。项目负责人也未预先设定与新状态目标一致的最小重要差异，本报告因此不会用零差异或任意事后阈值判定 `d1`“胜出”或“失败”。
+本轮唯一的独立生物锚点是 `r manifest$anchor`，尚未纳入 pathway/TME state、独立分子表型、outcome，也没有评估 `d2`/`d3`/metaCCS 的稳定性。因此，目前还无法判断 d1 在利用多队列证据后，是否同时保留了跨癌种共性和癌种/亚型特异性；也无法判断它是否只是无选择的混合。项目负责人也未预先设定与“证据整合、状态多样性保留”目标一致的最小重要差异，本报告因此不会用零差异或任意事后阈值判定 `d1`“胜出”或“失败”。
 
-要区分上述解释，后续分析应至少回答三个问题：第一，在相同癌种、相同技术背景和跨 cohort 的严格匹配条件下，癌种检索下降是否仍然存在；第二，降低技术聚集的同一批 module 是否保留或增强 pathway、TME、独立分子表型或 outcome 等外部锚点；第三，哪些 module 或 Direct feature 的损失同时解释了癌种 readout 下降和技术 excess 下降。为此，可进行癌种×cohort×技术变量的条件化检索、独立生物标签的 leave-one-cohort-out readout，以及按 module variance share 和 per-feature decoder 误差开展配对消融。只有当 d1 在独立生物任务上保持跨 cohort 的稳定性，并且 d2/d3/metaCCS 的状态能够在不同 seed 和 bank 组成下复现，才可以把当前的“去癌种中心化”解释为有目的的信息重表达；否则，它仍只能被视为一种已观察到的表示改写。
+要区分上述解释，可以先回答三个问题：第一，在相同癌种、相同技术背景和跨 cohort 的严格匹配条件下，癌种检索下降是否仍然存在；第二，降低技术聚集的同一批 module 是否保留或增强 pathway、TME、独立分子表型或 outcome 等外部锚点；第三，哪些 module 或 Direct feature 的损失同时解释了癌种 readout 下降和技术 excess 下降。可采用癌种×cohort×技术变量的条件化检索、独立生物标签的 leave-one-cohort-out readout，以及按 module variance share 和 per-feature decoder 误差开展配对消融。只有当 d1 在独立生物任务上既能跨 cohort 利用共享证据、又能保留可解释的 lineage-specific 差异，并且 d2/d3/metaCCS 的状态能够在不同 seed 和 bank 组成下复现，才可以把当前的表示改写解释为有目的的多队列证据整合；否则，它仍只能被视为一种已观察到的表示改写。
 
-后续分析可沿三条路径推进：
+分析可沿三条路径推进：
 
-- 在冻结的 `d1` 上加入独立于癌种标签的 pathway score、TME state 或多组学表型，并通过 leave-one-cohort-out 检验共享状态是否可读。若 `d1` 在 technical excess 不升高的同时改善这些锚点的外部一致性，便可支持“有目的的重表达”。
-- 进入 `d2`/`d3`/metaCCS 层后，评估不同 seed 和重采样条件下的 cluster Jaccard、ARI、状态 split/merge 以及 lineage-conditioned biology。只有共享状态能够重现，并在具体 lineage 中保留可解释的差异实现，才能支持“虚拟元肿瘤—新亚型”的判断。
+- 在冻结的 `d1` 上加入独立于癌种标签的 pathway score、TME state 或多组学表型，并通过 leave-one-cohort-out 同时检验两件事：跨 cohort 的共享证据能否迁移，以及癌种/亚型特异性差异能否保留。若 `d1` 在 technical excess 不升高的同时改善这些锚点的外部任务表现，便可支持“有效利用多队列证据”。
+- 进入 `d2`/`d3`/metaCCS 层后，评估不同 seed 和重采样条件下的 cluster Jaccard、ARI、状态 split/merge 以及 lineage-conditioned biology。重点不是只寻找一个共享状态，而是检查共享结构与 lineage-specific 结构能否同时重现，并在具体 lineage 中保留可解释的差异。
 - 为本次 breadth/depth/matched-size design 配置 pathway、TME 或 outcome 锚点，并进入 d2/d3 后同步评估状态 ARI、split/merge 与 lineage-conditioned biology。只有新增 cohort evidence 在独立目标上产生非冗余且可重复的收益，才能支持“少量 feature 可随 cohort evidence 扩展”的主张。
+
+### 本分析的思路、局限与优化方向
+
+#### 先说清楚：这次分析究竟在问什么
+
+这次消融分析是一个 **representation ablation（表示层消融）**，不是一次端到端的 CCS 成功评估。它先把同一批样本分别表示成 Direct-GSClassifier features 和 Cohort-d1，再让 query 到冻结的 reference cohort bank 中检索邻居，观察表示改变后发生了什么。分析分成四层：
+
+- **几何层**：d1 是否仍大体保留 Direct 的距离、排序和局部邻域；
+- **lineage 层**：癌种邻域恢复是否变化；
+- **技术层**：assay、platform、source 的额外聚集是否变化；
+- **信息与扩展层**：Direct 线索能否从 d1 恢复，以及增加不同 tissue（breadth）或同一 tissue 的更多 cohort（depth）后，信息是否更独立、更稳定。
+
+所以 breadth/depth 的问题不是“哪个数字更大”，而是把“扩大观察范围”和“增加同一背景的独立检查”拆开看。breadth 像请来更多不同专科的专家，主要增加视野；depth 像让同一专科多几家医院重复检查，主要增加判断的稳健性。sequence 看的是沿一条扩展路线继续加证据时指标怎么变，matched-size 看的是 module 预算相同的时候，两种证据分配方式谁更合适。
+
+#### 目前结果能说明什么，不能说明什么
+
+目前最稳妥的结论是：d1 确实重写了 Direct 的局部几何，降低了部分癌种中心化和技术来源聚集；在当前 bank 设计下，breadth 更像扩大覆盖面，depth 更像增强重复检查，二者没有简单的优劣关系。**这支持“利用更多、更丰富的 cohort evidence”这一工程目标，但不等于已经提取出一个跨癌种共享的新生物状态。** 对异质肿瘤而言，合理目标应是同时利用共享证据，并保留癌种、亚型和肿瘤内部差异。
+
+这里的证据边界需要特别保守：
+
+- 当前唯一真正独立的主锚点仍是 `r manifest$anchor`；四个 expression anchor 只是连续邻域诊断，不能替代 pathway、TME、治疗反应或临床结局。
+- cancer type 与 cohort、assay、platform、source 之间存在混杂。technical excess 只做了有限的背景校正，因此技术聚集下降也可能部分伴随癌种可恢复性下降，不能直接叫作“批次效应已被去除”。
+- reference/query 样本量不对称（`r manifest$reference_sample_count` 对 `r manifest$query_sample_count`），reference d1 还是 `in_sample`；本报告能支持的是 query 对冻结 bank 的外部检索，不是 reference 内部的无泄漏性能证明。
+- 检索和 readout 的独立统计单位主要是 query cohort，而不是数千个样本；目前只有 `r manifest$query_cohort_count` 个 query cohorts。样本很多并不自动等于重复证据很多。
+- scaling 目前只有 `r manifest$config$scaling$sequences` 个 bank-design repeats；geometry 也没有完整的 geometry-level CI。因此 breadth/depth 的区间更像“在这几组设计重复中看到的范围”，不宜当成非常精确的总体效应。
+- breadth 和 depth 的斜率单位不同，不能比较斜率绝对值来宣布谁更重要。matched-size 固定的是 module 数，不代表所有 feature 列数、样本量和 cohort 数都完全相同。
+- Null-Perm 在本数据中 `not_eligible`；Null-RP 只有 `r length(ablation_result$controls$null_rp$seeds)` 个 seed，且随机投影的有效容量并不与 d1 完全匹配。因此 null 只能排除一小部分偶然解释，不能构成因果证明。
+- decoder 主要是线性重建；它说明“哪些 Direct 线索还能被线性恢复”，不等于所有任务信息都被保留。set-pair 只有一个 feature，也不能代表整个 feature type。
+- 这轮还没有评估 d2/d3/metaCCS 的状态稳定性（例如 cluster Jaccard、ARI、split/merge），也没有把结果连接到 pathway、独立分子表型、outcome 或治疗反应。
+
+#### 下一轮最值得补的几件事
+
+- **先定义成功标准**：采用一到两个真正的外部目标，例如 pathway state、TME state、治疗反应或 outcome；输入为独立 cohort 的目标标签；判据是跨 cohort 的共享证据能迁移，且癌种/亚型特异性差异仍被保留。
+- **做条件化和留一队列验证**：在相同 cancer type、assay、platform、source 背景下进行 d1 与 Direct 的比较，并用 leave-one-cohort-out 重算；判据是技术聚集下降和 lineage 变化在留出队列中仍然存在。
+- **把 breadth/depth 设计做得更公平**：增加 bank composition repeats，使用相同的 module 数、样本量和 cohort 数作为输入，并估计 breadth×depth 交互；判据是效应方向在多数设计重复中一致且区间不跨关键零点。
+- **加入独立生物任务并进入 d2/d3**：对 pathway、TME、多组学表型和 outcome 进行外部 readout，并评估状态 ARI、split/merge、seed 和重采样稳定性；判据是共享结构与 lineage-specific 结构能同时重现。
+- **做 module/per-feature 消融**：对 variance-share 高的 modules 以及 decoder 最难恢复的 gene-pair、single-bin 进行逐项消融；判据是能区分共享生物信息、癌种差异和技术捷径三种贡献。
+- **改进 null 对照**：设计能真正改变标签结构的置换，并让随机投影在 effective rank、稀疏度和维度上更接近 d1；判据是增加 seed 后 null 分布稳定，且 d1 的效应不被 null 完全覆盖。
+
+换句话说，本次消融更像一次“地图检查”：它告诉我们 d1 把地图怎样重画、哪些旧边界变淡、增加哪类队列证据更稳，但还没有告诉我们地图上的新区域是否对应真正有用的生物状态。判断这种多队列证据整合是否达到 CCS 的研究目标，还要把“地图变了”与“独立任务变好且差异仍被保留”连起来。
 
 ## 数字准确性验证
 

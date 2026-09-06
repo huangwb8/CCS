@@ -1,0 +1,18 @@
+<section id="ablation03-biological-anchor-extension">
+<h2>ablation-03 biological-anchor 扩展</h2>
+<p>本报告前半部分完整复现并展示 ablation-02 的几何、retrieval、readout、learning-curve、technical-source、decoder 与 cohort-scaling 分析；本节是在这些结果之上增加的独立生物学读出，不替换 02 结果。</p>
+<p>03 复用 02 的 query/reference 边界和配对邻居，并从独立的 <code>GeneSignature-HWB.rds</code> 读取增殖、免疫 TME、基质 TME 与 IFN/IL6 anchor。anchor 不参与 bank selection、模型调参或结果筛选。</p>
+<h3>独立 anchor 结果</h3>
+<table class="table table-striped"><thead><tr><th>Anchor</th><th>d1 − Direct mean |Δ|</th><th>d1 − Direct utility</th><th>结论</th></tr></thead>
+<tbody>
+<tr><td>proliferation</td><td>+0.009</td><td>−0.004</td><td>Direct utility higher</td></tr>
+<tr><td>immune TME</td><td>+0.027</td><td>−0.013</td><td>Direct utility higher</td></tr>
+<tr><td>stromal TME</td><td>+0.022</td><td>−0.009</td><td>Direct utility higher</td></tr>
+<tr><td>IFN/IL6</td><td>+0.012</td><td>−0.007</td><td>Direct utility higher</td></tr>
+</tbody></table>
+<p>当前四类 anchor 的方向一致：d1 的状态差异更大、utility 更低。因此 02 中技术来源 excess 的下降不能直接解释为选择性生物学保持；联合证据更符合表示重写伴随信息损失或非选择性平滑的风险描述。</p>
+<p><img src="figures/figure-01-anchor-coverage.jpg" alt="Anchor coverage" style="max-width:78%;height:auto;"><br><em>Anchor gene coverage across evaluated cohorts.</em></p>
+<p><img src="figures/figure-02-biological-utility.jpg" alt="Biological utility" style="max-width:78%;height:auto;"><br><em>Paired biological-anchor utility.</em></p>
+<h3>03 联合结论</h3>
+<p>03 不是对 02 的补充说明，而是“02 全分析 + biological-anchor 扩展”的更完整版本。正式结果文件见 <code>tmp/ablation-biology/</code>；02 基线输入仍来自 <code>test/ablation-02/tmp/ablation-experiment/</code>，其原始文件未被修改。</p>
+</section>
