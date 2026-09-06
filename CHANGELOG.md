@@ -6,6 +6,7 @@
 
 ## [Unreleased]
 
+- 修复 `ablation-03` HTML 在 Windows R 4.3.1 下的 Unicode 乱码：渲染前显式启用可用的 UTF-8 locale，避免无效 `C.UTF-8` 使 R 输出退化为转义字节。
 - 修正 `ablation-03` 出版前一致性问题：移除会混入陈旧 biological-anchor 图表与硬编码数值的 HTML 扩展；同步 README 产物清单；将 readout 的单类别 query-cohort 推断改名为 cohort accuracy，并明确 macro-AUROC 不可估计。
 - 将 biological-anchor 分数改为 reference-cohort 全局 gene-wise z-score（同一尺度应用于 query/reference），并记录共同有效邻居与缺失邻居审计，避免跨 cohort 标准化和静默丢失造成不可比效应量。
 - 改善 ablation-03 图形可读性：修正 Figure 8 分面尺度、Figure 9 横轴标注、Figure 2 caption 换行、Figure 7 图例布局、Figure 5 技术因子标签、Figure 6 字号及 Figure 1 不可估计注释。
