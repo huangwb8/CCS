@@ -773,7 +773,7 @@ render_dt(overview_table, pageLength = 11)
 | Macro-AUROC | 零至一（含端点）；二分之一约为随机排序 | 升高表示各癌种更容易排在正确一侧；接近二分之一表示接近随机，低于二分之一表示排序方向可能反了 | 像把同班和不同班同学排成两队：越接近一，排得越整齐 |
 | Normalized effective rank | 大于零且不超过一；下界随最大秩变化 | 升高表示非重复的信息方向占可用容量的比例增大；降低表示信息相对更集中在少数方向 | 像一盒彩笔里真正不同的颜色比例：颜色越多，能画出的内容越丰富 |
 | Module redundancy | 零至一（含端点） | 升高表示 modules 之间更像重复信息；降低表示每个 module 提供的独立信息更多 | 像很多人重复同一句话：越接近一，重复越多 |
-| Scaling slope | 没有统一固定范围；零表示平均不变 | 正值表示每增加一单位 evidence 指标上升，负值表示下降；绝对值表示每单位变化量，breadth 与 depth 单位不同不能直接比大小 | 像每上一级台阶升高或降低多少；台阶单位不同，不能只看数字判输赢 |
+| Scaling slope | 没有统一固定范围；零表示平均不变 | 本报告按 `log2(module_count)` 拟合，斜率表示 bank 容量每增加一倍时的平均变化；breadth 与 depth 的设计路径不同，不能直接按绝对值判输赢 | 像把台阶高度按“容量翻倍”标尺记录；两条路线的台阶定义不同，不能只看数字判输赢 |
 | d1−Direct 配对差 | 对零至一指标而言为负一至一 | 零表示不变；正值表示 d1 更高，负值表示 d1 更低；差十分之一等于绝对改变十个百分点 | 像两次考试分数相减：正数表示第二次更高，负数表示第二次更低 |
 | breadth-heavy−depth-heavy 配对差 | 负一至一（含端点） | 零表示相同 module 总数下两种分配无差异；effective rank/stability 正值偏向 breadth，redundancy 负值偏向 breadth | 像给两队同样多的座位，再看“多去不同年级”和“同年级多听几个班”哪种安排更合适 |
 | Technical-neighbor excess 差 | 单臂 excess 为负一至一；d1−Direct 为负二至二 | 负值表示 d1 减少额外同技术邻居聚集，正值表示聚集增强；负十分之一表示减少十个百分点 | 像先扣除“本来就同班”的影响，再看同款相机拍的照片是否仍爱挤在一起 |
@@ -846,18 +846,16 @@ p1 <- ggplot2::ggplot(
     vjust = -0.45,
     size = 3.6
   ) +
-  ggplot2::geom_text(
-    ggplot2::aes(label = "CI/p not estimable"),
-    vjust = 1.8,
-    size = 3.0,
-    color = "grey20"
-  ) +
   ggplot2::scale_y_continuous(
     limits = c(0, 1.05),
     breaks = seq(0, 1, 0.2),
     expand = ggplot2::expansion(mult = c(0, 0.02))
   ) +
-  ggplot2::labs(x = NULL, y = "Agreement") +
+  ggplot2::labs(
+    x = NULL,
+    y = "Agreement",
+    caption = "CI and p-values were not estimable for this single geometry summary."
+  ) +
   theme_nature_readable(
     base_size = fig1$base_size,
     x_text_angle = 0,
@@ -865,7 +863,8 @@ p1 <- ggplot2::ggplot(
   )
 
 # Readability check: three short labels fit without rotation; values are printed
-# above bars, and the y margin prevents clipping in PDF/JPG rendering.
+# above bars, and the non-estimable inference note is moved to the caption so it
+# does not cover the data bars in PDF/JPG rendering.
 fig1_jpg <- .ae_save_plot(
   p1, "figure-01-native-geometry", figure_dir, preview_dir, fig1,
   params$plot_preview_dpi
@@ -1374,7 +1373,7 @@ $$
 
 最后除以该 bank 理论上可容纳的最大秩，即 query 样本数减一与 d1 列数中的较小者。若能量平均分布在许多方向上，normalized effective rank 接近一；若大部分变化挤在少数方向上，它就下降。因为这里报告的是“有效方向占容量的比例”，下降不等于原有方向凭空消失，也可能是新增 modules 扩大容量的速度快于新增独立信息的速度。
 
-Module redundancy 对每个中心化 module 取第一奇异方向作为一维分数，再把所有 module 对的相关系数绝对值等权平均；接近一表示许多 modules 在重复相似变化，接近零表示它们更独立。Neighbor stability 使用 $k=$ `r max(manifest$config$geometry$k)`，在同一 design cell 内将每个 bank 与其他同规格 bank 的 query 邻居名单两两计算 Jaccard，再取平均；越高说明换一批同规格 cohort modules 后，邻居关系仍可复现。Scaling slope 是在每个 repeat 内用直线拟合“指标随 level 的变化”，再对 repeat 做 bootstrap：breadth 斜率表示每增加一个 tissue 的平均变化，depth 斜率表示每个既有 tissue 多增加一层 cohort 的平均变化，两者单位不同，不能直接按绝对值判谁更重要。图中 ribbon 是各 level 的 repeat 均值 ± 1.96 SE；正文括号里的区间则是对 repeat-level 斜率或配对差进行 bootstrap 得到的 95% CI，二者不是同一种不确定性区间。
+Module redundancy 对每个中心化 module 取第一奇异方向作为一维分数，再把所有 module 对的相关系数绝对值等权平均；接近一表示许多 modules 在重复相似变化，接近零表示它们更独立。Neighbor stability 使用 $k=$ `r max(manifest$config$geometry$k)`，在同一 design cell 内将每个 bank 与其他同规格 bank 的 query 邻居名单两两计算 Jaccard，再取平均；越高说明换一批同规格 cohort modules 后，邻居关系仍可复现。Scaling slope 是在每个 repeat 内以 `log2(module_count)` 为自变量拟合指标，再对 repeat 做 bootstrap：breadth 和 depth 斜率都表示 bank 容量每增加一倍时的平均变化，但对应的设计路径不同，不能直接按绝对值判谁更重要。图中 ribbon 是各 level 的 repeat 均值及其 design-repeat bootstrap 95% CI；正文括号里的区间则是对 repeat-level 斜率或配对差进行 bootstrap 得到的 95% CI，二者不是同一种不确定性区间。
 
 ```{r figure-cohort-evidence-sequences, interp_check=TRUE}
 # ==== Figure 8: Breadth and depth scaling (user-adjustable parameters) ====
@@ -1459,7 +1458,7 @@ scaling_inference_table <- scaling_inference[, c(
 render_dt(scaling_inference_table, pageLength = nrow(scaling_inference_table))
 ```
 
-本次 scaling sequence 的结果显示：normalized effective rank 的 breadth 斜率为 **`r fmt(rank_breadth$estimate)`**（repeat-bootstrap 95% CI `r fmt(rank_breadth$ci_low)` 至 `r fmt(rank_breadth$ci_high)`），depth 斜率为 **`r fmt(rank_depth$estimate)`**（95% CI `r fmt(rank_depth$ci_low)` 至 `r fmt(rank_depth$ci_high)`）。两条置信区间均低于零，表明每新增一个 tissue 或每增加一层同 tissue cohort，非重复方向占当前 bank 容量的比例都在下降；按斜率量级，分别约下降 `r fmt(100 * abs(rank_breadth$estimate), 1L)` 和 `r fmt(100 * abs(rank_depth$estimate), 1L)` 个百分点。这说明新增 evidence 没有按 module 容量同比增加独立方向，但不能据此断言 raw effective rank 一定下降。
+本次 scaling sequence 的结果显示：normalized effective rank 的 breadth 斜率为 **`r fmt(rank_breadth$estimate)`**（repeat-bootstrap 95% CI `r fmt(rank_breadth$ci_low)` 至 `r fmt(rank_breadth$ci_high)`），depth 斜率为 **`r fmt(rank_depth$estimate)`**（95% CI `r fmt(rank_depth$ci_low)` 至 `r fmt(rank_depth$ci_high)`）。这里的斜率均按 `log2(module_count)` 定义，表示 bank 容量每增加一倍时的平均变化；两条置信区间均低于零，表明在各自的 breadth/depth 扩展路径上，非重复方向占当前 bank 容量的比例随容量翻倍而下降。按“每翻倍”斜率量级，分别约下降 `r fmt(100 * abs(rank_breadth$estimate), 1L)` 和 `r fmt(100 * abs(rank_depth$estimate), 1L)` 个百分点。这说明新增 evidence 没有按 module 容量同比增加独立方向，但不能据此断言 raw effective rank 一定下降。
 
 作为配套检查，module redundancy 的 breadth/depth 斜率分别为 `r fmt(redundancy_breadth$estimate)`（95% CI `r fmt(redundancy_breadth$ci_low)` 至 `r fmt(redundancy_breadth$ci_high)`）和 `r fmt(redundancy_depth$estimate)`（`r fmt(redundancy_depth$ci_low)` 至 `r fmt(redundancy_depth$ci_high)`）。Breadth 区间完全低于零，表示加入更多 tissues 时 module 间平均绝对相关性下降；depth 的区间跨零，尚未显示重复性稳定增减。Neighbor stability 的 breadth/depth 斜率分别为 `r fmt(stability_breadth$estimate)`（`r fmt(stability_breadth$ci_low)` 至 `r fmt(stability_breadth$ci_high)`）和 `r fmt(stability_depth$estimate)`（`r fmt(stability_depth$ci_low)` 至 `r fmt(stability_depth$ci_high)`），两条区间都高于零，说明两种扩展都提高了邻域稳定性；由于两条轴单位不同，不比较斜率大小。
 
@@ -1870,15 +1869,6 @@ knitr::include_graphics(fig7_jpg)
 Null 对照像把同一盒积木随便重排后再做一次实验，用来判断“任何乱变换都会出现同样结果”还是 d1 的特定构造才会出现。**Null-Perm** 尝试在每个 query cohort 内打乱癌种标签；只有同一 cohort 内至少存在两种标签时，置换才会真正改变数据。**Null-RP** 不使用 cohort models，而是把已经标准化的 Direct 乘以固定随机稀疏矩阵：约三分之二权重为零，其余为对称的正、负随机权重，再投影到 `r ablation_result$controls$null_rp$rank` 维并使用欧氏距离检索。本次使用 `r length(ablation_result$controls$null_rp$seeds)` 个随机种子，观察结论是否只是“任何同量级随机压缩”都会出现。这个 rank 是低维随机对照的预算，不宣称与 d1 的有效容量完全相同；Null-Perm 和 Null-RP 都不是候选方法，而是用于拆穿偶然现象的参照物。
 
 Null-Perm 的资格状态为 **`r null_perm_status`**。`r manifest$query_cohort_count` 个 query cohorts 的 cancer type 在各自 cohort 内保持不变，洗牌前后标签完全相同，因而无法形成有检验力的置换零分布；本报告据此不生成形式完整却实际无效的伪对照。在 $k=$ `r params$display_k` 时，`r length(ablation_result$controls$null_rp$seeds)` 组 Null-RP 的癌种一致率介于 `r fmt(null_rp_top_k_range[1])` 和 `r fmt(null_rp_top_k_range[2])`，均高于 d1 的 `r fmt(d1_top_k_rate)`。这不支持“本次采用的稀疏随机投影会以同等程度去癌种中心化”的解释，说明 d1 的 lineage 改写不能由这几组 Null-RP 完全解释，并与 cohort-model bank 的特定映射有关联；它不是排除其他机制后的因果证明。Null-RP 只能说明 d1 比这些随机投影更不利于恢复癌种；cohort bank 对发现新状态是否必要，仍需依靠与研究目标一致的 Null 对照及状态/任务指标判断。
-
-```{r ablation03-extension, echo=FALSE, results='asis'}
-# Keep the biological-anchor extension in the report body while reserving
-# after_body for the shared Liquid Glass runtime (including dynamic TOC).
-cat(paste(
-  readLines(.ablation03_path("templates", "ablation03-extension.html"), encoding = "UTF-8"),
-  collapse = "\n"
-))
-```
 
 ## 讨论与分析
 
