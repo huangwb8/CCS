@@ -48,6 +48,7 @@ readout_result <- .ae_readout_inference(
 )
 stopifnot(readout_result$endpoint == "cohort_accuracy")
 stopifnot(isTRUE(all.equal(readout_result$estimate, 0.3)))
+stopifnot(readout_result$unit == "query_cohort")
 
 # Repeated fits of the same 100% training-cohort set are not independent bank
 # designs and therefore cannot produce a design-level CI or p-value.

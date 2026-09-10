@@ -388,7 +388,8 @@
   rows <- lapply(seq_along(metrics), function(i) {
     out <- .ae_paired_inference(
       paired, metrics[[i]], cluster_column = "cohort", n_boot = n_boot,
-      seed = seed + i - 1L, unit = "query", method = "query_cohort_bootstrap_sign_flip",
+      seed = seed + i - 1L, unit = "query_cohort",
+      method = "query_cohort_bootstrap_sign_flip",
       multiplicity_method = multiplicity_method
     )
     if (all(c("sample_count_d1", "sample_count_direct") %in% names(paired))) {

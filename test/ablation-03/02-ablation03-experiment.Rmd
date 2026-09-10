@@ -1170,7 +1170,7 @@ fig3_jpg <- .ae_save_plot(
 knitr::include_graphics(fig3_jpg)
 ```
 
-本次 readout 结果的直接解读是：使用全部 reference cohorts 时，Direct-GSClassifier 的 pooled balanced accuracy 为 `r fmt(readout_direct$balanced_accuracy)`，即各癌种召回率的总体平均约为 `r fmt_pct(readout_direct$balanced_accuracy)`；Cohort-d1 为 `r fmt(readout_d1$balanced_accuracy)`，约为 `r fmt_pct(readout_d1$balanced_accuracy)`。按样本加权的 pooled balanced-accuracy 差为 `r fmt(readout_delta)`（`r ifelse(readout_delta > 0, "提高", ifelse(readout_delta < 0, "降低", "无变化"))` `r fmt(100 * abs(readout_delta), 1L)` 个百分点），但按 query cohort 等权的推断 endpoint 是单类别 cohort accuracy，估计为 `r fmt(readout_inference_delta)`；后者才是图中 CI 和 P 值对应的效应量。
+本次 readout 结果的直接解读是：使用全部 reference cohorts 时，Direct-GSClassifier 在合并 query 样本上计算的 pooled balanced accuracy 为 `r fmt(readout_direct$balanced_accuracy)`，即各癌种召回率的等权平均约为 `r fmt_pct(readout_direct$balanced_accuracy)`；Cohort-d1 为 `r fmt(readout_d1$balanced_accuracy)`，约为 `r fmt_pct(readout_d1$balanced_accuracy)`。这个类别等权的 pooled balanced-accuracy 差为 `r fmt(readout_delta)`（`r ifelse(readout_delta > 0, "提高", ifelse(readout_delta < 0, "降低", "无变化"))` `r fmt(100 * abs(readout_delta), 1L)` 个百分点），但按 query cohort 等权的推断 endpoint 是单类别 cohort accuracy，估计为 `r fmt(readout_inference_delta)`；后者才是图中 CI 和 P 值对应的效应量。
 
 当前数据中，d1 表现最好的 readout cohort 是 `r readout_top$cohort[1]`（单类别 accuracy 差值 `r fmt(readout_top$delta_accuracy[1])`），表现最差的是 `r readout_bottom$cohort[1]`（差值 `r fmt(readout_bottom$delta_accuracy[1])`）。**cohort 间差异表明，总体方向并不是所有 cohort 等幅变化。** 该比较采用 `r manifest$config$validation$inner_folds`-fold grouped CV，两种表示使用相同的预处理流程和调参预算，保证了比较口径一致。由于每个 query cohort 的有效类别数为 1，这一层只能作为 cohort accuracy 的稳定性诊断；结果不支持“d1 能让低复杂度模型更容易利用旧癌种标签”这一狭义主张；至于它是否更有利于读出 ICI response、pathway state 或新的 pan-cancer subtype，本实验尚无法回答。
 
@@ -1339,7 +1339,7 @@ knitr::include_graphics(fig10_jpg)
 
 可以先用一个简单比喻理解两条路线：如果把 cohort model 想成参加会诊的专家，`breadth` 是请来更多不同专科的专家，扩大观察范围；`depth` 是在同一个专科里请来更多来自不同医院的专家，增加独立复核。前者主要回答“能不能看到更多类型的背景”，后者主要回答“对已有背景的判断是否更稳”。因此，breadth 和 depth 不是同一件事，也不应只用“谁的分数更高”来判断。理想的 bank 往往需要两者配合：既不能只看少数组织，也不能每个组织只有一次孤立观察。
 
-Normalized effective rank 衡量 d1 中“真正被使用的信息方向占可用方向的比例”。先对中心化 d1 做奇异值分解，把第 $j$ 个方向的能量占比记为 $p_j=s_js_j/\sum_\ell s_\ell s_\ell$，再计算
+Normalized effective rank 衡量 d1 中“真正被使用的信息方向占可用方向的比例”。先对中心化 d1 做奇异值分解，把第 $j$ 个方向的能量占比记为 $p_j=s_j^2/\sum_\ell s_\ell^2$，再计算
 
 $$
 \operatorname{EffectiveRank}=\exp\left(-\sum_j p_j\log p_j\right),
@@ -1889,7 +1889,7 @@ Null-Perm 的资格状态为 **`r null_perm_status`**。`r manifest$query_cohort
 
 ## 讨论与分析
 
-本次结果显示，在旧癌种标签恢复任务中，d1 的 top-k 一致率和 MRR 相对 Direct 的 cohort 等权差分别为 `r fmt(retrieval_cohort_mean_delta)` 和 `r fmt(retrieval_cohort_mrr_delta)`，均为负方向；readout 的样本加权差为 `r fmt(readout_delta)`，而 query cohort 等权推断差为 `r fmt(readout_inference_delta)`，两种统计单位方向并不一致。因此，检索恢复性支持 Direct 优于 d1，但 readout 结果必须以其 cohort-level 95% CI `r fmt_ci(readout_inference[readout_inference$endpoint == "cohort_accuracy", ])` 和 P 值为准，不能用样本加权总体差替代。即使使用全部训练数据，癌种学习曲线差仍为 `r fmt(learning_delta$estimate[match(1, learning_delta$requested_fraction)])`，说明增加训练数据并未消除检索/学习曲线差距。
+本次结果显示，在旧癌种标签恢复任务中，d1 的 top-k 一致率和 MRR 相对 Direct 的 cohort 等权差分别为 `r fmt(retrieval_cohort_mean_delta)` 和 `r fmt(retrieval_cohort_mrr_delta)`，均为负方向；readout 在合并 query 样本后按癌种等权计算的 balanced-accuracy 差为 `r fmt(readout_delta)`，而 query cohort 等权推断差为 `r fmt(readout_inference_delta)`，两种汇总权重方向并不一致。因此，检索恢复性支持 Direct 优于 d1，但 readout 结果必须以其 cohort-level 95% CI `r fmt_ci(readout_inference[readout_inference$endpoint == "cohort_accuracy", ])` 和 P 值为准，不能用 pooled 类别等权总体差替代。即使使用全部训练数据，癌种学习曲线差仍为 `r fmt(learning_delta$estimate[match(1, learning_delta$requested_fraction)])`，说明增加训练数据并未消除检索/学习曲线差距。
 
 从机制上看，当前最有证据支持的解释不是“d1 把癌种标签简单平均掉了”，而是 cohort bank 对同一份 Direct feature 进行了选择性的重编码和重新加权：同一样本被多个冻结 cohort 模型分别读取，d1 保存的是这些模型输出组成的证据向量，而不是某一个已知 cohort 的标签。几何指标显示这种重编码确实改变了局部邻域；同时，三个技术来源的 excess 均下降，说明与 cohort/技术来源相关的方向被削弱。由于部分 cancer type 与 cohort、assay 或 platform 绑定，技术边界减弱可能连带降低旧癌种标签的可恢复性。因此，“癌种信号被稀释”的直觉可以保留，但更准确的说法是：癌种相关方向被重新分散、降权，且其中一部分可能与技术或队列捷径重叠。这里的目标应理解为**更好地利用多队列证据**，而不是把不同癌种压成一个共同中心。
 
