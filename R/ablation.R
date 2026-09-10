@@ -6348,8 +6348,9 @@ ablation <- function(
 }
 
 
-# Estimate breadth/depth slopes, their interaction, and matched-size paired
-# differences. Bootstrap summaries resample repeat-level estimates only.
+# Estimate breadth/depth changes per doubling of module count, their interaction,
+# and matched-size paired differences. Bootstrap summaries resample repeat-level
+# estimates only.
 .ablation_representation_scaling_summary <- function(
     metrics,
     design,
@@ -6382,18 +6383,14 @@ ablation <- function(
     ))
     for (data in groups) {
       if (nrow(data) < 2L || length(unique(data$level)) < 2L) next
-      fit <- stats::lm(estimate ~ level, data = data)
+      fit <- stats::lm(estimate ~ log2(module_count), data = data)
       units[[unit_index]] <- data.frame(
         contrast_type = paste0(family, "_slope"),
         aggregation = "repeat",
         repeat_id = data$repeat_id[1],
         pair_id = NA_character_,
         metric_name = data$metric_name[1],
-        component = if (family == "breadth") {
-          "per_added_tissue"
-        } else {
-          "per_added_cohort_per_tissue"
-        },
+        component = "per_module_count_doubling",
         estimate = unname(stats::coef(fit)[2]),
         ci_low = NA_real_,
         ci_high = NA_real_,

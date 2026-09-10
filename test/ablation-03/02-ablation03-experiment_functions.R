@@ -243,7 +243,8 @@
     return(data.frame(
       estimate = NA_real_, ci_low = NA_real_, ci_high = NA_real_,
       p_value = NA_real_, p_value_adj = NA_real_, n_cohort = 0L,
-      n_sample = 0L, resamples = 0L, seed = as.integer(seed), unit = unit,
+      n_sample = 0L, resamples = 0L, p_resamples = 0L,
+      p_method = "not_estimable", seed = as.integer(seed), unit = unit,
       method = method, alternative = alternative, null = null,
       multiplicity_method = multiplicity_method, status = "not_estimable",
       reason = "missing_required_columns", stringsAsFactors = FALSE
@@ -256,7 +257,8 @@
     return(data.frame(
       estimate = NA_real_, ci_low = NA_real_, ci_high = NA_real_,
       p_value = NA_real_, p_value_adj = NA_real_, n_cohort = 0L,
-      n_sample = 0L, resamples = 0L, seed = as.integer(seed), unit = unit,
+      n_sample = 0L, resamples = 0L, p_resamples = 0L,
+      p_method = "not_estimable", seed = as.integer(seed), unit = unit,
       method = method, alternative = alternative, null = null,
       multiplicity_method = multiplicity_method, status = "not_estimable",
       reason = "no_finite_pairs", stringsAsFactors = FALSE
@@ -272,6 +274,7 @@
     estimate = estimate, ci_low = NA_real_, ci_high = NA_real_,
     p_value = NA_real_, p_value_adj = NA_real_, n_cohort = n_cluster,
     n_sample = nrow(observed), resamples = as.integer(max(0L, n_boot)),
+    p_resamples = 0L, p_method = "not_estimable",
     seed = as.integer(seed), unit = unit, method = method,
     alternative = alternative, null = null,
     multiplicity_method = multiplicity_method, status = "complete",
@@ -315,19 +318,27 @@
   base$ci_low <- unname(stats::quantile(bootstrap, 0.025, names = FALSE, type = 6))
   base$ci_high <- unname(stats::quantile(bootstrap, 0.975, names = FALSE, type = 6))
 
-  # Exact sign-flip for small cluster counts; Monte Carlo otherwise.
-  if (n_cluster <= 16L) {
+  # Exact sign-flip for feasible cluster counts; Monte Carlo otherwise.
+  if (n_cluster <= 18L) {
     signs <- as.matrix(expand.grid(rep(list(c(-1, 1)), n_cluster)))
     null_distribution <- apply(signs, 1L, function(s) mean(s * (cluster_means - null)))
+    base$p_method <- "exact_paired_sign_flip"
+    base$p_resamples <- length(null_distribution)
   } else {
     null_distribution <- replicate(
       n_boot,
       mean(sample(c(-1, 1), n_cluster, replace = TRUE) * (cluster_means - null)),
       simplify = TRUE
     )
+    base$p_method <- "monte_carlo_paired_sign_flip"
+    base$p_resamples <- length(null_distribution)
   }
   exceed <- sum(abs(null_distribution) >= abs(estimate - null))
-  base$p_value <- (exceed + 1) / (length(null_distribution) + 1)
+  base$p_value <- if (base$p_method == "exact_paired_sign_flip") {
+    exceed / length(null_distribution)
+  } else {
+    (exceed + 1) / (length(null_distribution) + 1)
+  }
   base
 }
 
@@ -370,10 +381,10 @@
   multiplicity_method = "holm"
 ) {
   paired <- readout$paired_by_cohort
-  metrics <- c(
-    balanced_accuracy = "delta_balanced_accuracy",
-    macro_auroc = "delta_macro_auroc"
-  )
+  # Each external query cohort contains one cancer type, so the cohort-level
+  # endpoint is accuracy. Calling the same number balanced accuracy would be a
+  # semantic metric error even though the two happen to be numerically equal.
+  metrics <- c(cohort_accuracy = "delta_accuracy")
   rows <- lapply(seq_along(metrics), function(i) {
     out <- .ae_paired_inference(
       paired, metrics[[i]], cluster_column = "cohort", n_boot = n_boot,
@@ -399,14 +410,38 @@
 ) {
   fractions <- sort(unique(curve$paired$requested_fraction))
   rows <- lapply(seq_along(fractions), function(i) {
-    part <- curve$paired[curve$paired$requested_fraction == fractions[i], , drop = FALSE]
+    raw_part <- curve$paired[
+      curve$paired$requested_fraction == fractions[i],
+      ,
+      drop = FALSE
+    ]
+    hash_column <- if ("cohort_subset_hash_direct" %in% names(raw_part)) {
+      "cohort_subset_hash_direct"
+    } else {
+      "repeat_id"
+    }
+    if (all(c("cohort_subset_hash_direct", "cohort_subset_hash_d1") %in%
+        names(raw_part)) &&
+        any(raw_part$cohort_subset_hash_direct != raw_part$cohort_subset_hash_d1)) {
+      stop("Learning-curve arms do not share the same cohort design.", call. = FALSE)
+    }
+    part <- raw_part |>
+      dplyr::mutate(design_hash = .data[[hash_column]]) |>
+      dplyr::group_by(.data$design_hash) |>
+      dplyr::summarise(
+        delta_balanced_accuracy = mean(.data$delta_balanced_accuracy),
+        .groups = "drop"
+      )
     out <- .ae_paired_inference(
-      part, "delta_balanced_accuracy", cluster_column = "repeat_id",
-      n_boot = n_boot, seed = seed + i - 1L, unit = "design_repeat",
+      part, "delta_balanced_accuracy", cluster_column = "design_hash",
+      n_boot = n_boot, seed = seed + i - 1L,
+      unit = "unique_training_cohort_design",
       method = "paired_design_repeat_bootstrap_sign_flip",
       multiplicity_method = multiplicity_method,
       min_clusters = 10L
     )
+    out$n_run <- nrow(raw_part)
+    out$n_unique_design <- nrow(part)
     out$requested_fraction <- fractions[i]
     out$primary <- fractions[i] == max(fractions)
     out

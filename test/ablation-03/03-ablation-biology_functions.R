@@ -68,7 +68,7 @@
       n_boot,
       mean(sample(delta, n_cohorts, replace = TRUE))
     )
-    if (n_cohorts <= 20L) {
+    if (n_cohorts <= 18L) {
       # Exact paired sign-flip test. With 17 external cohorts this is cheap
       # and avoids a normal approximation with a small number of clusters.
       masks <- 0:(2^n_cohorts - 1L)
@@ -77,9 +77,7 @@
         signs <- ifelse(bits == 1L, 1, -1)
         mean(delta * signs)
       }, numeric(1L))
-      p_value <- (
-        sum(abs(null_distribution) >= abs(estimate)) + 1
-      ) / (length(null_distribution) + 1)
+      p_value <- mean(abs(null_distribution) >= abs(estimate))
       p_method <- "exact_paired_sign_flip"
     } else {
       signs <- replicate(
