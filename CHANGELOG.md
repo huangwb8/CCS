@@ -6,7 +6,7 @@
 
 ## [Unreleased]
 
-- 完成 `ablation-03` 出版级统计与图形复核：cohort readout 改用单类别场景可解释的 accuracy 差；scaling 斜率改为按 module 数每翻倍估计；学习曲线按唯一 training-cohort design 推断并将 100% 比例的伪重复 CI/P 值标记为不可估计；精确 sign-flip 检验移除仅适用于 Monte Carlo 的加一校正；同步优化图注、字号、置信区间标记及异质重建指标的分面展示。
+- 完成 `ablation-03` 出版级统计与图形复核：cohort readout 改用单类别场景可解释的 accuracy 差，并将重采样单位明确为 query cohort；澄清 pooled balanced accuracy 是类别等权而非样本加权；scaling 斜率改为按 module 数每翻倍估计；学习曲线按唯一 training-cohort design 推断并将 100% 比例的伪重复 CI/P 值标记为不可估计；精确 sign-flip 检验移除仅适用于 Monte Carlo 的加一校正；同步优化图注、字号、置信区间标记及异质重建指标的分面展示。
 - 修复 `ablation-03` HTML 在 Windows R 4.3.1 下的 Unicode 乱码：渲染前显式启用可用的 UTF-8 locale，避免无效 `C.UTF-8` 使 R 输出退化为转义字节。
 - 修正 `ablation-03` 出版前一致性问题：移除会混入陈旧 biological-anchor 图表与硬编码数值的 HTML 扩展；同步 README 产物清单；将 readout 的单类别 query-cohort 推断改名为 cohort accuracy，并明确 macro-AUROC 不可估计。
 - 将 biological-anchor 分数改为 reference-cohort 全局 gene-wise z-score（同一尺度应用于 query/reference），并记录共同有效邻居与缺失邻居审计，避免跨 cohort 标准化和静默丢失造成不可比效应量。
