@@ -6,6 +6,7 @@
 
 ## [Unreleased]
 
+- 改写 `ablation-03` 独立队列结构分析的 R Markdown 解读：增加一句话结论、地图类比、癌种协调说明、逐图读法和统计边界的通俗解释，并同步更新报告总结与 HTML。
 - 扩展 `ablation-03` 的独立队列结构可复现性分析：以 4 个表达锚点的队列内高低状态构建 8 个共享生物实体，比较 Direct-GSClassifier 与 Cohort-d1 的跨队列质心距离几何；新增 136 个队列对的机器可读结果、cohort-node bootstrap、不依赖分类性能的配对图与双热图，以及同癌种独立队列稳健性分析。
 - 完成 `ablation-03` 出版级统计与图形复核：cohort readout 改用单类别场景可解释的 accuracy 差，并将重采样单位明确为 query cohort；澄清 pooled balanced accuracy 是类别等权而非样本加权；scaling 斜率改为按 module 数每翻倍估计；学习曲线按唯一 training-cohort design 推断并将 100% 比例的伪重复 CI/P 值标记为不可估计；精确 sign-flip 检验移除仅适用于 Monte Carlo 的加一校正；同步优化图注、字号、置信区间标记及异质重建指标的分面展示。
 - 修复 `ablation-03` HTML 在 Windows R 4.3.1 下的 Unicode 乱码：渲染前显式启用可用的 UTF-8 locale，避免无效 `C.UTF-8` 使 R 输出退化为转义字节。

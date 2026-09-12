@@ -1692,15 +1692,19 @@ if (identical(biology_status, "complete")) {
 
 ## 独立队列间的生物结构可复现性
 
-前一节问的是“同一队列内，表示空间中的近邻是否保留表达锚点”；本节改问“切换到另一个独立队列后，同一组生物状态之间的远近关系能否复现”。它不训练分类器，也不报告 accuracy、AUROC 或 F1。由于每个外部队列只有一个 `cancer_type`，癌种不能在队列内形成多个质心；因此，本节使用 `r length(structural_result$method$anchors)` 个既有表达锚点各自的队列内低、高三分位状态，形成 `r length(unique(structural_entity_audit$entity))` 个跨队列同名实体。中间三分位不参与原型估计，使低、高状态保持分离；每个实体至少包含 `r structural_result$method$min_entity_n` 个样本。
+**先看一句话结论：d1 没有明显弄乱原来能够跨队列重现的“大体生物地图”，但也没有可靠证据表明它把这张地图画得更好。** 在 `r structural_all$cohort_pair_count` 个队列对中，d1 相对 Direct 的平均变化只有 `r fmt(structural_all$mean_delta, 4L)`；虽然 `r fmt_pct(structural_all$fraction_d1_ge_direct)` 的队列对方向不差，但 95% 不确定区间从 `r fmt(structural_all$mean_delta_ci_low, 4L)` 到 `r fmt(structural_all$mean_delta_ci_high, 4L)`，同时包含小幅变好、没有变化和小幅变差三种可能。
 
-Direct 使用 reference atlas 拟合的逐特征标准化，d1 使用既有 module-balanced 变换；两者都沿用主消融的距离合同。每个“队列 × 表示 × 生物实体”以样本质心概括，再计算 `r length(unique(structural_entity_audit$entity))` 阶欧氏距离矩阵。两个队列的结构相似度是其距离矩阵上三角 `r structural_pairs$compared_distance_count[1L]` 个实体对距离的 Spearman 相关；因此它比较的是生物实体远近的排序，而不是两个表示维度或绝对距离的直接对应。
+可以把 `r length(structural_result$method$anchors)` 个表达锚点的高、低状态想成地图上的 `r length(unique(structural_entity_audit$entity))` 个固定地标。例如，一张地图会记录“免疫高”离“IFN/IL6 高”较近、离“增殖低”较远。这里不要求不同队列的样本逐一相同，而是问：换到另一批患者后，这些地标的**远近次序**是否仍大致相同。次序越一致，说明生物状态的整体关系越容易在独立队列中重现。
+
+癌种变量没有被简单删除，而是分两层协调。第一层，每个表达锚点都在**各自队列内部**按低、高三分位定义；所以“乳腺癌中的免疫高”表示该乳腺癌队列内部较高，“肺癌中的免疫高”也表示该肺癌队列内部较高，不会因为某个癌种整体表达偏高就包揽全部高值样本。第二层，主分析保留所有跨癌种和同癌种比较，用于检验泛癌可复现性；随后再单独查看同癌种、不同队列的结果，判断总体方向是否只是癌种构成造成。这个设计降低了癌种基线差异的干扰，但并不等于已经从统计上完全消除了癌种效应。
+
+计算过程可以压缩为四步：先在每个队列中找出四个锚点各自最低和最高的三分之一；再把每个高低组概括成一个“平均位置”；随后计算八个位置两两之间的 `r structural_pairs$compared_distance_count[1L]` 个距离；最后比较两个队列对这些距离的排序是否一致。Direct 使用 reference atlas 拟合的逐特征标准化，d1 使用既有 module-balanced 变换，两者沿用同一距离合同，因此比较的是两种表示能否保留同一套生物关系，而不是比较它们的维度或绝对距离。
 
 ```{r structural-entity-audit, echo=FALSE, interp_check=TRUE}
 render_dt(structural_entity_audit, pageLength = 12)
 ```
 
-解读：结果显示，实体审计表完整保留每个队列、锚点和高低状态的原队列样本数、原型样本数与有效基因数。`r structural_all$cohort_count` 个外部队列均形成 `r length(unique(structural_entity_audit$entity))` 个实体，每个队列对因而使用完全相同的生物实体集合；这一覆盖一致性提示，比较差异不来自困难实体的选择性缺失。主要局限是状态只代表队列内相对高低，不应解释为跨平台统一的绝对临床阈值。
+解读：结果显示，这张表主要完成质量检查，不负责判定胜负。它确认 `r structural_all$cohort_count` 个外部队列都成功形成同样的 `r length(unique(structural_entity_audit$entity))` 个生物地标，并保留每个地标用了多少样本和多少有效基因。所有队列覆盖一致，这提示后续结果差异并非来自选择性漏掉某些难以构建的状态。这里的“高”和“低”始终是**队列内部的相对位置**，不能当作跨医院、跨平台通用的临床阈值。
 
 ```{r structural-pair-table, echo=FALSE, interp_check=TRUE}
 render_dt(
@@ -1713,7 +1717,7 @@ render_dt(
 )
 ```
 
-解读：结果显示，队列对明细表在同一实体集合上并排给出 Direct、d1 和 d1−Direct。共 `r structural_all$cohort_pair_count` 个有效队列对，全部共享 `r min(structural_pairs$shared_entity_count)` 个实体。最大正差来自 `r structural_best$cohort_a` 与 `r structural_best$cohort_b`（`r fmt(structural_best$delta_d1_minus_direct)`），最大负差来自 `r structural_worst$cohort_a` 与 `r structural_worst$cohort_b`（`r fmt(structural_worst$delta_d1_minus_direct)`）；正负差异并存提示 d1 的影响具有明显 cohort 依赖性，不能只用总体均值概括。
+解读：结果显示，这张明细表逐对回答“换成 d1 后，两支队列的生物地图更像了还是更不像了”。`delta_d1_minus_direct` 大于零表示 d1 更一致，小于零表示 Direct 更一致。共 `r structural_all$cohort_pair_count` 个有效队列对，全部比较同样的 `r min(structural_pairs$shared_entity_count)` 个地标。最大差异出现在两个方向：改善最大的是 `r structural_best$cohort_a` 与 `r structural_best$cohort_b`（`r fmt(structural_best$delta_d1_minus_direct)`），下降最大的是 `r structural_worst$cohort_a` 与 `r structural_worst$cohort_b`（`r fmt(structural_worst$delta_d1_minus_direct)`）。正负方向同时存在，说明 d1 的作用取决于具体队列，单看总体平均数会掩盖这种差别。
 
 ```{r figure-structural-paired, interp_check=TRUE}
 # ==== Figure 11: Cross-cohort structural similarity (user-adjustable parameters) ====
@@ -1799,7 +1803,9 @@ fig11_jpg <- .ae_save_plot(
 knitr::include_graphics(fig11_jpg)
 ```
 
-解读：结果显示，Direct 的跨队列结构相似度均值/中位数为 `r fmt(structural_all$mean_direct_similarity)` / `r fmt(structural_all$median_direct_similarity)`，d1 为 `r fmt(structural_all$mean_d1_similarity)` / `r fmt(structural_all$median_d1_similarity)`。d1−Direct 的均值为 `r fmt(structural_all$mean_delta, 4L)`，中位数为 `r fmt(structural_all$median_delta, 4L)`，`r fmt_pct(structural_all$fraction_d1_ge_direct)` 的队列对不低于 Direct。**方向上 d1 略高，但效应很小，并非一致改善。** 统计不确定性来自 cohort 节点 bootstrap；平均差 `r 95L`% 区间为 `r fmt(structural_all$mean_delta_ci_low, 4L)` 至 `r fmt(structural_all$mean_delta_ci_high, 4L)`，明显跨过零，提示当前数据不能排除小幅改善、无差异或小幅下降。
+解读：图中每条灰线代表一个队列对。线从左侧 Direct 走向右侧 d1 时，**向上**表示换成 d1 后两支队列的地图更一致，**向下**表示更不一致；菱形是全部队列对的中间位置。如果 d1 普遍改善结构，多数线应明显向上，右侧菱形也应明显更高。结果显示的差异只是轻微上移：Direct 的均值/中位数为 `r fmt(structural_all$mean_direct_similarity)` / `r fmt(structural_all$median_direct_similarity)`，d1 为 `r fmt(structural_all$mean_d1_similarity)` / `r fmt(structural_all$median_d1_similarity)`；平均仅增加 `r fmt(structural_all$mean_delta, 4L)`，中位数增加 `r fmt(structural_all$median_delta, 4L)`。虽然 `r fmt_pct(structural_all$fraction_d1_ge_direct)` 的线没有下降，变化幅度仍很小，而且并非所有队列都改善。
+
+95% 区间为 `r fmt(structural_all$mean_delta_ci_low, 4L)` 至 `r fmt(structural_all$mean_delta_ci_high, 4L)`。这里“跨过零”的通俗含义是：如果换一批队列重做，平均结果可能略好，也可能几乎不变，甚至可能略差。队列节点自助法在重复抽样时按完整队列抽取，并让共享同一队列的比较一起变化，避免把 `r structural_all$cohort_pair_count` 行队列对误当成 `r structural_all$cohort_pair_count` 次完全独立的实验。**因此，这张图最稳妥的结论是“大体结构得以保留”，不是“d1 已被证明更优”。**
 
 ```{r figure-structural-direct-heatmap, interp_check=TRUE}
 # ==== Figure 12: Direct structural-similarity heatmap (user-adjustable parameters) ====
@@ -1856,7 +1862,7 @@ fig12_jpg <- .ae_save_plot(
 knitr::include_graphics(fig12_jpg)
 ```
 
-解读：Direct 热图显示大多数队列对保持正的生物状态距离排序，但颜色深浅并不均一；其总体均值为 `r fmt(structural_all$mean_direct_similarity)`，说明 Direct 本身已经编码了可跨队列复现的结构。热图的价值不是寻找单个最红单元，而是暴露队列依赖性：例如最负 d1 差异涉及 `r structural_worst$cohort_a`，后续应优先检查该队列的样本构成、锚点分布与技术来源，而不能把总体正差外推给所有队列。
+解读：结果显示，热图中每个方格代表一对队列；颜色越偏红，说明八个生物地标的远近次序越一致，越偏蓝则一致性越弱。Direct 的总体均值为 `r fmt(structural_all$mean_direct_similarity)`，说明原始表示本来就保留了相当多可跨队列重现的生物结构。不过，队列之间的颜色差异明显，表示这种可复现性并不均匀。最负 d1 差异涉及 `r structural_worst$cohort_a`，后续应优先检查该队列的样本构成、锚点分布和技术来源，不能把总体平均趋势套到每个队列上。
 
 ```{r figure-structural-d1-heatmap, interp_check=TRUE}
 # ==== Figure 13: d1 structural-similarity heatmap (user-adjustable parameters) ====
@@ -1901,7 +1907,9 @@ fig13_jpg <- .ae_save_plot(
 knitr::include_graphics(fig13_jpg)
 ```
 
-解读：结果显示，d1 热图的总体均值为 `r fmt(structural_all$mean_d1_similarity)`，与 Direct 的差异仅为 `r fmt(structural_all$mean_delta, 4L)`；局部既有加深也有变浅，提示效应具有明显异质性。**本节支持的是“d1 的生物几何没有出现总体性恶化，并呈轻微正向趋势”，而不是“d1 已学习到普遍 cohort-invariant 空间”。** 统计局限在于 `r structural_all$cohort_count` 个 cohort 节点产生的 `r structural_all$cohort_pair_count` 个 pair rows 彼此依赖，因此普通配对 Wilcoxon 会把共享节点当作独立重复；本报告不输出这种反保守 P 值，而以 cohort-node bootstrap 区间表达不确定性。
+解读：结果显示，这张图与上一张使用完全相同的颜色刻度，可以逐格直接比较。d1 的总体均值为 `r fmt(structural_all$mean_d1_similarity)`，与 Direct 的平均差异只有 `r fmt(structural_all$mean_delta, 4L)`；有些方格变红，有些反而变浅，再次说明不同队列的反应并不一致。**本节支持的是“d1 没有普遍弄坏这张生物地图，并有很轻的正向趋势”，而不是“d1 已经学到一张适用于所有队列的统一地图”。**
+
+这里没有报告普通配对 Wilcoxon P 值，是因为 `r structural_all$cohort_count` 个队列会反复出现在 `r structural_all$cohort_pair_count` 个配对中。例如，同一个队列与许多其它队列组成的多行结果并不是互不相关的独立证据；若把它们当作独立重复，统计把握会被夸大。本报告改用按队列整体重采样的区间来表达这种不确定性。
 
 ```{r structural-summary-table, echo=FALSE, interp_check=TRUE}
 render_dt(
@@ -1916,9 +1924,11 @@ render_dt(
 )
 ```
 
-解读：同癌种独立队列构成唯一的轻量稳健性分析，共 `r structural_same_cancer$cohort_pair_count` 对。其 Direct/d1 平均相似度为 `r fmt(structural_same_cancer$mean_direct_similarity)` / `r fmt(structural_same_cancer$mean_d1_similarity)`，平均差为 `r fmt(structural_same_cancer$mean_delta, 4L)`，`r fmt_pct(structural_same_cancer$fraction_d1_ge_direct)` 的队列对不低于 Direct；节点 bootstrap 区间为 `r fmt(structural_same_cancer$mean_delta_ci_low, 4L)` 至 `r fmt(structural_same_cancer$mean_delta_ci_high, 4L)`。方向与全体队列一致但仍跨零，因此癌种构成并未解释掉全部正向趋势，也没有把它提升为稳定证据。综合主分析和稳健性结果，核心假设得到**描述性、部分支持**：d1 平均上不差且多数 pair 非负，但改进幅度小、队列间异质性大、不确定性仍覆盖零。
+解读：结果显示，最后一行是“尽量固定癌种再比较”的检查，只保留同癌种、不同队列，共 `r structural_same_cancer$cohort_pair_count` 对。Direct/d1 的平均相似度为 `r fmt(structural_same_cancer$mean_direct_similarity)` / `r fmt(structural_same_cancer$mean_d1_similarity)`，平均差异为 `r fmt(structural_same_cancer$mean_delta, 4L)`，`r fmt_pct(structural_same_cancer$fraction_d1_ge_direct)` 的队列对没有下降；95% 区间为 `r fmt(structural_same_cancer$mean_delta_ci_low, 4L)` 至 `r fmt(structural_same_cancer$mean_delta_ci_high, 4L)`。它与全部队列的方向相近，说明总体的轻微正向趋势不完全是不同癌种混在一起造成的；但只有 `r structural_same_cancer$cohort_pair_count` 对且区间仍跨零，证据仍然有限。
 
-这一分析有实际价值，因为它补上了“队列内生物保持”与“队列间结构复现”之间原本缺失的一环，也显示技术依赖下降并未自动转化为强结构增益。限制同样明确：`r length(structural_result$method$anchors)` 个实体轴仍来自表达 signature，与 Direct 输入并非完全正交；高低三分位是队列内相对状态，实体之间可能共享样本；同癌种仅有 `r structural_same_cancer$cohort_pair_count` 对，且尚无独立分子亚型或临床结局。最直接的后续验证是冻结带明确出处的 PAM50/CMS 或 outcome 状态，在更多同癌种独立队列中复用同一原型定义，并以预先设定的最小重要差异判断 d1 的结构增益是否稳定超过零。
+综合起来，所谓**“描述性、部分支持”**就是：从目前看到的数字方向看，d1 平均没有变差，而且略多于一半的队列对没有下降；但优势太小、不同队列反应不一致，换一批队列后方向仍可能改变。它补上了“队列内近邻表现”与“队列间整体结构”之间的一环，也解释了为什么局部表达接近度下降，并不必然意味着整张生物地图被破坏。
+
+仍需保留三条边界：四个地标轴来自表达 signature，与 Direct 输入并非完全独立；高低三分位只是各队列内部的相对状态；同癌种比较仅有 `r structural_same_cancer$cohort_pair_count` 对，且尚未纳入独立分子亚型或临床结局。最直接的下一步是在更多同癌种独立队列中固定 PAM50、CMS 或结局状态，并事先定义“多大改善才有实际意义”；只有结构增益稳定超过这个门槛，才足以支持 d1 真正改善跨队列生物结构。
 
 ## 技术来源与癌种锚点的联合评估
 
@@ -2233,11 +2243,11 @@ Null-Perm 的资格状态为 **`r null_perm_status`**。`r manifest$query_cohort
 
 另一个意料中事是 d1 保留信息但带有瓶颈。Direct features 可由 d1 线性重建到一定程度，gene-pair balanced accuracy 为 `r fmt(decoder_summary$balanced_accuracy[decoder_summary$feature_type == "gene_pair"])`，single-bin Spearman 为 `r fmt(decoder_summary$spearman[decoder_summary$feature_type == "single_bin"])`；同时 d1 effective rank 为 `r fmt(native_geometry$metrics$metric_value[native_geometry$metrics$metric_name == "d1_effective_rank"])`，低于 Direct 的 `r fmt(native_geometry$metrics$metric_value[native_geometry$metrics$metric_name == "direct_effective_rank"])`。这组结果更像“有方向的信息压缩”，而不是信息消失。合理推断是：cohort models 把 raw feature 中与各训练 cohort 决策边界相关的部分保留下来，同时削弱一部分只对原始表达近邻或旧癌种分类有帮助的连续差异；如果该推断成立，后续应能看到高 decoder-error feature 与 lineage/technical readout 的贡献重叠，而不是随机分散在所有 feature 上。
 
-真正 surprising 的第一点，是 **assay、platform、source 三个 technical-neighbor excess 同时下降，而且方向很整齐**：`r paste(technical_summary$technical_factor, sprintf("%+.3f", technical_summary$mean_delta), sep = " = ", collapse = "; ")`，对应 cohort-level 95% CI 均低于 0，Holm 校正 P 值最大为 `r fmt_p(max(technical_inference$p_value_adj, na.rm = TRUE))`。这比“某个技术字段下降”更有价值，因为它说明 d1 的变化不是单一 metadata 列造成的偶然现象。合理推断有两个：一是 module-balanced d1 距离把多个 cohort models 的输出等权整合，削弱了单一平台或来源在 Direct 空间里的近邻吸引；二是 cancer type 与 cohort/技术来源混杂，部分被削弱的 lineage recoverability 可能正好落在技术捷径重叠的方向上。二者可以被区分：若在 cancer type、assay、platform、source 条件化匹配后 technical excess 仍下降，而 pathway/TME/outcome 锚点不下降，才更支持“技术捷径被选择性削弱”；若 lineage 和 technical 信号一起消失，则更接近无选择混合或过强瓶颈。
+真正 surprising 的第一点，是 **assay、platform、source 三个 technical-neighbor excess 同时下降，而且方向很整齐**：`r paste(technical_summary$technical_factor, sprintf("%+.3f", technical_summary$mean_delta), sep = " = ", collapse = "; ")`，对应 cohort-level 95% CI 均低于 0，Holm 校正 P 值最大为 `r fmt_p(max(technical_inference$p_value_adj, na.rm = TRUE))`。这比“某个技术字段下降”更有价值，因为它说明 d1 的变化不是单一 metadata 列造成的偶然现象。合理推断有两个：一是 module-balanced d1 距离把多个 cohort models 的输出等权整合，削弱了单一平台或来源在 Direct 空间里的近邻吸引；二是 cancer type 与 cohort/技术来源混杂，部分被削弱的 lineage recoverability 可能正好落在技术捷径重叠的方向上。二者可以被区分：若在 cancer type、assay、platform、source 条件化匹配后 technical excess 仍下降，而 pathway/TME/outcome 锚点不下降，这一模式会增加“技术捷径被选择性削弱”的证据；若 lineage 和 technical 信号一起消失，则更接近无选择混合或过强瓶颈。
 
-第二个 surprising 点更尖锐：**四个独立 expression anchors 没有显示 d1 的邻居更接近，反而全部偏向 Direct。** 在 proliferation、immune TME、stromal TME 和 IFN/IL6 上，d1−Direct utility 的 cohort-level estimate 均为负，范围为 `r fmt(min(biology_inference$estimate, na.rm = TRUE))` 至 `r fmt(max(biology_inference$estimate, na.rm = TRUE))`，且 BH 校正 P 值最大为 `r fmt_p(max(biology_inference$p_value_adj, na.rm = TRUE))`。这不能简单写成“d1 没有生物学”，因为这些 anchors 是从表达矩阵直接计算的连续 signature mean，而 Direct-GSClassifier features 本身更贴近原始表达排序；d1 经过 cohort classifiers 后可能保留了判别边界，却损失了邻居间的连续 signature 幅度。因此更合理的推断是：当前 d1 的正向价值若存在，可能不体现在“同一 signature 均值更近”这种局部连续邻居任务上，而需要在状态稳定性、跨 cohort 迁移、lineage-conditioned pathway 或 outcome readout 中体现。若下一轮独立任务仍全部偏向 Direct，就应把 d1 的定位从“更好表达生物状态”收窄为“弱化技术/lineage 中心化的候选中间表示”。
+第二个 surprising 点更尖锐：**四个独立 expression anchors 没有显示 d1 的邻居更接近，反而全部偏向 Direct。** 在 proliferation、immune TME、stromal TME 和 IFN/IL6 上，d1−Direct utility 的 cohort-level estimate 均为负，范围为 `r fmt(min(biology_inference$estimate, na.rm = TRUE))` 至 `r fmt(max(biology_inference$estimate, na.rm = TRUE))`，且 BH 校正 P 值最大为 `r fmt_p(max(biology_inference$p_value_adj, na.rm = TRUE))`。这不能简单写成“d1 没有生物学”，因为这些 anchors 是从表达矩阵直接计算的连续 signature mean，而 Direct-GSClassifier features 本身更贴近原始表达排序；d1 经过 cohort classifiers 后可能保留了判别边界，却损失了邻居间的连续 signature 幅度。基于四个锚点的 d1−Direct estimate 均落在 `r fmt(min(biology_inference$estimate, na.rm = TRUE))` 至 `r fmt(max(biology_inference$estimate, na.rm = TRUE))`，当前结果更符合这样的可检验推断：d1 即使存在正向价值，也不主要体现在“同一 signature 均值更近”这种局部连续邻居任务上，而需要在状态稳定性、跨 cohort 迁移、lineage-conditioned pathway 或 outcome readout 中另行检验。若下一轮独立任务仍全部偏向 Direct，就应把 d1 的定位从“更好表达生物状态”收窄为“弱化技术/lineage 中心化的候选中间表示”。
 
-新增的跨 cohort 结构分析进一步限定了这一 surprising 信号：d1 的局部 anchor utility 虽然全面低于 Direct，但 `r length(unique(structural_entity_audit$entity))` 个高低生物状态原型的跨队列距离排序并未同步恶化。`r structural_all$cohort_pair_count` 个队列对中，d1−Direct 结构相似度均值为 `r fmt(structural_all$mean_delta, 4L)`，`r fmt_pct(structural_all$fraction_d1_ge_direct)` 的 pair 非负；然而 cohort-node bootstrap `r 95L`% 区间为 `r fmt(structural_all$mean_delta_ci_low, 4L)` 至 `r fmt(structural_all$mean_delta_ci_high, 4L)`。这组张力更符合“局部连续幅度受损，但较粗粒度状态关系大体保留”的解释；由于效应很小且区间跨零，它仍不能证明 d1 已增强生物学结构。
+新增的跨队列结构分析进一步限定了这一 surprising 信号。前面的局部分析像在检查“相邻街道上的门牌号是否接近”，结果四个表达锚点都偏向 Direct；新增分析则把八个高低生物状态当作城市地标，检查“地标之间的整体远近次序是否还能在另一座城市重现”。在 `r structural_all$cohort_pair_count` 个队列对中，d1−Direct 的平均变化仅为 `r fmt(structural_all$mean_delta, 4L)`，`r fmt_pct(structural_all$fraction_d1_ge_direct)` 的队列对没有下降；但按完整队列重采样得到的 95% 区间为 `r fmt(structural_all$mean_delta_ci_low, 4L)` 至 `r fmt(structural_all$mean_delta_ci_high, 4L)`，仍包括变好、不变和变差。在这个区间仍覆盖零的边界下，两层结果合起来更像是“细街巷有所模糊，但城市的大区块关系大体保留”；当前证据不足以判断 d1 增强了生物学结构。
 
 第三个 surprising 点是汇总权重造成的结论张力。pooled readout 中 d1 的 balanced accuracy 低于 Direct（差值 `r fmt(readout_delta)`），但 query cohort 等权推断的差值为 `r fmt(readout_inference_delta)`，95% CI 为 `r fmt_ci(readout_inference[readout_inference$endpoint == "cohort_accuracy", ])`，并未形成稳定的 cohort-level 显著性。这说明本次 readout 不是“所有外部 cohort 等幅下降”，而是受 cohort 样本量、单癌种 query 设计和少数强差异 cohort 共同影响。合理推断是：d1 的影响具有 cohort/context 依赖性；下一步不应只扩大样本数，而应把最负和最正的 query cohorts 分别拿出来，对照其技术来源、reference 候选池组成、module variance share 和 decoder-error profile，判断差异来自真实表示改写、技术混杂，还是 reference atlas 覆盖不均。
 
@@ -2261,18 +2271,19 @@ Null-Perm 的资格状态为 **`r null_perm_status`**。`r manifest$query_cohort
 
 #### 先说清楚：这次分析究竟在问什么
 
-这次消融分析是一个 **representation ablation（表示层消融）**，不是一次端到端的 CCS 成功评估。它先把同一批样本分别表示成 Direct-GSClassifier features 和 Cohort-d1，再让 query 到冻结的 reference cohort bank 中检索邻居，观察表示改变后发生了什么。分析分成四层：
+这次消融分析是一个 **representation ablation（表示层消融）**，不是一次端到端的 CCS 成功评估。它先把同一批样本分别表示成 Direct-GSClassifier features 和 Cohort-d1，再让 query 到冻结的 reference cohort bank 中检索邻居，观察表示改变后发生了什么。分析分成五层：
 
 - **几何层**：d1 是否仍大体保留 Direct 的距离、排序和局部邻域；
 - **lineage 层**：癌种邻域恢复是否变化；
 - **技术层**：assay、platform、source 的额外聚集是否变化；
+- **生物结构层**：局部邻居是否保留表达锚点，以及八个高低生物状态的整体关系能否在独立队列间重现；
 - **信息与扩展层**：Direct 线索能否从 d1 恢复，以及增加不同 tissue（breadth）或同一 tissue 的更多 cohort（depth）后，信息是否更独立、更稳定。
 
 所以 breadth/depth 的问题不是“哪个数字更大”，而是把“扩大观察范围”和“增加同一背景的独立检查”拆开看。breadth 像请来更多不同专科的专家，主要增加视野；depth 像让同一专科多几家医院重复检查，主要增加判断的稳健性。sequence 看的是沿一条扩展路线继续加证据时指标怎么变，matched-size 看的是 module 预算相同的时候，两种证据分配方式谁更合适。
 
 #### 目前结果能说明什么，不能说明什么
 
-目前最稳妥的结论是：d1 确实重写了 Direct 的局部几何，降低了部分癌种中心化和技术来源聚集；在当前 bank 设计下，breadth 更像扩大覆盖面，depth 更像增强重复检查，二者没有简单的优劣关系。**这支持“利用更多、更丰富的 cohort evidence”这一工程目标，但不等于已经提取出一个跨癌种共享的新生物状态。** 对异质肿瘤而言，合理目标应是同时利用共享证据，并保留癌种、亚型和肿瘤内部差异。
+目前最稳妥的结论是：d1 确实重写了 Direct 的局部几何，降低了部分癌种中心化和技术来源聚集；它在局部表达锚点上不如 Direct，但八个高低生物状态的整体关系没有随之普遍恶化。在当前 bank 设计下，breadth 更像扩大覆盖面，depth 更像增强重复检查，二者没有简单的优劣关系。**这些结果支持“d1 改变了多队列证据的组织方式，并大体保留粗粒度生物结构”，但不等于已经提取出一个跨癌种共享的新生物状态。** 对异质肿瘤而言，合理目标应是同时利用共享证据，并保留癌种、亚型和肿瘤内部差异。
 
 这里的证据边界需要特别保守：
 
@@ -2296,7 +2307,7 @@ Null-Perm 的资格状态为 **`r null_perm_status`**。`r manifest$query_cohort
 - **做 module/per-feature 消融**：对 variance-share 高的 modules 以及 decoder 最难恢复的 gene-pair、single-bin 进行逐项消融；判据是能区分共享生物信息、癌种差异和技术捷径三种贡献。
 - **改进 null 对照**：设计能真正改变标签结构的置换，并让随机投影在 effective rank、稀疏度和维度上更接近 d1；判据是增加 seed 后 null 分布稳定，且 d1 的效应不被 null 完全覆盖。
 
-换句话说，本次消融更像一次“地图检查”：它告诉我们 d1 把地图怎样重画、哪些旧边界变淡、增加哪类队列证据更稳，但还没有告诉我们地图上的新区域是否对应真正有用的生物状态。判断这种多队列证据整合是否达到 CCS 的研究目标，还要把“地图变了”与“独立任务变好且差异仍被保留”连起来。
+换句话说，本次消融更像一次“地图检查”：d1 让一部分街道和门牌细节变得不那么清楚，也淡化了部分癌种和技术来源边界，但城市中几个主要功能区的相对位置大体还在。当前数据告诉我们地图怎样被重画，却还不能判断重画后的地图是否更适合诊断、分型或预测结局。判断这种多队列证据整合是否达到 CCS 的研究目标，还要把“地图变了”与“独立任务确实变好，而且癌种和亚型差异仍被保留”连起来。
 
 ## 数字准确性验证
 
