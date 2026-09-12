@@ -16,6 +16,244 @@
 
 ---
 
+这是一个分析prompt:
+
+```
+Task: extend the existing `ablation-03` analysis with one new, self-contained subsection that evaluates **independent-cohort structural stability / reproducibility** of the CCS d1 representation.
+
+Do NOT redesign the whole ablation-03 analysis. First inspect the repository carefully and understand the current ablation-03 workflow, existing data structures, scripts, outputs, plotting conventions, and the definitions of Direct-GSClassifier and CCS d1. Then add the smallest coherent analysis module that fits naturally into the existing pipeline.
+
+## Scientific motivation
+
+The current ablation-03 already aims to establish roughly the following chain:
+
+Direct-GSClassifier
+→ CCS d1
+→ representation changes
+→ technical cohort dependence decreases
+→ biological information is largely preserved
+
+The missing final piece is:
+
+> When switching to an independent cohort, does the biological structure become at least no worse, and ideally more stable/reproducible, after CCS d1?
+
+This new analysis is NOT primarily a downstream prediction experiment and NOT a standard leave-one-cohort-out classifier benchmark.
+
+The key question is about the **representation itself**:
+
+> Are biological relationships encoded by CCS d1 more reproducible across independent cohorts than those encoded by Direct-GSClassifier?
+
+In other words, distinguish:
+
+* within-cohort biological preservation, which ablation-03 already examines;
+* between-cohort biological reproducibility, which this new subsection should test.
+
+## Core hypothesis
+
+CCS d1 suppresses cohort-specific technical variation while preserving biological organization, such that the biological geometry becomes more reproducible across independent cohorts.
+
+Desired directional result:
+
+`structural reproducibility(d1) >= structural reproducibility(Direct)`
+
+Ideally:
+
+`structural reproducibility(d1) > structural reproducibility(Direct)`
+
+Do not force this conclusion. The analysis must report the actual result faithfully.
+
+## What to inspect first
+
+Before coding, inspect:
+
+1. the existing `ablation-03` directory and scripts;
+2. how Direct-GSClassifier representations are stored or generated;
+3. how CCS d1 representations are stored or generated;
+4. what independent cohorts / datasets are already available;
+5. what biological labels are shared across cohorts;
+6. whether the current analysis is sample-level, cancer-type-level, class-level, phenotype-level, or otherwise;
+7. plotting and result-file conventions used elsewhere in the repository.
+
+Prefer reusing existing processed outputs instead of recomputing expensive upstream steps.
+
+## Preferred analysis design
+
+If the available data support it, use the following design.
+
+For each independent cohort / dataset:
+
+1. obtain the Direct-GSClassifier representation;
+2. obtain the corresponding CCS d1 representation;
+3. identify biological entities shared across cohorts, such as cancer types, biological classes, or another existing label already used in the repository;
+4. summarize each biological entity within each cohort using an appropriate centroid / prototype / aggregate representation;
+5. compute a pairwise biological-distance matrix within each cohort;
+6. compare the biological geometry between every pair of independent cohorts.
+
+For cohort pair A and B, calculate structural similarity between their biological-distance matrices, separately for:
+
+* Direct-GSClassifier;
+* CCS d1.
+
+A simple primary metric is preferred:
+
+* Spearman correlation between the upper triangles of the two pairwise-distance matrices.
+
+If the repository conventions suggest another metric is clearly more appropriate, explain why before using it.
+
+The key paired comparison is:
+
+`similarity_d1(A,B) - similarity_direct(A,B)`
+
+across all valid cohort pairs.
+
+## Important constraints
+
+Avoid turning this into a classifier-performance benchmark.
+
+Do NOT make accuracy, AUROC, F1, or similar downstream predictive metrics the primary analysis.
+
+Do NOT call this leave-one-cohort-out unless the implementation genuinely involves model training while withholding one cohort.
+
+The primary object being evaluated is the **cross-cohort reproducibility of representation geometry**.
+
+Also avoid introducing unnecessary complexity. Do not add fancy manifold metrics unless needed.
+
+The main analysis should be interpretable and reviewer-friendly.
+
+## Suggested outputs
+
+Please create a dedicated subsection inside the existing ablation-03 analysis, using the repository's naming/style conventions.
+
+Prefer outputs such as:
+
+1. a table with one row per cohort pair containing:
+
+   * cohort A
+   * cohort B
+   * number of shared biological entities
+   * Direct structural similarity
+   * d1 structural similarity
+   * delta = d1 - Direct
+
+2. a paired comparison plot:
+
+   * x-axis or paired points for Direct vs d1
+   * one pair per independent-cohort comparison
+
+3. a cohort-by-cohort structural similarity heatmap for Direct;
+
+4. a matching heatmap for d1;
+
+5. summary statistics:
+
+   * median / mean Direct similarity
+   * median / mean d1 similarity
+   * median / mean delta
+   * fraction of cohort pairs where d1 >= Direct
+
+If the number of cohort pairs is sufficient, add a paired statistical test. Prefer a non-parametric paired test such as Wilcoxon signed-rank unless the data structure makes that inappropriate.
+
+Do not overstate p-values, especially because cohort-pair comparisons are not necessarily fully independent.
+
+## Robustness considerations
+
+Inspect whether cohort pairs differ substantially in:
+
+* number of shared biological classes;
+* sample size;
+* class imbalance;
+* platform;
+* cancer composition.
+
+At minimum, record the number of shared biological entities for every pair.
+
+If practical, add one lightweight robustness analysis, for example:
+
+* require a minimum number of samples per biological entity;
+* repeat after restricting to biological entities shared by all included cohorts;
+* bootstrap samples within biological entities and report confidence intervals for structural similarity.
+
+Only add one such robustness analysis if it is easy to integrate cleanly.
+
+## Distance definition
+
+Choose a distance appropriate for the actual representation.
+
+Possible candidates include:
+
+* Euclidean distance between biological centroids;
+* cosine distance;
+* correlation distance.
+
+Do not arbitrarily choose several.
+
+Inspect the current representation and existing ablation-03 conventions, then choose one primary distance and justify it briefly in code comments / analysis notes.
+
+If an existing distance is already used elsewhere in ablation-03, strongly prefer consistency.
+
+## Interpretation
+
+The subsection should explicitly distinguish the following claims:
+
+1. CCS d1 changes the representation.
+2. CCS d1 reduces technical cohort dependence.
+3. CCS d1 largely preserves biology.
+4. CCS d1 makes biological structure at least as reproducible, and ideally more reproducible, across independent cohorts.
+
+The new analysis should address only claim 4 while connecting it logically to claims 1–3.
+
+A suitable interpretation, only if supported by the results, would be:
+
+> CCS d1 does not merely suppress cohort-specific variation within the analyzed datasets; it yields a biological geometry that is more reproducible across independent cohorts.
+
+Avoid saying that CCS has learned a universally cohort-invariant biological space unless the evidence truly supports that stronger statement.
+
+## Implementation requirements
+
+Please:
+
+1. inspect before modifying;
+2. reuse existing utilities whenever possible;
+3. keep the new code modular;
+4. avoid changing upstream results;
+5. do not break existing ablation-03 scripts;
+6. use deterministic random seeds where sampling/bootstrap is involved;
+7. save intermediate numeric results in a machine-readable format such as CSV/TSV;
+8. save publication-quality figures using the repository's existing conventions;
+9. add concise documentation explaining:
+
+   * scientific question;
+   * method;
+   * outputs;
+   * interpretation;
+   * limitations.
+
+## Deliverables
+
+At the end, provide:
+
+1. a concise description of the existing ablation-03 structure you found;
+2. the exact files you added or modified;
+3. the final analysis design actually implemented;
+4. the biological entity used for cross-cohort comparison;
+5. the representation and distance metric used;
+6. generated output files;
+7. the main numerical result;
+8. whether the hypothesis was supported, partially supported, or not supported;
+9. any important caveats;
+10. a short suggested manuscript paragraph describing this new subsection.
+
+If the existing repository structure or available data make the preferred design impossible, do not fabricate a workaround. Instead, implement the closest scientifically valid version and explain the deviation clearly.
+
+Most importantly: preserve the conceptual distinction between **within-cohort biological preservation** and **between-cohort structural reproducibility**.
+
+ablation-03所依赖的原始数据及其该分析里产出的二次分析数据应该足够支撑这次小分析的。
+```
+
+
+
+---
+
 ablation-03里的结果，我准备用于严肃的出版了。 您帮我再审核一下，有没有错误。 具体来说：
 
 - 指标使用错误：某情况应该使用指标1；但实际上用了指标2
