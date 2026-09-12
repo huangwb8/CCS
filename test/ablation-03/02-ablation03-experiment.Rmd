@@ -138,6 +138,29 @@ structural_pairs <- read.csv(structural_paths[2L], check.names = FALSE)
 structural_summary <- read.csv(structural_paths[3L], check.names = FALSE)
 structural_matrices <- readRDS(structural_paths[4L])
 structural_result <- readRDS(structural_paths[5L])
+directional_paths <- file.path(
+  structural_dir,
+  c(
+    "structural_directional_summary.csv",
+    "structural_directional_sample_audit.csv",
+    "structural_module_bank_audit.csv",
+    "structural_matched_bank_repeats.csv",
+    "structural_matched_bank_summary.csv"
+  )
+)
+if (!all(file.exists(directional_paths))) {
+  stop(
+    "The reciprocal structural results are unavailable; rerun stage 04.",
+    call. = FALSE
+  )
+}
+structural_directional_summary <- read.csv(
+  directional_paths[1L], check.names = FALSE
+)
+structural_sample_audit <- read.csv(directional_paths[2L], check.names = FALSE)
+structural_module_banks <- read.csv(directional_paths[3L], check.names = FALSE)
+structural_matched_repeats <- read.csv(directional_paths[4L], check.names = FALSE)
+structural_matched_summary <- read.csv(directional_paths[5L], check.names = FALSE)
 structural_functions_name <-
   "04-ablation03-structural-reproducibility_functions.R"
 structural_all <- structural_summary[
@@ -147,6 +170,59 @@ structural_all <- structural_summary[
 ]
 structural_same_cancer <- structural_summary[
   structural_summary$scope == "same_cancer_type",
+  ,
+  drop = FALSE
+]
+structural_forward_all <- structural_directional_summary[
+  structural_directional_summary$direction ==
+    "reference_bank_to_external_targets" &
+    structural_directional_summary$scope == "all_cohort_pairs",
+  ,
+  drop = FALSE
+]
+structural_reverse_all <- structural_directional_summary[
+  structural_directional_summary$direction ==
+    "external_bank_to_reference_targets" &
+    structural_directional_summary$scope == "all_cohort_pairs",
+  ,
+  drop = FALSE
+]
+structural_matched_all <- structural_matched_repeats[
+  structural_matched_repeats$scope == "all_cohort_pairs",
+  ,
+  drop = FALSE
+]
+structural_matched_all$direction_label <- factor(
+  structural_matched_all$direction,
+  levels = c(
+    "reference_bank_to_external_targets",
+    "external_bank_to_reference_targets"
+  ),
+  labels = c(
+    "Reference modules\non external targets",
+    "External modules\non reference targets"
+  )
+)
+structural_reference_modules <- sum(
+  structural_module_banks$bank_role == "reference"
+)
+structural_external_modules <- sum(
+  structural_module_banks$bank_role == "external"
+)
+structural_matched_modules <- unique(
+  structural_matched_summary$bank_module_count
+)[1L]
+structural_matched_forward_all <- structural_matched_summary[
+  structural_matched_summary$direction ==
+    "reference_bank_to_external_targets" &
+    structural_matched_summary$scope == "all_cohort_pairs",
+  ,
+  drop = FALSE
+]
+structural_matched_reverse_all <- structural_matched_summary[
+  structural_matched_summary$direction ==
+    "external_bank_to_reference_targets" &
+    structural_matched_summary$scope == "all_cohort_pairs",
   ,
   drop = FALSE
 ]
@@ -834,7 +910,7 @@ render_dt(overview_table, pageLength = 11)
 | 外部 readout | `.ablation_linear_readout()` + `.ae_readout_inference()` | grouped `r manifest$config$validation$inner_folds`-fold CV；lambda = `r paste(manifest$config$validation$lambda, collapse = "/")` | 预处理与调参均在 reference 内完成，两臂预算一致；query cohort bootstrap 单独报告 | `R/ablation.R:` `r find_source_line(".ablation_linear_readout <- function")`；`02-ablation03-experiment_functions.R` |
 | 配对学习曲线 | `.ablation_learning_curve()` + `.ae_learning_inference()` | `r paste(100 * manifest$config$validation$learning_fractions, collapse = "/")`% × `r manifest$config$validation$repeats` repeats | 区分小样本归纳偏置与信息上限；以唯一 training-cohort design 做配对 CI | `R/ablation.R:` `r find_source_line(".ablation_learning_curve <- function")`；`02-ablation03-experiment_functions.R` |
 | cohort-evidence scaling | `.ablation_cohort_bank_design()` / `.ablation_representation_scaling()` | breadth、depth、matched-size × `r manifest$config$scaling$sequences` repeats；完整 Direct 主合同 + TSP sensitivity | 分离 tissue breadth 与 within-tissue depth；bootstrap 只重采样 design repeat | `R/ablation.R:` `r find_source_line(".ablation_cohort_bank_design <- function")` |
-| 独立队列结构可复现性 | `.asr_build_cohort_geometries()` / `.asr_compare_cohort_pairs()` | `r length(structural_result$method$anchors)` 个表达锚点的队列内高低三分位，共 `r length(unique(structural_entity_audit$entity))` 个实体；欧氏质心距离；上三角 Spearman | 每个队列使用同一组外部生物状态原型，在不训练分类器的条件下比较 Direct/d1 几何能否跨队列复现 | `r structural_functions_name` |
+| 双向独立队列结构可复现性 | `.asr_evaluate_direction()` / `.asr_matched_bank_design()` | `r length(structural_result$method$anchors)` 个表达锚点的队列内高低三分位，共 `r length(unique(structural_entity_audit$entity))` 个实体；双向 bank-to-target 投影；`r structural_matched_modules` 对 `r structural_matched_modules` tissue-matched modules × 20 repeats | 以目标样本是否参与所用 module 训练定义 externality，分别检查两个方向并隔离 bank 规模/组成敏感性 | `r structural_functions_name` |
 | 信息损失 | `.ablation_decode_direct_features()` | rank = `r tradeoffs$decoder$rank`；ridge lambda = `r tradeoffs$decoder$lambda` | 按 feature type 量化 d1 无法恢复的原生输入 | `R/ablation.R:` `r find_source_line(".ablation_decode_direct_features <- function")` |
 
 ## 指标导读
@@ -1694,7 +1770,24 @@ if (identical(biology_status, "complete")) {
 
 前一节检验的是“同一队列内，表示空间中的近邻是否保留表达锚点”；本节进一步追问：换到另一批独立患者后，同一组生物状态之间的远近关系能否复现。之所以必须增加这一层，是因为队列内的局部对应即使成立，也可能由该队列特有的样本构成、癌种背景或技术条件驱动；反过来，局部锚点效用下降，也不等于更粗粒度的生物状态关系已被破坏。CCS 的目标是从多队列证据中提取可迁移的生物组织，因此只有当预先定义的生物状态在独立队列间仍保持相似的相对结构，才有理由把观察到的模式解释为可复现的生物信号；若这种结构只在单一队列内成立，则更应警惕队列特异现象或混杂。
 
-**先看一句话结论：d1 没有明显弄乱原来能够跨队列重现的“大体生物地图”，但也没有可靠证据表明它把这张地图画得更好。** 在 `r structural_all$cohort_pair_count` 个队列对中，d1 相对 Direct 的平均变化只有 `r fmt(structural_all$mean_delta, 4L)`；虽然 `r fmt_pct(structural_all$fraction_d1_ge_direct)` 的队列对方向不差，但 95% 不确定区间从 `r fmt(structural_all$mean_delta_ci_low, 4L)` 到 `r fmt(structural_all$mean_delta_ci_high, 4L)`，同时包含小幅变好、没有变化和小幅变差三种可能。
+这里的 `reference` 和 `external` 是一次投影中的**角色**，不是两个队列集合永远不变的数学属性。判断是否 external 的标准是：目标样本有没有参与当前所用 module 的训练。于是本节同时计算两个互不重叠的方向：用 `r structural_reference_modules` 个 reference modules 观察 external samples，以及反过来用 `r structural_external_modules` 个 external modules 观察 reference samples。每个方向都只在 bank 一侧拟合 Direct、d1 与 anchor 的尺度，再把固定尺度应用到 target；因此两者都属于严格的 bank-to-unseen-target 投影，但反向分析用于检验表示的互惠性与 bank 依赖，不能替代生产模型通常采用的正向外部验证。
+
+**先看一句话结论：两个方向都没有显示 d1 破坏跨队列“大体生物地图”，反向结果的正向变化更明显，但完整 bank 的规模与 tissue 构成不对称，不能把两个数直接当成方向效应比较。** 正向在 `r structural_forward_all$cohort_pair_count` 个 external 队列对中，d1−Direct 的平均变化为 `r fmt(structural_forward_all$mean_delta, 4L)`；反向在 `r structural_reverse_all$cohort_pair_count` 个 reference 队列对中为 `r fmt(structural_reverse_all$mean_delta, 4L)`。正向 95% 节点 bootstrap 区间为 `r fmt(structural_forward_all$mean_delta_ci_low, 4L)` 至 `r fmt(structural_forward_all$mean_delta_ci_high, 4L)`；反向区间为 `r fmt(structural_reverse_all$mean_delta_ci_low, 4L)` 至 `r fmt(structural_reverse_all$mean_delta_ci_high, 4L)`。共同 tissue 上的 `r structural_matched_modules` 对 `r structural_matched_modules` 重复匹配随后专门检查 bank 构成是否改变这一判断。
+
+```{r structural-directional-summary, echo=FALSE, interp_check=TRUE}
+render_dt(
+  structural_directional_summary[, c(
+    "direction", "bank_role", "target_role", "scope",
+    "bank_module_count", "bank_feature_count", "fit_sample_count",
+    "target_sample_count", "cohort_count", "cohort_pair_count",
+    "mean_direct_similarity", "mean_d1_similarity", "mean_delta",
+    "fraction_d1_ge_direct", "mean_delta_ci_low", "mean_delta_ci_high"
+  )],
+  pageLength = 4L
+)
+```
+
+解读：结果显示，这张表把“谁提供 modules”和“谁提供被观察样本”明确分开。正向的 150-module bank 对 17 个可估 external cohorts 形成 136 个队列对；反向的 43-module bank 对 143 个可估 reference cohorts 形成 10,153 个队列对。两个方向的 d1−Direct 差异都在各自 target 上估计，fit/target 样本交集都为 `r max(structural_sample_audit$fit_target_overlap)`，所以反向不是把 reference 样本重新塞回自己的 module，而是真正只使用 external cohort modules 观察 reference 样本。队列对数量较多不等于独立重复更多：每个 cohort 会进入许多 dyads，因此区间仍以 cohort 节点重采样。
 
 可以把 `r length(structural_result$method$anchors)` 个表达锚点的高、低状态想成地图上的 `r length(unique(structural_entity_audit$entity))` 个固定地标。例如，一张地图会记录“免疫高”离“IFN/IL6 高”较近、离“增殖低”较远。这里不要求不同队列的样本逐一相同，而是问：换到另一批患者后，这些地标的**远近次序**是否仍大致相同。次序越一致，说明生物状态的整体关系越容易在独立队列中重现。
 
@@ -1909,7 +2002,7 @@ fig13_jpg <- .ae_save_plot(
 knitr::include_graphics(fig13_jpg)
 ```
 
-解读：结果显示，这张图与上一张使用完全相同的颜色刻度，可以逐格直接比较。d1 的总体均值为 `r fmt(structural_all$mean_d1_similarity)`，与 Direct 的平均差异只有 `r fmt(structural_all$mean_delta, 4L)`；有些方格变红，有些反而变浅，再次说明不同队列的反应并不一致。**本节支持的是“d1 没有普遍弄坏这张生物地图，并有很轻的正向趋势”，而不是“d1 已经学到一张适用于所有队列的统一地图”。**
+解读：结果显示，这张图与上一张使用完全相同的颜色刻度，可以逐格直接比较。这里展示的是 reference bank → external targets 的正向结果：d1 的总体均值为 `r fmt(structural_all$mean_d1_similarity)`，与 Direct 的平均差异只有 `r fmt(structural_all$mean_delta, 4L)`；有些方格变红，有些反而变浅，再次说明不同队列的反应并不一致。**正向结果支持的是“d1 没有普遍弄坏这张生物地图，并有很轻的正向趋势”，而不是“d1 已经学到一张适用于所有队列的统一地图”。**
 
 这里没有报告普通配对 Wilcoxon P 值，是因为 `r structural_all$cohort_count` 个队列会反复出现在 `r structural_all$cohort_pair_count` 个配对中。例如，同一个队列与许多其它队列组成的多行结果并不是互不相关的独立证据；若把它们当作独立重复，统计把握会被夸大。本报告改用按队列整体重采样的区间来表达这种不确定性。
 
@@ -1930,7 +2023,126 @@ render_dt(
 
 综合起来，所谓**“描述性、部分支持”**就是：从目前看到的数字方向看，d1 平均没有变差，而且略多于一半的队列对没有下降；但优势太小、不同队列反应不一致，换一批队列后方向仍可能改变。它补上了“队列内近邻表现”与“队列间整体结构”之间的一环，也解释了为什么局部表达接近度下降，并不必然意味着整张生物地图被破坏。
 
-仍需保留三条边界：四个地标轴来自表达 signature，与 Direct 输入并非完全独立；高低三分位只是各队列内部的相对状态；同癌种比较仅有 `r structural_same_cancer$cohort_pair_count` 对，且尚未纳入独立分子亚型或临床结局。最直接的下一步是在更多同癌种独立队列中固定 PAM50、CMS 或结局状态，并事先定义“多大改善才有实际意义”；只有结构增益稳定超过这个门槛，才足以支持 d1 真正改善跨队列生物结构。
+完整 bank 的 150 对 43 不对称同时混合了方向、module 数量和 tissue 覆盖。为避免把这些因素误写成“反向天然更好”，本报告在两侧共同拥有的 tissue 内无放回抽取相同数量的 modules：每侧每次都是 `r structural_matched_modules` 个，重复 `r unique(structural_matched_forward_all$repeat_count)` 次。每次仍按原方向使用完全不重叠的 target，并重新拟合该 bank 的 d1 尺度；下图展示这些 bank 设计变化下的平均 d1−Direct 结构差，而不是抽样置信区间。
+
+```{r figure-structural-matched-bank, interp_check=TRUE}
+# ==== Figure 14: Reciprocal matched-bank sensitivity (user-adjustable parameters) ====
+fig14 <- list(
+  # Wide canvas leaves room for two-line direction labels and the external legend.
+  width_in = 7.2,
+  height_in = 4.8,
+  # Base font remains legible in print; jitter exposes all 20 bank repeats.
+  base_size = 11,
+  point_size = 2.0,
+  point_alpha = 0.72,
+  jitter_width = 0.10,
+  jitter_seed = 20260912L,
+  box_width = 0.42,
+  full_point_size = 4.0,
+  zero_line_width = 0.55,
+  legend_position = "bottom"
+)
+structural_full_direction <- data.frame(
+  direction_label = factor(
+    c(
+      "reference_bank_to_external_targets",
+      "external_bank_to_reference_targets"
+    ),
+    levels = c(
+      "reference_bank_to_external_targets",
+      "external_bank_to_reference_targets"
+    ),
+    labels = c(
+      "Reference modules\non external targets",
+      "External modules\non reference targets"
+    )
+  ),
+  mean_delta = c(
+    structural_forward_all$mean_delta,
+    structural_reverse_all$mean_delta
+  )
+)
+p14 <- ggplot2::ggplot(
+  structural_matched_all,
+  ggplot2::aes(x = .data$direction_label, y = .data$mean_delta)
+) +
+  ggplot2::geom_hline(
+    yintercept = 0,
+    linewidth = fig14$zero_line_width,
+    color = "grey55"
+  ) +
+  ggplot2::geom_boxplot(
+    width = fig14$box_width,
+    outlier.shape = NA,
+    fill = "grey92",
+    color = "grey40"
+  ) +
+  ggplot2::geom_jitter(
+    ggplot2::aes(color = .data$bank_role),
+    position = ggplot2::position_jitter(
+      width = fig14$jitter_width,
+      height = 0,
+      seed = fig14$jitter_seed
+    ),
+    size = fig14$point_size,
+    alpha = fig14$point_alpha
+  ) +
+  ggplot2::geom_point(
+    data = structural_full_direction,
+    ggplot2::aes(x = .data$direction_label, y = .data$mean_delta),
+    inherit.aes = FALSE,
+    shape = 23,
+    size = fig14$full_point_size,
+    fill = "white",
+    color = "black",
+    stroke = 0.9
+  ) +
+  ggplot2::scale_color_manual(
+    values = c(
+      reference = nature_colors[["blue"]],
+      external = nature_colors[["orange"]]
+    ),
+    labels = c(reference = "Reference modules", external = "External modules")
+  ) +
+  ggplot2::labs(
+    x = NULL,
+    y = "Mean similarity difference (d1 - Direct)",
+    color = "Matched module bank",
+    caption = "Points: 22-module matched-bank repeats; diamonds: complete banks."
+  ) +
+  theme_nature_readable(
+    base_size = fig14$base_size,
+    x_text_angle = 0,
+    legend_position = fig14$legend_position
+  )
+
+# Readability check: two short direction labels prevent clipping, jitter keeps
+# all repeats visible, the zero line fixes direction, and outlined diamonds
+# distinguish complete-bank estimates from matched design sensitivity.
+fig14_jpg <- .ae_save_plot(
+  p14, "figure-14-structural-matched-bank-sensitivity", figure_dir,
+  preview_dir, fig14, params$plot_preview_dpi
+)
+knitr::include_graphics(fig14_jpg)
+```
+
+解读：结果显示，正向 22-module 重复的平均差范围为 `r fmt(structural_matched_forward_all$mean_delta_min, 4L)` 至 `r fmt(structural_matched_forward_all$mean_delta_max, 4L)`，中位数为 `r fmt(structural_matched_forward_all$mean_delta_median, 4L)`；反向范围为 `r fmt(structural_matched_reverse_all$mean_delta_min, 4L)` 至 `r fmt(structural_matched_reverse_all$mean_delta_max, 4L)`，中位数为 `r fmt(structural_matched_reverse_all$mean_delta_median, 4L)`。两个方向的全队列差异范围均高于零，提示轻度正向变化并不只由 150 对 43 的 bank 大小差异造成；反向在匹配后仍整体更高，但它面对 143 个 reference cohorts，而正向只面对 17 个可估 external cohorts，仍不能解释为“external modules 天然更优”。同癌种子分析的部分重复范围跨零，进一步要求保留描述性口径。
+
+```{r structural-matched-summary-table, echo=FALSE, interp_check=TRUE}
+render_dt(
+  structural_matched_summary[, c(
+    "direction", "scope", "repeat_count", "bank_module_count",
+    "mean_delta_median", "mean_delta_min", "mean_delta_max",
+    "mean_direct_similarity_median", "mean_d1_similarity_median",
+    "fraction_d1_ge_direct_median", "range_interpretation"
+  )],
+  pageLength = 4L
+)
+```
+
+解读：结果显示，`mean_delta_min` 与 `mean_delta_max` 是改变 module-bank 组成后实际观察到的差异范围，不是 95% CI，也不应据此计算显著性。它回答“换一组同 tissue、同数量的 modules，结论方向是否容易翻转”；节点 bootstrap 则回答“在固定完整 bank 后，换一批 target cohorts，均值有多不确定”。两类变异来源不同，这提示设计敏感性与抽样不确定性必须分开报告。
+
+仍需保留三条边界：四个地标轴来自表达 signature，与 Direct 输入并非完全独立；高低三分位只是各队列内部的相对状态；正向同癌种比较仅有 `r structural_same_cancer$cohort_pair_count` 对，且尚未纳入独立分子亚型或临床结局。最直接的下一步是在更多同癌种独立队列中固定 PAM50、CMS 或结局状态，并事先定义“多大改善才有实际意义”；只有结构增益稳定超过这个门槛，才足以支持 d1 真正改善跨队列生物结构。
 
 ## 技术来源与癌种锚点的联合评估
 
@@ -2325,7 +2537,8 @@ Null-Perm 的资格状态为 **`r null_perm_status`**。`r manifest$query_cohort
 | 学习曲线 design-repeat CI 与配对 p 值 | `learning_inference` → `.ae_learning_inference()` | analysis helper script |
 | bank design、breadth/depth slope、matched-size 与交互 | `cohort_scaling$design` / `$metrics` / `$contrasts` | `cohort_scaling.rds` schema v2 |
 | technical-neighbor excess | `retrieval$per_sample` → `.ae_technical_delta()` | `retrieval.rds` |
-| 独立队列结构相似度、d1−Direct 差与节点 bootstrap CI | `structural_pairs` / `structural_summary` | `structural_pair_comparisons.csv` / `structural_summary.csv` |
+| 双向独立队列结构相似度、d1−Direct 差与节点 bootstrap CI | `structural_directional_summary` | `structural_directional_summary.csv` |
+| 22 对 22 tissue-matched bank 设计敏感性 | `structural_matched_repeats` / `structural_matched_summary` | `structural_matched_bank_repeats.csv` / `structural_matched_bank_summary.csv` |
 | 意料中事与 surprising 信号 | `native_geometry` / `retrieval_inference` / `readout_inference` / `biology_inference` / `technical_inference` / `tradeoffs$decoder` | RDS/CSV 结果对象与 analysis helper script |
 | module variance share | `native_geometry$module_diagnostics` | `native_geometry.rds` |
 | decoder 指标 | `tradeoffs$decoder$summary` | `tradeoffs.rds` |
@@ -2346,6 +2559,6 @@ Null-Perm 的资格状态为 **`r null_perm_status`**。`r manifest$query_cohort
 | cohort-evidence scaling | ✅ | breadth/depth 嵌套性、matched-size 配对、repeat bootstrap、双 Direct 合同与 test hash 均可审计 |
 | Null-Perm 资格 | ✅ | 恒定 cohort 内锚点标记为 not_eligible |
 | 数据审计分离 | ✅ | 原始构成与 tissue 恢复由 `r data_report_name` 独立交付，本报告只读取其完整画像 |
-| 图表质量 | ✅ | `r 13L` 张图均输出矢量 PDF 与同源 JPG；结构热图共享固定色标与方形画布 |
+| 图表质量 | ✅ | `r 14L` 张图均输出矢量 PDF 与同源 JPG；结构热图共享固定色标与方形画布 |
 | 结果解读 | ✅ | 每个图表附近均绑定当前 cohort/指标/数值与可证伪后续 |
-| 数字可追溯 | ✅ | 内联数值来自 `r length(c(required_results, structural_paths))` 个正式结果文件及其明确计算链 |
+| 数字可追溯 | ✅ | 内联数值来自 `r length(c(required_results, structural_paths, directional_paths))` 个正式结果文件及其明确计算链 |

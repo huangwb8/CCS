@@ -24,7 +24,7 @@
 5. 在相同 top-15 邻居边界上配对比较 Direct-GSClassifier 与 Cohort-d1，输出覆盖审计、utility、bootstrap 区间和图形；结果作为 HTML 的新增章节。
 6. 以外部 query cohort 为独立统计单位，对 d1−Direct utility 计算 cohort bootstrap 95% CI、精确配对符号置换 P 值，并对四个 anchor 做 BH 校正。
 7. 对 assay、platform、source 的 technical-neighbor excess 使用同一 cohort-level 配对框架，计算 95% CI、sign-flip P 值和 Holm 校正。
-8. `04-ablation03-structural-reproducibility.R` 将 4 个表达锚点的队列内低/高三分位定义为 8 个共享生物实体，在既有 Direct 标准化空间与 d1 module-balanced 空间中计算质心欧氏距离；对 17 个独立队列的 136 个队列对比较距离矩阵上三角的 Spearman 相关，并以同癌种队列对作为稳健性分析。
+8. `04-ablation03-structural-reproducibility.R` 将 4 个表达锚点的队列内低/高三分位定义为 8 个共享生物实体，分别执行 150 个 reference modules → external samples 与 43 个 external modules → reference samples 的互不重叠投影。每个方向只在 module-bank 一侧拟合 Direct、d1 与 anchor 尺度；另以共同 tissue 内每侧 22 个 modules、20 次重复匹配检查 bank 规模与组成敏感性。正向保留 17 个队列的 136 个队列对，反向包含 143 个队列的 10,153 个队列对，并分别报告节点 bootstrap。
 
 ## 主要产物
 
@@ -38,11 +38,18 @@
 - `tmp/ablation-structural-reproducibility/structural_pair_comparisons.csv`
 - `tmp/ablation-structural-reproducibility/structural_summary.csv`
 - `tmp/ablation-structural-reproducibility/structural_similarity_matrices.rds`
+- `tmp/ablation-structural-reproducibility/structural_directional_summary.csv`
+- `tmp/ablation-structural-reproducibility/structural_directional_pair_comparisons.csv`
+- `tmp/ablation-structural-reproducibility/structural_directional_sample_audit.csv`
+- `tmp/ablation-structural-reproducibility/structural_module_bank_audit.csv`
+- `tmp/ablation-structural-reproducibility/structural_matched_bank_design.csv`
+- `tmp/ablation-structural-reproducibility/structural_matched_bank_repeats.csv`
+- `tmp/ablation-structural-reproducibility/structural_matched_bank_summary.csv`
 - `tmp/ablation-structural-reproducibility/ablation03-structural-reproducibility.rds`
-- `figures/figure-01-native-geometry.pdf` 至 `figures/figure-13-structural-similarity-d1.pdf`（出版矢量图；编号按报告模块保留）
+- `figures/figure-01-native-geometry.pdf` 至 `figures/figure-14-structural-matched-bank-sensitivity.pdf`（出版矢量图；编号按报告模块保留）
 - `tmp/plot-previews/02-ablation-experiment-*/figure-*.jpg`（按运行时间戳保存的 200 dpi 预览）
 - `02-ablation03-experiment.html`
 
 外部表达矩阵和 signature RDS 均为只读输入；当前报告不把 cancer_type 当作 biological utility，也不执行 PAM50/CMS 的临时反推。
 
-结构可复现性模块与现有 anchor readout 回答不同问题：前者检查生物状态原型之间的几何能否跨独立队列复现，后者检查单个 query 的局部邻居是否保持连续锚点接近。队列对共享 cohort 节点，故报告使用 cohort-node bootstrap 区间，不把 136 个 dyads 误作独立样本执行普通配对 Wilcoxon 检验。
+结构可复现性模块与现有 anchor readout 回答不同问题：前者检查生物状态原型之间的几何能否跨独立队列复现，后者检查单个 query 的局部邻居是否保持连续锚点接近。这里的 externality 由“目标样本是否参与当前 module-bank 的训练”定义，因此 reference/external 两组可以交换 bank 与 target 角色；反向投影用于检验互惠性和 bank 依赖，不替代生产模型的正向外部验证。队列对共享 cohort 节点，故报告使用 cohort-node bootstrap 区间；22 对 22 重复匹配报告的是设计敏感性范围，不是置信区间。
