@@ -9,6 +9,7 @@
 - `02-ablation03-cohort-scaling.R`：单独重算 cohort scaling；
 - `01-ablation03-biology-cache.R`：一次性构建表达矩阵/anchor 子集缓存；
 - `03-ablation-biology.R`：运行生物学锚点评估（也可使用同名 Python 脚本）。
+- `04-ablation03-structural-reproducibility.R`：比较 Direct 与 d1 的独立队列间生物状态几何可复现性。
 
 中间结果统一写入本目录的 `tmp/`，图表写入本目录的 `figures/`。外部数据路径可通过 `CCS_DATA_ROOT`、`CCS_SYNC_ROOT`、`CCS_FULL_EXPRESSION_RDS` 和 `CCS_GENE_SIGNATURE_RDS` 覆盖，便于在不同机器上复现或排查。
 
@@ -23,6 +24,7 @@
 5. 在相同 top-15 邻居边界上配对比较 Direct-GSClassifier 与 Cohort-d1，输出覆盖审计、utility、bootstrap 区间和图形；结果作为 HTML 的新增章节。
 6. 以外部 query cohort 为独立统计单位，对 d1−Direct utility 计算 cohort bootstrap 95% CI、精确配对符号置换 P 值，并对四个 anchor 做 BH 校正。
 7. 对 assay、platform、source 的 technical-neighbor excess 使用同一 cohort-level 配对框架，计算 95% CI、sign-flip P 值和 Holm 校正。
+8. `04-ablation03-structural-reproducibility.R` 将 4 个表达锚点的队列内低/高三分位定义为 8 个共享生物实体，在既有 Direct 标准化空间与 d1 module-balanced 空间中计算质心欧氏距离；对 17 个独立队列的 136 个队列对比较距离矩阵上三角的 Spearman 相关，并以同癌种队列对作为稳健性分析。
 
 ## 主要产物
 
@@ -32,8 +34,15 @@
 - `tmp/ablation-biology/anchor_inference.csv`（cohort-level 效应量、95% CI、P 值和 BH 校正 P 值）
 - `tmp/ablation-biology/expression-anchor-cache.rds`（一次性缓存，含 schema、来源哈希、样本键哈希与覆盖审计）
 - `tmp/ablation-biology/anchor_missing_pairs.csv`（每个 anchor/表示的有效与缺失邻居对数）
-- `figures/figure-01-native-geometry.pdf` 至 `figures/figure-10-inference-summary.pdf`（出版矢量图）
+- `tmp/ablation-structural-reproducibility/structural_entity_audit.csv`
+- `tmp/ablation-structural-reproducibility/structural_pair_comparisons.csv`
+- `tmp/ablation-structural-reproducibility/structural_summary.csv`
+- `tmp/ablation-structural-reproducibility/structural_similarity_matrices.rds`
+- `tmp/ablation-structural-reproducibility/ablation03-structural-reproducibility.rds`
+- `figures/figure-01-native-geometry.pdf` 至 `figures/figure-13-structural-similarity-d1.pdf`（出版矢量图；编号按报告模块保留）
 - `tmp/plot-previews/02-ablation-experiment-*/figure-*.jpg`（按运行时间戳保存的 200 dpi 预览）
 - `02-ablation03-experiment.html`
 
 外部表达矩阵和 signature RDS 均为只读输入；当前报告不把 cancer_type 当作 biological utility，也不执行 PAM50/CMS 的临时反推。
+
+结构可复现性模块与现有 anchor readout 回答不同问题：前者检查生物状态原型之间的几何能否跨独立队列复现，后者检查单个 query 的局部邻居是否保持连续锚点接近。队列对共享 cohort 节点，故报告使用 cohort-node bootstrap 区间，不把 136 个 dyads 误作独立样本执行普通配对 Wilcoxon 检验。

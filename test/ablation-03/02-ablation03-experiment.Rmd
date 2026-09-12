@@ -28,7 +28,7 @@ output:
 
 ```{r setup, include=FALSE}
 # Purpose: Load completed computation artifacts and prepare report-only summaries.
-# Input: Data audit from stage 01 plus eight products from 02-ablation-experiment.R.
+# Input: Data audit, the stage-02 products, biology cache, and stage-04 structural results.
 # Parameters: Display thresholds from YAML params; no scientific winner threshold is invented.
 # Output: Traceable variables used by inline numbers, tables, and figures.
 # Stage 01 prepares one self-consistent CCS object with complete precomputed d1
@@ -114,6 +114,96 @@ biology_status <- if (biology_available && nrow(biology_utility) > 0L &&
 } else {
   "not_estimable"
 }
+structural_dir <- .ablation03_path(
+  "tmp", "ablation-structural-reproducibility"
+)
+structural_paths <- file.path(
+  structural_dir,
+  c(
+    "structural_entity_audit.csv",
+    "structural_pair_comparisons.csv",
+    "structural_summary.csv",
+    "structural_similarity_matrices.rds",
+    "ablation03-structural-reproducibility.rds"
+  )
+)
+if (!all(file.exists(structural_paths))) {
+  stop(
+    "The structural reproducibility results are unavailable; run stage 04.",
+    call. = FALSE
+  )
+}
+structural_entity_audit <- read.csv(structural_paths[1L], check.names = FALSE)
+structural_pairs <- read.csv(structural_paths[2L], check.names = FALSE)
+structural_summary <- read.csv(structural_paths[3L], check.names = FALSE)
+structural_matrices <- readRDS(structural_paths[4L])
+structural_result <- readRDS(structural_paths[5L])
+structural_functions_name <-
+  "04-ablation03-structural-reproducibility_functions.R"
+structural_all <- structural_summary[
+  structural_summary$scope == "all_cohort_pairs",
+  ,
+  drop = FALSE
+]
+structural_same_cancer <- structural_summary[
+  structural_summary$scope == "same_cancer_type",
+  ,
+  drop = FALSE
+]
+structural_best <- structural_pairs[
+  which.max(structural_pairs$delta_d1_minus_direct),
+  ,
+  drop = FALSE
+]
+structural_worst <- structural_pairs[
+  which.min(structural_pairs$delta_d1_minus_direct),
+  ,
+  drop = FALSE
+]
+structural_paired_long <- rbind(
+  data.frame(
+    pair_id = seq_len(nrow(structural_pairs)),
+    representation = "Direct-GSClassifier",
+    similarity = structural_pairs$direct_similarity
+  ),
+  data.frame(
+    pair_id = seq_len(nrow(structural_pairs)),
+    representation = "Cohort-d1",
+    similarity = structural_pairs$d1_similarity
+  )
+)
+structural_paired_long$representation <- factor(
+  structural_paired_long$representation,
+  levels = c("Direct-GSClassifier", "Cohort-d1")
+)
+structural_cohorts <- rownames(structural_matrices[["Direct-GSClassifier"]])
+structural_labels <- sub("/TCGATARGET-", "/TCGA-", structural_cohorts)
+structural_labels <- gsub("/", "\n", structural_labels, fixed = TRUE)
+names(structural_labels) <- structural_cohorts
+structural_matrix_long <- function(matrix, representation) {
+  data <- as.data.frame(as.table(matrix), responseName = "similarity")
+  names(data)[1:2] <- c("cohort_a", "cohort_b")
+  data$representation <- representation
+  data$cohort_a <- factor(
+    data$cohort_a,
+    levels = structural_cohorts,
+    labels = unname(structural_labels[structural_cohorts])
+  )
+  data$cohort_b <- factor(
+    data$cohort_b,
+    levels = rev(structural_cohorts),
+    labels = unname(structural_labels[rev(structural_cohorts)])
+  )
+  data
+}
+structural_direct_heatmap <- structural_matrix_long(
+  structural_matrices[["Direct-GSClassifier"]],
+  "Direct-GSClassifier"
+)
+structural_d1_heatmap <- structural_matrix_long(
+  structural_matrices[["Cohort-d1"]],
+  "Cohort-d1"
+)
 
 # ablation-03 extends, rather than replaces, every ablation-02 result loaded above.
 if (cohort_scaling$status != "complete") {
@@ -744,6 +834,7 @@ render_dt(overview_table, pageLength = 11)
 | 外部 readout | `.ablation_linear_readout()` + `.ae_readout_inference()` | grouped `r manifest$config$validation$inner_folds`-fold CV；lambda = `r paste(manifest$config$validation$lambda, collapse = "/")` | 预处理与调参均在 reference 内完成，两臂预算一致；query cohort bootstrap 单独报告 | `R/ablation.R:` `r find_source_line(".ablation_linear_readout <- function")`；`02-ablation03-experiment_functions.R` |
 | 配对学习曲线 | `.ablation_learning_curve()` + `.ae_learning_inference()` | `r paste(100 * manifest$config$validation$learning_fractions, collapse = "/")`% × `r manifest$config$validation$repeats` repeats | 区分小样本归纳偏置与信息上限；以唯一 training-cohort design 做配对 CI | `R/ablation.R:` `r find_source_line(".ablation_learning_curve <- function")`；`02-ablation03-experiment_functions.R` |
 | cohort-evidence scaling | `.ablation_cohort_bank_design()` / `.ablation_representation_scaling()` | breadth、depth、matched-size × `r manifest$config$scaling$sequences` repeats；完整 Direct 主合同 + TSP sensitivity | 分离 tissue breadth 与 within-tissue depth；bootstrap 只重采样 design repeat | `R/ablation.R:` `r find_source_line(".ablation_cohort_bank_design <- function")` |
+| 独立队列结构可复现性 | `.asr_build_cohort_geometries()` / `.asr_compare_cohort_pairs()` | `r length(structural_result$method$anchors)` 个表达锚点的队列内高低三分位，共 `r length(unique(structural_entity_audit$entity))` 个实体；欧氏质心距离；上三角 Spearman | 每个队列使用同一组外部生物状态原型，在不训练分类器的条件下比较 Direct/d1 几何能否跨队列复现 | `r structural_functions_name` |
 | 信息损失 | `.ablation_decode_direct_features()` | rank = `r tradeoffs$decoder$rank`；ridge lambda = `r tradeoffs$decoder$lambda` | 按 feature type 量化 d1 无法恢复的原生输入 | `R/ablation.R:` `r find_source_line(".ablation_decode_direct_features <- function")` |
 
 ## 指标导读
@@ -767,6 +858,7 @@ render_dt(overview_table, pageLength = 11)
 | d1−Direct 配对差 | 对零至一指标而言为负一至一 | 零表示不变；正值表示 d1 更高，负值表示 d1 更低；差十分之一等于绝对改变十个百分点 | 像两次考试分数相减：正数表示第二次更高，负数表示第二次更低 |
 | breadth-heavy−depth-heavy 配对差 | 负一至一（含端点） | 零表示相同 module 总数下两种分配无差异；effective rank/stability 正值偏向 breadth，redundancy 负值偏向 breadth | 像给两队同样多的座位，再看“多去不同年级”和“同年级多听几个班”哪种安排更合适 |
 | Technical-neighbor excess 差 | 单臂 excess 为负一至一；d1−Direct 为负二至二 | 负值表示 d1 减少额外同技术邻居聚集，正值表示聚集增强；负十分之一表示减少十个百分点 | 像先扣除“本来就同班”的影响，再看同款相机拍的照片是否仍爱挤在一起 |
+| 跨队列结构相似度 | 负一至一（含端点） | 对两个队列各自的 `r length(unique(structural_entity_audit$entity))` 阶生物状态距离矩阵取上三角 Spearman；越高表示实体远近排序越能跨队列复现，d1−Direct 为正表示 d1 更稳定 | 像比较两座城市中同一组地标的远近次序；次序越一致，地图结构越可复现 |
 | Module variance share | 零至一（含端点），所有 modules 之和为一 | 单个或 Top 组占比升高表示贡献更集中在少数 modules；下降表示更多 modules 共同参与 | 像把所有人的音量合成一百分，再看哪几个人说话最响 |
 | Brier score | 零至一（含端点） | 越低表示概率预测越准；上升表示预测概率离正确答案更远；图中用“一减 Brier”后方向改为越高越好 | 像猜下雨概率：不仅看猜对没猜对，还看你有多确定，离答案越远扣分越多 |
 | Spearman | 负一至一（含端点） | 升高表示重建后高低排序保留得更好；接近零表示排序不稳定，负值表示排序趋向反转 | 像把玩具按高矮重新排队：越接近一，重排后的顺序越像原来 |
@@ -1598,6 +1690,236 @@ if (identical(biology_status, "complete")) {
 
 该层结果的判读门槛是“是否在预先定义的独立目标上保持跨 cohort 的方向与覆盖”，而不是选择 utility 最大的 anchor。若 `status = not_estimable`，后续结论只能停留在几何、技术来源和 lineage 诊断层，不能声称 d1 已经恢复或创造了新的生物学状态。
 
+## 独立队列间的生物结构可复现性
+
+前一节问的是“同一队列内，表示空间中的近邻是否保留表达锚点”；本节改问“切换到另一个独立队列后，同一组生物状态之间的远近关系能否复现”。它不训练分类器，也不报告 accuracy、AUROC 或 F1。由于每个外部队列只有一个 `cancer_type`，癌种不能在队列内形成多个质心；因此，本节使用 `r length(structural_result$method$anchors)` 个既有表达锚点各自的队列内低、高三分位状态，形成 `r length(unique(structural_entity_audit$entity))` 个跨队列同名实体。中间三分位不参与原型估计，使低、高状态保持分离；每个实体至少包含 `r structural_result$method$min_entity_n` 个样本。
+
+Direct 使用 reference atlas 拟合的逐特征标准化，d1 使用既有 module-balanced 变换；两者都沿用主消融的距离合同。每个“队列 × 表示 × 生物实体”以样本质心概括，再计算 `r length(unique(structural_entity_audit$entity))` 阶欧氏距离矩阵。两个队列的结构相似度是其距离矩阵上三角 `r structural_pairs$compared_distance_count[1L]` 个实体对距离的 Spearman 相关；因此它比较的是生物实体远近的排序，而不是两个表示维度或绝对距离的直接对应。
+
+```{r structural-entity-audit, echo=FALSE, interp_check=TRUE}
+render_dt(structural_entity_audit, pageLength = 12)
+```
+
+解读：结果显示，实体审计表完整保留每个队列、锚点和高低状态的原队列样本数、原型样本数与有效基因数。`r structural_all$cohort_count` 个外部队列均形成 `r length(unique(structural_entity_audit$entity))` 个实体，每个队列对因而使用完全相同的生物实体集合；这一覆盖一致性提示，比较差异不来自困难实体的选择性缺失。主要局限是状态只代表队列内相对高低，不应解释为跨平台统一的绝对临床阈值。
+
+```{r structural-pair-table, echo=FALSE, interp_check=TRUE}
+render_dt(
+  structural_pairs[, c(
+    "cohort_a", "cohort_b", "cancer_type_a", "cancer_type_b",
+    "same_cancer_type", "shared_entity_count", "compared_distance_count",
+    "direct_similarity", "d1_similarity", "delta_d1_minus_direct"
+  )],
+  pageLength = 12
+)
+```
+
+解读：结果显示，队列对明细表在同一实体集合上并排给出 Direct、d1 和 d1−Direct。共 `r structural_all$cohort_pair_count` 个有效队列对，全部共享 `r min(structural_pairs$shared_entity_count)` 个实体。最大正差来自 `r structural_best$cohort_a` 与 `r structural_best$cohort_b`（`r fmt(structural_best$delta_d1_minus_direct)`），最大负差来自 `r structural_worst$cohort_a` 与 `r structural_worst$cohort_b`（`r fmt(structural_worst$delta_d1_minus_direct)`）；正负差异并存提示 d1 的影响具有明显 cohort 依赖性，不能只用总体均值概括。
+
+```{r figure-structural-paired, interp_check=TRUE}
+# ==== Figure 11: Cross-cohort structural similarity (user-adjustable parameters) ====
+fig11 <- list(
+  # Canvas size (inches). Increase width for longer representation labels;
+  # increase height if the similarity distribution looks compressed.
+  width_in = 5.8,
+  height_in = 4.8,
+  # Base font size (pt). Values around 10-12 remain readable in print.
+  base_size = 11,
+  # Thin translucent pair lines retain 136 comparisons without forming a dark wall.
+  pair_line_width = 0.35,
+  pair_alpha = 0.20,
+  # Point size/alpha balance individual visibility against overplotting.
+  point_size = 1.8,
+  point_alpha = 0.62,
+  # Median diamonds are larger so the central shift remains visible.
+  median_size = 3.2,
+  # All frozen similarities are positive; 0-1 avoids an empty negative panel.
+  y_limits = c(0, 1),
+  legend_position = "none"
+)
+structural_medians <- stats::aggregate(
+  similarity ~ representation,
+  data = structural_paired_long,
+  FUN = stats::median
+)
+p11 <- ggplot2::ggplot(
+  structural_paired_long,
+  ggplot2::aes(
+    x = .data$representation,
+    y = .data$similarity,
+    group = .data$pair_id
+  )
+) +
+  ggplot2::geom_line(
+    linewidth = fig11$pair_line_width,
+    alpha = fig11$pair_alpha,
+    color = "grey55"
+  ) +
+  ggplot2::geom_point(
+    ggplot2::aes(color = .data$representation),
+    size = fig11$point_size,
+    alpha = fig11$point_alpha
+  ) +
+  ggplot2::geom_point(
+    data = structural_medians,
+    ggplot2::aes(
+      x = .data$representation,
+      y = .data$similarity
+    ),
+    inherit.aes = FALSE,
+    shape = 23,
+    size = fig11$median_size,
+    fill = "white",
+    color = "black"
+  ) +
+  ggplot2::scale_color_manual(values = c(
+    `Direct-GSClassifier` = nature_colors[["blue"]],
+    `Cohort-d1` = nature_colors[["orange"]]
+  )) +
+  ggplot2::scale_y_continuous(
+    limits = fig11$y_limits,
+    breaks = seq(fig11$y_limits[1L], fig11$y_limits[2L], 0.25)
+  ) +
+  ggplot2::labs(
+    x = NULL,
+    y = "Cross-cohort structural similarity (Spearman)"
+  ) +
+  theme_nature_readable(
+    base_size = fig11$base_size,
+    x_text_angle = 0,
+    legend_position = fig11$legend_position
+  )
+
+# Readability check: low-alpha lines prevent 136 pairs from obscuring one
+# another, median diamonds expose the central shift, and the frozen positive
+# range removes unused space without changing any value or internal title.
+fig11_jpg <- .ae_save_plot(
+  p11, "figure-11-structural-reproducibility-paired", figure_dir,
+  preview_dir, fig11, params$plot_preview_dpi
+)
+knitr::include_graphics(fig11_jpg)
+```
+
+解读：结果显示，Direct 的跨队列结构相似度均值/中位数为 `r fmt(structural_all$mean_direct_similarity)` / `r fmt(structural_all$median_direct_similarity)`，d1 为 `r fmt(structural_all$mean_d1_similarity)` / `r fmt(structural_all$median_d1_similarity)`。d1−Direct 的均值为 `r fmt(structural_all$mean_delta, 4L)`，中位数为 `r fmt(structural_all$median_delta, 4L)`，`r fmt_pct(structural_all$fraction_d1_ge_direct)` 的队列对不低于 Direct。**方向上 d1 略高，但效应很小，并非一致改善。** 统计不确定性来自 cohort 节点 bootstrap；平均差 `r 95L`% 区间为 `r fmt(structural_all$mean_delta_ci_low, 4L)` 至 `r fmt(structural_all$mean_delta_ci_high, 4L)`，明显跨过零，提示当前数据不能排除小幅改善、无差异或小幅下降。
+
+```{r figure-structural-direct-heatmap, interp_check=TRUE}
+# ==== Figure 12: Direct structural-similarity heatmap (user-adjustable parameters) ====
+fig12 <- list(
+  # Square canvas leaves room for 17 cohort labels on both axes.
+  width_in = 8.2,
+  height_in = 7.4,
+  # Base font and tile border sizes preserve labels and cell boundaries in print.
+  base_size = 9,
+  tile_line_width = 0.18,
+  # A 45-degree x label avoids overlap; the legend stays outside the data grid.
+  x_text_angle = 45,
+  # Both panels share 0-1 because every frozen pair is positive; this expands
+  # visible contrast while preserving direct cellwise comparability.
+  fill_limits = c(0, 1),
+  fill_midpoint = 0.5,
+  legend_position = "right"
+)
+p12 <- ggplot2::ggplot(
+  structural_direct_heatmap,
+  ggplot2::aes(
+    x = .data$cohort_a,
+    y = .data$cohort_b,
+    fill = .data$similarity
+  )
+) +
+  ggplot2::geom_tile(
+    color = "white",
+    linewidth = fig12$tile_line_width
+  ) +
+  ggplot2::scale_fill_gradient2(
+    low = nature_colors[["blue"]],
+    mid = "white",
+    high = nature_colors[["red"]],
+    midpoint = fig12$fill_midpoint,
+    limits = fig12$fill_limits,
+    name = "Spearman"
+  ) +
+  ggplot2::labs(x = "Cohort", y = "Cohort") +
+  ggplot2::coord_fixed() +
+  theme_nature_readable(
+    base_size = fig12$base_size,
+    x_text_angle = fig12$x_text_angle,
+    legend_position = fig12$legend_position
+  )
+
+# Readability check: cohort labels are shortened only for display and wrapped
+# onto two lines; a square grid, external legend, and fixed color scale avoid
+# clipping and make this panel directly comparable with Figure 13.
+fig12_jpg <- .ae_save_plot(
+  p12, "figure-12-structural-similarity-direct", figure_dir,
+  preview_dir, fig12, params$plot_preview_dpi
+)
+knitr::include_graphics(fig12_jpg)
+```
+
+解读：Direct 热图显示大多数队列对保持正的生物状态距离排序，但颜色深浅并不均一；其总体均值为 `r fmt(structural_all$mean_direct_similarity)`，说明 Direct 本身已经编码了可跨队列复现的结构。热图的价值不是寻找单个最红单元，而是暴露队列依赖性：例如最负 d1 差异涉及 `r structural_worst$cohort_a`，后续应优先检查该队列的样本构成、锚点分布与技术来源，而不能把总体正差外推给所有队列。
+
+```{r figure-structural-d1-heatmap, interp_check=TRUE}
+# ==== Figure 13: d1 structural-similarity heatmap (user-adjustable parameters) ====
+# Reuse the exact Figure 12 dimensions, typography, and color limits so visual
+# differences reflect data rather than plotting choices.
+fig13 <- fig12
+p13 <- ggplot2::ggplot(
+  structural_d1_heatmap,
+  ggplot2::aes(
+    x = .data$cohort_a,
+    y = .data$cohort_b,
+    fill = .data$similarity
+  )
+) +
+  ggplot2::geom_tile(
+    color = "white",
+    linewidth = fig13$tile_line_width
+  ) +
+  ggplot2::scale_fill_gradient2(
+    low = nature_colors[["blue"]],
+    mid = "white",
+    high = nature_colors[["red"]],
+    midpoint = fig13$fill_midpoint,
+    limits = fig13$fill_limits,
+    name = "Spearman"
+  ) +
+  ggplot2::labs(x = "Cohort", y = "Cohort") +
+  ggplot2::coord_fixed() +
+  theme_nature_readable(
+    base_size = fig13$base_size,
+    x_text_angle = fig13$x_text_angle,
+    legend_position = fig13$legend_position
+  )
+
+# Readability check: Figure 13 deliberately shares Figure 12's label wrapping,
+# square aspect, external legend, and common 0 to 1 scale, enabling cellwise visual
+# comparison without rescaling artifacts.
+fig13_jpg <- .ae_save_plot(
+  p13, "figure-13-structural-similarity-d1", figure_dir,
+  preview_dir, fig13, params$plot_preview_dpi
+)
+knitr::include_graphics(fig13_jpg)
+```
+
+解读：结果显示，d1 热图的总体均值为 `r fmt(structural_all$mean_d1_similarity)`，与 Direct 的差异仅为 `r fmt(structural_all$mean_delta, 4L)`；局部既有加深也有变浅，提示效应具有明显异质性。**本节支持的是“d1 的生物几何没有出现总体性恶化，并呈轻微正向趋势”，而不是“d1 已学习到普遍 cohort-invariant 空间”。** 统计局限在于 `r structural_all$cohort_count` 个 cohort 节点产生的 `r structural_all$cohort_pair_count` 个 pair rows 彼此依赖，因此普通配对 Wilcoxon 会把共享节点当作独立重复；本报告不输出这种反保守 P 值，而以 cohort-node bootstrap 区间表达不确定性。
+
+```{r structural-summary-table, echo=FALSE, interp_check=TRUE}
+render_dt(
+  structural_summary[, c(
+    "scope", "cohort_count", "cohort_pair_count",
+    "mean_direct_similarity", "median_direct_similarity",
+    "mean_d1_similarity", "median_d1_similarity", "mean_delta",
+    "median_delta", "fraction_d1_ge_direct", "mean_delta_ci_low",
+    "mean_delta_ci_high", "inference_method", "p_value_reason"
+  )],
+  pageLength = 5
+)
+```
+
+解读：同癌种独立队列构成唯一的轻量稳健性分析，共 `r structural_same_cancer$cohort_pair_count` 对。其 Direct/d1 平均相似度为 `r fmt(structural_same_cancer$mean_direct_similarity)` / `r fmt(structural_same_cancer$mean_d1_similarity)`，平均差为 `r fmt(structural_same_cancer$mean_delta, 4L)`，`r fmt_pct(structural_same_cancer$fraction_d1_ge_direct)` 的队列对不低于 Direct；节点 bootstrap 区间为 `r fmt(structural_same_cancer$mean_delta_ci_low, 4L)` 至 `r fmt(structural_same_cancer$mean_delta_ci_high, 4L)`。方向与全体队列一致但仍跨零，因此癌种构成并未解释掉全部正向趋势，也没有把它提升为稳定证据。综合主分析和稳健性结果，核心假设得到**描述性、部分支持**：d1 平均上不差且多数 pair 非负，但改进幅度小、队列间异质性大、不确定性仍覆盖零。
+
+这一分析有实际价值，因为它补上了“队列内生物保持”与“队列间结构复现”之间原本缺失的一环，也显示技术依赖下降并未自动转化为强结构增益。限制同样明确：`r length(structural_result$method$anchors)` 个实体轴仍来自表达 signature，与 Direct 输入并非完全正交；高低三分位是队列内相对状态，实体之间可能共享样本；同癌种仅有 `r structural_same_cancer$cohort_pair_count` 对，且尚无独立分子亚型或临床结局。最直接的后续验证是冻结带明确出处的 PAM50/CMS 或 outcome 状态，在更多同癌种独立队列中复用同一原型定义，并以预先设定的最小重要差异判断 d1 的结构增益是否稳定超过零。
+
 ## 技术来源与癌种锚点的联合评估
 
 模型可能只是按测序平台、assay 或数据来源把样本分堆，而不是学到可迁移的生物结构。为避免“某癌种本来就主要来自某个平台”被误判成模型偏好，technical-neighbor excess 分三步计算：先在技术标签有效的 query 邻居中求同技术来源的实际比例；再在“其他 cohorts、同癌种”的有效 reference 中计算同技术来源的背景比例；最后用“实际比例减背景比例”得到 excess。excess 为零表示观察到的技术聚集可由癌种构成解释，正值表示仍有额外同技术聚集，负值表示比背景预期更少。图中每个点先在一个 cohort 内对样本 excess 差取平均，正文所报三个总体值再对这些 cohort 点等权平均。
@@ -1905,6 +2227,20 @@ Null-Perm 的资格状态为 **`r null_perm_status`**。`r manifest$query_cohort
 
 这张表的“支持度”是对当前证据的相对判断，不是正式的概率或显著性等级；尤其“中高”只能表示多个结果方向一致，不能替代独立验证。
 
+#### 意料中事与 surprising 信号
+
+把本次发现拆成“意料中事”和“surprising 信号”是必要的，因为二者服务于不同的讨论目标：前者确认 d1 是否按设计改变了表示空间，后者提示下一轮最值得追问的机制。**意料中的是 d1 对旧癌种标签的 recoverability 下降，但并未退化成随机噪声。** d1 的 CKA 和距离相关分别为 `r fmt(native_geometry$metrics$metric_value[native_geometry$metrics$metric_name == "linear_cka"])` / `r fmt(native_geometry$metrics$metric_value[native_geometry$metrics$metric_name == "distance_spearman"])`，说明它仍保留 Direct 的相当部分全局关系；但局部 kNN Jaccard 只有 `r fmt(native_geometry$metrics$metric_value[native_geometry$metrics$metric_name == "knn_jaccard"])`，k=`r params$display_k` 时 top-k/MRR 的 cohort 等权差为 `r fmt(retrieval_cohort_mean_delta)` / `r fmt(retrieval_cohort_mrr_delta)`，说明近邻结构确实被重新组织。这个结果符合 d1 的构造逻辑：它不是 Direct-GSClassifier features 的无损副本，而是将同一份输入交给 `r manifest$module_count` 个冻结 cohort modules 后形成的证据向量；旧 cancer type 因而更像保护性参照，而不是优化目标。
+
+另一个意料中事是 d1 保留信息但带有瓶颈。Direct features 可由 d1 线性重建到一定程度，gene-pair balanced accuracy 为 `r fmt(decoder_summary$balanced_accuracy[decoder_summary$feature_type == "gene_pair"])`，single-bin Spearman 为 `r fmt(decoder_summary$spearman[decoder_summary$feature_type == "single_bin"])`；同时 d1 effective rank 为 `r fmt(native_geometry$metrics$metric_value[native_geometry$metrics$metric_name == "d1_effective_rank"])`，低于 Direct 的 `r fmt(native_geometry$metrics$metric_value[native_geometry$metrics$metric_name == "direct_effective_rank"])`。这组结果更像“有方向的信息压缩”，而不是信息消失。合理推断是：cohort models 把 raw feature 中与各训练 cohort 决策边界相关的部分保留下来，同时削弱一部分只对原始表达近邻或旧癌种分类有帮助的连续差异；如果该推断成立，后续应能看到高 decoder-error feature 与 lineage/technical readout 的贡献重叠，而不是随机分散在所有 feature 上。
+
+真正 surprising 的第一点，是 **assay、platform、source 三个 technical-neighbor excess 同时下降，而且方向很整齐**：`r paste(technical_summary$technical_factor, sprintf("%+.3f", technical_summary$mean_delta), sep = " = ", collapse = "; ")`，对应 cohort-level 95% CI 均低于 0，Holm 校正 P 值最大为 `r fmt_p(max(technical_inference$p_value_adj, na.rm = TRUE))`。这比“某个技术字段下降”更有价值，因为它说明 d1 的变化不是单一 metadata 列造成的偶然现象。合理推断有两个：一是 module-balanced d1 距离把多个 cohort models 的输出等权整合，削弱了单一平台或来源在 Direct 空间里的近邻吸引；二是 cancer type 与 cohort/技术来源混杂，部分被削弱的 lineage recoverability 可能正好落在技术捷径重叠的方向上。二者可以被区分：若在 cancer type、assay、platform、source 条件化匹配后 technical excess 仍下降，而 pathway/TME/outcome 锚点不下降，才更支持“技术捷径被选择性削弱”；若 lineage 和 technical 信号一起消失，则更接近无选择混合或过强瓶颈。
+
+第二个 surprising 点更尖锐：**四个独立 expression anchors 没有显示 d1 的邻居更接近，反而全部偏向 Direct。** 在 proliferation、immune TME、stromal TME 和 IFN/IL6 上，d1−Direct utility 的 cohort-level estimate 均为负，范围为 `r fmt(min(biology_inference$estimate, na.rm = TRUE))` 至 `r fmt(max(biology_inference$estimate, na.rm = TRUE))`，且 BH 校正 P 值最大为 `r fmt_p(max(biology_inference$p_value_adj, na.rm = TRUE))`。这不能简单写成“d1 没有生物学”，因为这些 anchors 是从表达矩阵直接计算的连续 signature mean，而 Direct-GSClassifier features 本身更贴近原始表达排序；d1 经过 cohort classifiers 后可能保留了判别边界，却损失了邻居间的连续 signature 幅度。因此更合理的推断是：当前 d1 的正向价值若存在，可能不体现在“同一 signature 均值更近”这种局部连续邻居任务上，而需要在状态稳定性、跨 cohort 迁移、lineage-conditioned pathway 或 outcome readout 中体现。若下一轮独立任务仍全部偏向 Direct，就应把 d1 的定位从“更好表达生物状态”收窄为“弱化技术/lineage 中心化的候选中间表示”。
+
+新增的跨 cohort 结构分析进一步限定了这一 surprising 信号：d1 的局部 anchor utility 虽然全面低于 Direct，但 `r length(unique(structural_entity_audit$entity))` 个高低生物状态原型的跨队列距离排序并未同步恶化。`r structural_all$cohort_pair_count` 个队列对中，d1−Direct 结构相似度均值为 `r fmt(structural_all$mean_delta, 4L)`，`r fmt_pct(structural_all$fraction_d1_ge_direct)` 的 pair 非负；然而 cohort-node bootstrap `r 95L`% 区间为 `r fmt(structural_all$mean_delta_ci_low, 4L)` 至 `r fmt(structural_all$mean_delta_ci_high, 4L)`。这组张力更符合“局部连续幅度受损，但较粗粒度状态关系大体保留”的解释；由于效应很小且区间跨零，它仍不能证明 d1 已增强生物学结构。
+
+第三个 surprising 点是汇总权重造成的结论张力。pooled readout 中 d1 的 balanced accuracy 低于 Direct（差值 `r fmt(readout_delta)`），但 query cohort 等权推断的差值为 `r fmt(readout_inference_delta)`，95% CI 为 `r fmt_ci(readout_inference[readout_inference$endpoint == "cohort_accuracy", ])`，并未形成稳定的 cohort-level 显著性。这说明本次 readout 不是“所有外部 cohort 等幅下降”，而是受 cohort 样本量、单癌种 query 设计和少数强差异 cohort 共同影响。合理推断是：d1 的影响具有 cohort/context 依赖性；下一步不应只扩大样本数，而应把最负和最正的 query cohorts 分别拿出来，对照其技术来源、reference 候选池组成、module variance share 和 decoder-error profile，判断差异来自真实表示改写、技术混杂，还是 reference atlas 覆盖不均。
+
 二维 bank design 将“增加组织背景”和“同组织增加独立队列”从单一 module-count 斜率中拆开。Normalized effective rank 的 breadth/depth 斜率分别为 `r fmt(rank_breadth$estimate)` / `r fmt(rank_depth$estimate)`；matched-size breadth-heavy 减 depth-heavy 的 effective-rank、redundancy 和 stability 差分别为 `r fmt(rank_matched$estimate)`、`r fmt(redundancy_matched$estimate)` 和 `r fmt(stability_matched$estimate)`。这些效应共同约束新增 cohort evidence 是否非冗余且可重复，比旧的 d1–TSP 癌种差值曲线更贴近 CCS 的设计问题。就当前结果而言，breadth 更像是在扩展证据覆盖面，depth 更像是在增加同一背景下的重复证据强度；两者都不是“统一癌种状态”的替代说法。但在 external biology 为 `r biology_scaling_status$status` 时，仍不能外推到任何独立生物或临床任务的效用。
 
 三个技术来源的 excess 同向下降：`r paste(technical_summary$technical_factor, sprintf("%+.3f", technical_summary$mean_delta), sep = " = ", collapse = "; ")`，这是本次实验中最强的正向结果。`d1` 的 CKA、距离相关和局部 Jaccard 也表明，cohort bank 对原始表示进行了实质性改写。综合来看，**`d1` 同时表现出癌种中心化减弱和技术边界弱化，但本轮实验尚未检验新状态是否真正有用。** 鉴于 matched-size effective-rank 的 95% CI 跨零、bank-design 仅有 `r manifest$config$scaling$sequences` 个 repeats，且独立生物锚点状态为 `r biology_scaling_status$status`，这些结果不足以证明 CCS 已经成功，也不应让与研究目标并不等价的癌种分类结果主导整体判断。
@@ -1954,6 +2290,7 @@ Null-Perm 的资格状态为 **`r null_perm_status`**。`r manifest$query_cohort
 
 - **先定义成功标准**：采用一到两个真正的外部目标，例如 pathway state、TME state、治疗反应或 outcome；输入为独立 cohort 的目标标签；判据是跨 cohort 的共享证据能迁移，且癌种/亚型特异性差异仍被保留。
 - **做条件化和留一队列验证**：在相同 cancer type、assay、platform、source 背景下进行 d1 与 Direct 的比较，并用 leave-one-cohort-out 重算；判据是技术聚集下降和 lineage 变化在留出队列中仍然存在。
+- **逐项验证 surprising 信号**：对 technical excess 同向下降、expression anchors 全部偏向 Direct、readout 汇总权重张力分别建立可证伪检验；输入为同一批 query/reference 邻居、anchor scores、技术标签和 per-cohort readout，判据是条件化后方向是否保留、独立任务是否改善、极端 cohort 是否能由 atlas 覆盖或 decoder-error 解释。
 - **把 breadth/depth 设计做得更公平**：增加 bank composition repeats，使用相同的 module 数、样本量和 cohort 数作为输入，并估计 breadth×depth 交互；判据是效应方向在多数设计重复中一致且区间不跨关键零点。
 - **加入独立生物任务并进入 d2/d3**：在现有 `r length(unique(biology_inference$anchor))` 个 anchor 的基础上，对 pathway、TME、多组学表型和 outcome 进行外部 readout，并评估状态 ARI、split/merge、seed 和重采样稳定性；判据是共享结构与 lineage-specific 结构能同时重现。
 - **做 module/per-feature 消融**：对 variance-share 高的 modules 以及 decoder 最难恢复的 gene-pair、single-bin 进行逐项消融；判据是能区分共享生物信息、癌种差异和技术捷径三种贡献。
@@ -1975,6 +2312,8 @@ Null-Perm 的资格状态为 **`r null_perm_status`**。`r manifest$query_cohort
 | 学习曲线 design-repeat CI 与配对 p 值 | `learning_inference` → `.ae_learning_inference()` | analysis helper script |
 | bank design、breadth/depth slope、matched-size 与交互 | `cohort_scaling$design` / `$metrics` / `$contrasts` | `cohort_scaling.rds` schema v2 |
 | technical-neighbor excess | `retrieval$per_sample` → `.ae_technical_delta()` | `retrieval.rds` |
+| 独立队列结构相似度、d1−Direct 差与节点 bootstrap CI | `structural_pairs` / `structural_summary` | `structural_pair_comparisons.csv` / `structural_summary.csv` |
+| 意料中事与 surprising 信号 | `native_geometry` / `retrieval_inference` / `readout_inference` / `biology_inference` / `technical_inference` / `tradeoffs$decoder` | RDS/CSV 结果对象与 analysis helper script |
 | module variance share | `native_geometry$module_diagnostics` | `native_geometry.rds` |
 | decoder 指标 | `tradeoffs$decoder$summary` | `tradeoffs.rds` |
 | Annoy exact recall | `retrieval$search_validation` | `retrieval.rds` |
@@ -1994,6 +2333,6 @@ Null-Perm 的资格状态为 **`r null_perm_status`**。`r manifest$query_cohort
 | cohort-evidence scaling | ✅ | breadth/depth 嵌套性、matched-size 配对、repeat bootstrap、双 Direct 合同与 test hash 均可审计 |
 | Null-Perm 资格 | ✅ | 恒定 cohort 内锚点标记为 not_eligible |
 | 数据审计分离 | ✅ | 原始构成与 tissue 恢复由 `r data_report_name` 独立交付，本报告只读取其完整画像 |
-| 图表质量 | ✅ | `r 10L` 张消融结果图均交付矢量 PDF 与 PDF 派生 JPG，英文轴、简洁图例、色盲友好配色 |
+| 图表质量 | ✅ | `r 13L` 张图均输出矢量 PDF 与同源 JPG；结构热图共享固定色标与方形画布 |
 | 结果解读 | ✅ | 每个图表附近均绑定当前 cohort/指标/数值与可证伪后续 |
-| 数字可追溯 | ✅ | 内联数值来自 `r length(required_results)` 个正式 RDS 对象及其明确计算链 |
+| 数字可追溯 | ✅ | 内联数值来自 `r length(c(required_results, structural_paths))` 个正式结果文件及其明确计算链 |
