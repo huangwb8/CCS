@@ -1692,6 +1692,8 @@ if (identical(biology_status, "complete")) {
 
 ## 独立队列间的生物结构可复现性
 
+前一节检验的是“同一队列内，表示空间中的近邻是否保留表达锚点”；本节进一步追问：换到另一批独立患者后，同一组生物状态之间的远近关系能否复现。之所以必须增加这一层，是因为队列内的局部对应即使成立，也可能由该队列特有的样本构成、癌种背景或技术条件驱动；反过来，局部锚点效用下降，也不等于更粗粒度的生物状态关系已被破坏。CCS 的目标是从多队列证据中提取可迁移的生物组织，因此只有当预先定义的生物状态在独立队列间仍保持相似的相对结构，才有理由把观察到的模式解释为可复现的生物信号；若这种结构只在单一队列内成立，则更应警惕队列特异现象或混杂。
+
 **先看一句话结论：d1 没有明显弄乱原来能够跨队列重现的“大体生物地图”，但也没有可靠证据表明它把这张地图画得更好。** 在 `r structural_all$cohort_pair_count` 个队列对中，d1 相对 Direct 的平均变化只有 `r fmt(structural_all$mean_delta, 4L)`；虽然 `r fmt_pct(structural_all$fraction_d1_ge_direct)` 的队列对方向不差，但 95% 不确定区间从 `r fmt(structural_all$mean_delta_ci_low, 4L)` 到 `r fmt(structural_all$mean_delta_ci_high, 4L)`，同时包含小幅变好、没有变化和小幅变差三种可能。
 
 可以把 `r length(structural_result$method$anchors)` 个表达锚点的高、低状态想成地图上的 `r length(unique(structural_entity_audit$entity))` 个固定地标。例如，一张地图会记录“免疫高”离“IFN/IL6 高”较近、离“增殖低”较远。这里不要求不同队列的样本逐一相同，而是问：换到另一批患者后，这些地标的**远近次序**是否仍大致相同。次序越一致，说明生物状态的整体关系越容易在独立队列中重现。
