@@ -3,13 +3,13 @@
 #' @description
 #' Evaluate the frozen CCS representation without retraining cohort submodels.
 #' The default `"representation"` experiment reconstructs the complete native
-#' GSClassifier input, reuses any matching frozen d1 rows, and re-encodes only
-#' filtered query samples absent from the object through the frozen model bank,
+#' GSClassifier input and reuses only matching precomputed d1 rows. Filtered
+#' query samples absent from the object are reported and excluded,
 #' and compares Direct-GSClassifier with Cohort-d1 on independent
 #' query-to-reference retrieval, grouped linear readout, paired learning curves,
-#' null controls, and feature-type reconstruction. Explicit requests for the
-#' legacy scaling, tissue-first, and metaCCS experiments remain available during
-#' the API transition. All stochastic operations are paired across comparison
+#' null controls, and feature-type reconstruction. The layered `"scaling"`,
+#' `"tissue_first"`, and `"metaccs"` experiments are available through the
+#' same entry point. All stochastic operations are paired across comparison
 #' groups and recorded in an audit table.
 #'
 #' @param object A `CCS` object containing the frozen d1 representation.
@@ -18,18 +18,18 @@
 #' @param metadata Optional sample annotation with sample, cohort, tissue and
 #'   biological-label columns. Common CCS column names are recognized.
 #' @param experiment `"representation"` by default. The deprecated single value
-#'   `"cohort"` maps to `"representation"` with a warning. Explicit legacy
-#'   requests may contain one or more of `"cohort"`, `"scaling"`,
-#'   `"tissue_first"`, and `"metaccs"`; `"representation"` cannot be mixed with
-#'   legacy experiments.
+#'   `"cohort"` maps to `"representation"` with a warning. Layered requests may
+#'   contain one or more of `"scaling"`, `"tissue_first"`,
+#'   and `"metaccs"`; `"representation"` cannot be mixed with layered
+#'   experiments.
 #' @param output.dir Independent output directory. Existing CCS products are
 #'   never overwritten.
 #' @param params Named nested list. For `"representation"`, values are merged
 #'   onto `.ablation_representation_default_params(seed)` under `comparison`,
 #'   `provenance`, `anchors`, `geometry`, `validation`, `controls`, `tradeoffs`,
-#'   and `output`. For explicit legacy experiments, values are merged onto
+#'   and `output`. For layered experiments, values are merged onto
 #'   `.ablation_default_params(seed)` under `general`, `cohort`, `scaling`,
-#'   `tissue_first`, and `metaccs`; existing flat legacy names remain accepted.
+#'   `tissue_first`, and `metaccs`; existing flat parameter names remain accepted.
 #'   Unknown fields are rejected before computation.
 #'
 #'   Representation-specific cohort-bank scaling settings:
@@ -272,9 +272,148 @@ ablation <- function(
     seed = 20260727,
     verbose = TRUE
 ) {
+  # Embedded smoke fixture -------------------------------------------------
+  #
+  # This block keeps a self-contained, deterministic test fixture close to
+  # the public entry point. It is disabled during normal package
+  # use, but can be enabled without editing the source:
+  #
+  #   CCS_ABLATION_RUN_SMOKE=true Rscript -e "library(CCS); source('R/ablation.R'); ablation(object = NULL, data = NULL)"
+  #
+  # The fixture deliberately calls `.ablation_run_layered()` directly because
+  # public `experiment = 'cohort'` is now a deprecated alias for the newer
+  # representation workflow.  The assertions therefore exercise the new
+  # layered orchestration and its cohort experiment without ambiguity.
+  if (FALSE || identical(Sys.getenv("CCS_ABLATION_RUN_SMOKE"), "true")) {
+    set.seed(101)
+    sample_ids <- sprintf("S%03d", seq_len(24L))
+    cohort <- rep(paste0("C", 1:4), each = 6L)
+    tissue <- rep(c("T1", "T1", "T2", "T2"), each = 6L)
+    biology <- rep(rep(c("B1", "B2"), each = 3L), 4L)
+
+    expr <- matrix(
+      stats::rnorm(4L * length(sample_ids)),
+      nrow = 4L,
+      dimnames = list(paste0("g", 1:4), sample_ids)
+    )
+    expr["g1", biology == "B1"] <- expr["g1", biology == "B1"] + 1
+    expr["g4", biology == "B2"] <- expr["g4", biology == "B2"] + 1
+
+    # The nested structure mirrors the data contract accepted by the public
+    # function: tissue -> cohort -> expression matrix plus optional subtype.
+    data <- lapply(split(seq_along(cohort), tissue), function(tissue_rows) {
+      cohorts <- split(tissue_rows, cohort[tissue_rows])
+      lapply(cohorts, function(rows) {
+        list(
+          expr = expr[, rows, drop = FALSE],
+          subtype = biology[rows]
+        )
+      })
+    })
+
+    tsp_features <- apply(
+      utils::combn(rownames(expr), 2L),
+      2L,
+      paste,
+      collapse = ":"
+    )
+    module_ids <- c("T1|M1", "T1|M2", "T2|M3", "T2|M4")
+    tsp <- vapply(strsplit(tsp_features, ":", fixed = TRUE), function(pair) {
+      as.integer(expr[pair[1], ] >= expr[pair[2], ])
+    }, integer(length(sample_ids)))
+    rownames(tsp) <- sample_ids
+    direct_features <- c(rownames(expr), tsp_features, "s1s2")
+    d1 <- do.call(cbind, lapply(seq_along(module_ids), function(i) {
+      score <- stats::plogis(
+        tsp[, ((i - 1L) %% ncol(tsp)) + 1L] +
+          stats::rnorm(nrow(tsp), 0, 0.1)
+      )
+      block <- cbind(`1` = score, `2` = 1 - score)
+      colnames(block) <- paste(module_ids[i], colnames(block), sep = "|")
+      block
+    }))
+    rownames(d1) <- sample_ids
+
+    make_model <- function() {
+      class_model <- list(
+        bst = list(feature_names = direct_features),
+        breakVec = c(0, 0.5, 1),
+        genes = direct_features
+      )
+      list(
+        Repeat = list(),
+        Model = list(list(`1` = class_model, `2` = class_model))
+      )
+    }
+    models <- list(
+      T1 = stats::setNames(rep(list(make_model()), 2L), paste0("M", 1:2)),
+      T2 = stats::setNames(rep(list(make_model()), 2L), paste0("M", 3:4))
+    )
+    smoke_object <- methods::new(
+      "CCS",
+      Repeat = list(
+        method = "GSClassifier",
+        geneSet = list(A = c("g1", "g2"), B = c("g3", "g4")),
+        geneAnnotation = data.frame(ENSEMBL = rownames(expr)),
+        geneid = "ensembl",
+        seed = 101,
+        model.dir = ""
+      ),
+      Model = models,
+      Data = list(
+        Probability = list(d1 = d1),
+        CCS = stats::setNames(rep(1:2, length.out = length(sample_ids)), sample_ids),
+        CancerType = stats::setNames(tissue, sample_ids)
+      )
+    )
+    smoke_metadata <- data.frame(
+      sample_id = sample_ids,
+      cohort = cohort,
+      tissue = tissue,
+      biology = biology,
+      stringsAsFactors = FALSE
+    )
+    smoke_result <- .ablation_run_layered(
+      object = smoke_object,
+      data = data,
+      metadata = smoke_metadata,
+      experiment = "cohort",
+      output.dir = file.path(tempdir(), "ccs-ablation-embedded-smoke"),
+      params = list(
+        general = list(
+          rank = 3L,
+          k = 3L,
+          n_folds = 2L,
+          bootstrap = 5L,
+          probe = FALSE,
+          cover = TRUE
+        ),
+        cohort = list(
+          rp_seeds = c(701L, 702L),
+          permutation_seeds = c(801L, 802L),
+          mechanism_samples = 24L
+        )
+      ),
+      seed = 909L,
+      verbose = FALSE
+    )
+    stopifnot(
+      inherits(smoke_result, "CCSAblation"),
+      inherits(smoke_result$experiments$cohort, "list"),
+      setequal(
+        unique(smoke_result$experiments$cohort$metrics$group_id),
+        c("Direct", "Cohort", "Null-RP", "Null-Perm")
+      ),
+      is.data.frame(smoke_result$audit),
+      nrow(smoke_result$audit) > 0L
+    )
+    message("Embedded ablation layered smoke test passed.")
+    return(smoke_result)
+  }
+
   experiment <- unique(as.character(experiment))
-  legacy_only <- c("scaling", "tissue_first", "metaccs")
-  unknown <- setdiff(experiment, c("representation", "cohort", legacy_only))
+  layered_experiments <- c("scaling", "tissue_first", "metaccs")
+  unknown <- setdiff(experiment, c("representation", "cohort", layered_experiments))
   if (length(unknown) > 0) {
     stop(
       "ablation: unknown experiment(s): ",
@@ -293,11 +432,13 @@ ablation <- function(
   }
   if ("representation" %in% experiment && length(experiment) > 1) {
     stop(
-      "ablation: representation cannot be mixed with legacy downstream experiments.",
+      "ablation: representation cannot be mixed with layered experiments.",
       call. = FALSE
     )
   }
   if (identical(experiment, "representation")) {
+    # The current representation experiment is the default public workflow.
+    # It has its own configuration schema and execution contract.
     return(.ablation_run_representation(
       object = object,
       data = data,
@@ -309,10 +450,10 @@ ablation <- function(
     ))
   }
 
-  # Preserve explicitly requested downstream legacy experiments during the
-  # transition. A mixed legacy request that includes cohort keeps its original
-  # Gate-1 dependency rather than silently changing historical behavior.
-  .ablation_legacy(
+  # Layered experiments share one prepared context. Scaling intentionally
+  # depends on the cohort experiment through Gate 1; the other experiments are
+  # independent branches of the same current ablation workflow.
+  .ablation_run_layered(
     object = object,
     data = data,
     metadata = metadata,
@@ -325,7 +466,12 @@ ablation <- function(
 }
 
 
-.ablation_legacy <- function(
+# Run the layered ablation experiments that share cohort-level preparation.
+#
+# This function deliberately stays at the orchestration level. Input
+# preparation, experiment execution, and output assembly live in separate
+# helpers so a reviewer can inspect the current run lifecycle directly.
+.ablation_run_layered <- function(
     object,
     data,
     metadata = NULL,
@@ -335,7 +481,44 @@ ablation <- function(
     seed = 20260727,
     verbose = TRUE
 ) {
-  # Step 1: Validate the public inputs and merge user overrides into reproducible defaults.
+  context <- .ablation_prepare_layered_context(
+    object = object,
+    data = data,
+    metadata = metadata,
+    experiment = experiment,
+    output.dir = output.dir,
+    params = params,
+    seed = seed,
+    verbose = verbose
+  )
+  execution <- .ablation_execute_layered_experiments(
+    context = context,
+    seed = seed,
+    verbose = verbose
+  )
+  .ablation_finalize_layered_run(
+    context = context,
+    execution = execution,
+    output.dir = output.dir,
+    call = match.call(),
+    verbose = verbose
+  )
+}
+
+
+# Validate inputs once and create the immutable context shared by all layered
+# experiments. Saving the manifest/config here makes every result
+# auditable even when a later experiment is stopped by Gate 1.
+.ablation_prepare_layered_context <- function(
+    object,
+    data,
+    metadata,
+    experiment,
+    output.dir,
+    params,
+    seed,
+    verbose
+) {
   if (!methods::is(object, "CCS")) {
     stop("ablation: object must be a CCS object.", call. = FALSE)
   }
@@ -344,7 +527,8 @@ ablation <- function(
   experiment <- unique(match.arg(experiment, choices, several.ok = TRUE))
   config <- .ablation_resolve_config(seed, params)
 
-  # Keep each run isolated and never overwrite existing results unless cover is explicit.
+  # Each run is intentionally isolated. Existing products are only
+  # replaceable when the caller explicitly opts into `general$cover`.
   if (dir.exists(output.dir) &&
       length(list.files(output.dir)) > 0 &&
       !config$general$cover) {
@@ -358,7 +542,6 @@ ablation <- function(
   }
   dir.create(output.dir, recursive = TRUE, showWarnings = FALSE)
 
-  # Step 2: Align frozen d1, GSClassifier inputs, and sample annotations.
   if (verbose) {
     luckyBase::LuckyVerbose("ablation: Prepare frozen CCS inputs...")
   }
@@ -373,11 +556,28 @@ ablation <- function(
   saveRDS(manifest, file.path(output.dir, "manifest.rds"))
   saveRDS(config, file.path(output.dir, "config.rds"))
 
+  list(
+    object = object,
+    experiment = experiment,
+    config = config,
+    prepared = prepared,
+    manifest = manifest,
+    output.dir = output.dir
+  )
+}
+
+
+# Dispatch individual layered experiments. This is the only place where the
+# execution order and Gate-1 dependency are defined: scaling always depends on
+# the cohort experiment, whereas tissue-first and metaCCS are independent.
+.ablation_execute_layered_experiments <- function(context, seed, verbose) {
+  experiment <- context$experiment
+  config <- context$config
+  prepared <- context$prepared
+  manifest <- context$manifest
   experiments <- list()
   audit_parts <- list()
 
-  # Step 3: Run the requested experiments. Gate 1 is evaluated before scaling,
-  # so a scaling-only request still runs the cohort experiment first.
   if ("cohort" %in% experiment || "scaling" %in% experiment) {
     if (verbose) {
       luckyBase::LuckyVerbose("ablation: Experiment 1 - cohort representation...")
@@ -390,11 +590,13 @@ ablation <- function(
       verbose = verbose
     )
     audit_parts$cohort <- experiments$cohort$audit
-    saveRDS(experiments$cohort, file.path(output.dir, "experiment-01-cohort.rds"))
+    saveRDS(
+      experiments$cohort,
+      file.path(context$output.dir, "experiment-01-cohort.rds")
+    )
   }
 
   if ("scaling" %in% experiment) {
-    # When enforced, Gate 1 stops scaling unless the cohort representation beats its baselines.
     gate <- .ablation_gate_one(experiments$cohort, config$scaling$gate)
     if (gate$pass || !config$scaling$gate$enforce) {
       if (verbose) {
@@ -423,7 +625,10 @@ ablation <- function(
         )
       }
     }
-    saveRDS(experiments$scaling, file.path(output.dir, "experiment-02-scaling.rds"))
+    saveRDS(
+      experiments$scaling,
+      file.path(context$output.dir, "experiment-02-scaling.rds")
+    )
   }
 
   if ("tissue_first" %in% experiment) {
@@ -440,7 +645,7 @@ ablation <- function(
     audit_parts$tissue_first <- experiments$tissue_first$audit
     saveRDS(
       experiments$tissue_first,
-      file.path(output.dir, "experiment-03-tissue-first.rds")
+      file.path(context$output.dir, "experiment-03-tissue-first.rds")
     )
   }
 
@@ -458,18 +663,31 @@ ablation <- function(
     audit_parts$metaccs <- experiments$metaccs$audit
     saveRDS(
       experiments$metaccs,
-      file.path(output.dir, "experiment-04-metaccs.rds")
+      file.path(context$output.dir, "experiment-04-metaccs.rds")
     )
   }
 
-  audit <- .ablation_rbind(audit_parts)
-  # Step 4: Combine experiments and audit fields, then save machine- and reviewer-friendly outputs.
+  list(experiments = experiments, audit_parts = audit_parts)
+}
+
+
+# Build the stable public result and persist the reviewer-facing audit table.
+# No experiment logic belongs here; this function only assembles and writes the
+# products produced by `.ablation_execute_layered_experiments()`.
+.ablation_finalize_layered_run <- function(
+    context,
+    execution,
+    output.dir,
+    call,
+    verbose
+) {
+  audit <- .ablation_rbind(execution$audit_parts)
   result <- structure(
     list(
-      call = match.call(),
-      manifest = manifest,
-      config = config,
-      experiments = experiments,
+      call = call,
+      manifest = context$manifest,
+      config = context$config,
+      experiments = execution$experiments,
       audit = audit,
       output.dir = normalizePath(output.dir, winslash = "/", mustWork = TRUE)
     ),
@@ -578,7 +796,7 @@ ablation <- function(
   }
 
   groups <- names(default)
-  legacy_paths <- list(
+  flat_paths <- list(
     rank = c("general", "rank"),
     k = c("general", "k"),
     distance = c("general", "distance"),
@@ -610,7 +828,7 @@ ablation <- function(
     tissue_seeds = c("tissue_first", "seeds"),
     tissue_subsample_fraction = c("tissue_first", "subsample_fraction")
   )
-  known <- c(groups, names(legacy_paths))
+  known <- c(groups, names(flat_paths))
   unknown <- setdiff(names(params), known)
   if (length(unknown) > 0) {
     stop(
@@ -621,13 +839,13 @@ ablation <- function(
   }
 
   override <- params[intersect(groups, names(params))]
-  for (legacy_name in intersect(names(legacy_paths), names(params))) {
-    path <- legacy_paths[[legacy_name]]
+  for (flat_name in intersect(names(flat_paths), names(params))) {
+    path <- flat_paths[[flat_name]]
     group <- path[1]
     field <- path[2]
     if (!is.null(override[[group]]) && field %in% names(override[[group]])) {
       stop(
-        "ablation: params$", legacy_name, " and params$", group, "$", field,
+        "ablation: params$", flat_name, " and params$", group, "$", field,
         " were provided more than once.",
         call. = FALSE
       )
@@ -635,7 +853,7 @@ ablation <- function(
     if (is.null(override[[group]])) {
       override[[group]] <- list()
     }
-    override[[group]][[field]] <- params[[legacy_name]]
+    override[[group]][[field]] <- params[[flat_name]]
   }
   override <- override[intersect(groups, names(override))]
   .ablation_validate_override(default, override)
@@ -3828,101 +4046,6 @@ ablation <- function(
 }
 
 
-# Encode one or more frozen cohort modules from the shared Direct matrix.
-# PSOCK is used for cross-platform parallelism; workers only read frozen models
-# and return isolated module blocks, while the main process owns column ordering.
-.ablation_encode_d1_from_direct <- function(
-    object,
-    direct,
-    module_manifest = .ablation_module_manifest(object),
-    module_ids = module_manifest$modules$module_id,
-    numCores = 1L,
-    verbose = TRUE
-) {
-  direct <- as.matrix(direct)
-  available <- module_manifest$modules$module_id
-  module_ids <- as.character(module_ids)
-  unknown <- setdiff(module_ids, available)
-  if (length(unknown) > 0) {
-    stop(
-      "ablation: unknown frozen module(s): ",
-      paste(unknown, collapse = ", "),
-      ".",
-      call. = FALSE
-    )
-  }
-  module_ids <- available[available %in% module_ids]
-  numCores <- min(as.integer(numCores), length(module_ids))
-  if (!is.finite(numCores) || numCores < 1) {
-    stop("ablation: numCores must be a positive integer.", call. = FALSE)
-  }
-
-  path_map <- .ablation_model_path_map(object)
-  missing_paths <- module_ids[!module_ids %in% names(path_map)]
-  if (length(missing_paths) > 0) {
-    stop(
-      "ablation: modelFit.rds is missing for module(s): ",
-      paste(missing_paths, collapse = ", "),
-      ".",
-      call. = FALSE
-    )
-  }
-  worker <- function(module_id) {
-    model <- readRDS(path_map[[module_id]])
-    .ablation_predict_module_from_direct(direct, model, module_id)
-  }
-
-  if (verbose) {
-    luckyBase::LuckyVerbose(
-      "ablation: encoding ",
-      length(module_ids),
-      " frozen modules with ",
-      numCores,
-      " worker(s)..."
-    )
-  }
-  if (numCores == 1L) {
-    blocks <- lapply(module_ids, worker)
-  } else {
-    cluster <- parallel::makePSOCKcluster(numCores)
-    on.exit(parallel::stopCluster(cluster), add = TRUE)
-    parallel::clusterEvalQ(
-      cluster,
-      suppressPackageStartupMessages(library(xgboost))
-    )
-    parallel::clusterExport(
-      cluster,
-      c(
-        "direct",
-        "path_map",
-        ".ablation_predict_module_from_direct"
-      ),
-      envir = environment()
-    )
-    blocks <- parallel::parLapply(cluster, module_ids, function(module_id) {
-      model <- readRDS(path_map[[module_id]])
-      .ablation_predict_module_from_direct(direct, model, module_id)
-    })
-  }
-  names(blocks) <- module_ids
-
-  encoded <- do.call(cbind, blocks)
-  expected_columns <- colnames(object@Data$Probability$d1)[
-    unlist(module_manifest$blocks[module_ids], use.names = FALSE)
-  ]
-  missing_columns <- setdiff(expected_columns, colnames(encoded))
-  if (length(missing_columns) > 0) {
-    stop(
-      "ablation: encoded d1 is missing expected probability columns.",
-      call. = FALSE
-    )
-  }
-  encoded <- encoded[, expected_columns, drop = FALSE]
-  rownames(encoded) <- rownames(direct)
-  encoded
-}
-
-
 # Standardize d1 on the reference boundary and give every cohort module equal
 # total squared-distance weight, independent of whether its block has 3 or 4 columns.
 .ablation_module_balanced_transform <- function(reference, query, blocks) {
@@ -4319,7 +4442,7 @@ ablation <- function(
 
 
 # Defaults are grouped by the scientific question so configuration changes are
-# auditable and downstream legacy parameters cannot leak into representation tests.
+# auditable and layered parameters cannot leak into representation tests.
 .ablation_representation_default_params <- function(seed = 20260727) {
   list(
     comparison = list(
@@ -4505,7 +4628,7 @@ ablation <- function(
 
 
 # Prepare disjoint reference/query matrices. Existing d1 rows are reused for
-# both partitions; only query samples absent from d1 are encoded on demand.
+# both partitions; query samples absent from d1 are reported and excluded.
 .ablation_prepare_representation_input <- function(
     object,
     data,
@@ -4579,6 +4702,33 @@ ablation <- function(
   reference_metadata$d1_provenance <- "in_sample"
   query_metadata$d1_provenance <- "external_frozen"
 
+  # The ablation API consumes the d1 already prepared in `object`.  Query
+  # samples without a matching d1 row are reported and excluded; this
+  # boundary keeps raw-data preparation under the caller's control and avoids
+  # silently predicting new d1 values inside a downstream analysis.
+  precomputed_query_ids <- intersect(query_ids, rownames(d1))
+  excluded_query_d1_ids <- setdiff(query_ids, precomputed_query_ids)
+  if (length(excluded_query_d1_ids) > 0L) {
+    warning(
+      "ablation: excluding ", length(excluded_query_d1_ids),
+      " query sample(s) without precomputed d1; examples: ",
+      paste(utils::head(excluded_query_d1_ids, 5L), collapse = ", "),
+      call. = FALSE
+    )
+    query_ids <- precomputed_query_ids
+    query_metadata <- query_metadata[
+      match(query_ids, query_metadata$sample_id),
+      ,
+      drop = FALSE
+    ]
+  }
+  if (length(query_ids) < 1L) {
+    stop(
+      "ablation: no query samples have precomputed d1 in object.",
+      call. = FALSE
+    )
+  }
+
   if (verbose) {
     luckyBase::LuckyVerbose(
       "ablation: building Direct-GSClassifier for ",
@@ -4601,50 +4751,16 @@ ablation <- function(
     unlist(module_manifest$blocks[module_ids], use.names = FALSE)
   ]
   reference_d1 <- d1[reference_ids, expected_columns, drop = FALSE]
-  model_paths <- .ablation_model_path_map(object)[module_ids]
-  model_info <- file.info(unname(model_paths))[, c("size", "mtime"), drop = FALSE]
-  precomputed_query_ids <- intersect(query_ids, rownames(d1))
-  missing_query_ids <- setdiff(query_ids, precomputed_query_ids)
   cache_key <- digest::digest(
     list(
       query_ids = query_ids,
       direct = query_direct,
       module_ids = module_ids,
-      precomputed_query_d1 = d1[precomputed_query_ids, expected_columns, drop = FALSE],
-      missing_query_ids = missing_query_ids,
-      model_paths = model_paths,
-      model_info = model_info
+      query_d1 = d1[query_ids, expected_columns, drop = FALSE]
     ),
     algo = "md5"
   )
-  query_d1 <- matrix(
-    NA_real_,
-    nrow = length(query_ids),
-    ncol = length(expected_columns),
-    dimnames = list(query_ids, expected_columns)
-  )
-  if (length(precomputed_query_ids) > 0L) {
-    query_d1[precomputed_query_ids, ] <- d1[
-      precomputed_query_ids,
-      expected_columns,
-      drop = FALSE
-    ]
-  }
-  if (length(missing_query_ids) > 0L) {
-    encoded_missing <- .ablation_encode_d1_from_direct(
-      object = object,
-      direct = query_direct[missing_query_ids, , drop = FALSE],
-      module_manifest = module_manifest,
-      module_ids = module_ids,
-      numCores = config$validation$numCores,
-      verbose = verbose
-    )
-    query_d1[missing_query_ids, ] <- encoded_missing[
-      missing_query_ids,
-      expected_columns,
-      drop = FALSE
-    ]
-  }
+  query_d1 <- d1[query_ids, expected_columns, drop = FALSE]
 
   selected_blocks <- lapply(module_ids, function(module_id) {
     module_columns <- colnames(d1)[
@@ -4665,6 +4781,7 @@ ablation <- function(
     selected_module_ids = module_ids,
     feature_manifest = feature_manifest,
     excluded_duplicate_samples = flattened$excluded_duplicate_samples,
+    excluded_query_d1_ids = excluded_query_d1_ids,
     cache_key = cache_key,
     filtered_cohorts = filtered
   )
@@ -4991,6 +5108,8 @@ ablation <- function(
   prepared <- analysis$prepared
   anchor <- analysis$anchor
 
+  # Phase 1: put Direct-GSClassifier and Cohort-d1 on their native comparison
+  # scales. All later endpoints consume these transformed matrices.
   direct_scaled <- .ablation_scale_train_apply(
     prepared$reference_direct,
     prepared$query_direct
@@ -5012,6 +5131,9 @@ ablation <- function(
   )
   native_geometry <- .ablation_native_geometry(prepared, transformed, config, seed)
 
+  # Phase 2: evaluate query-to-reference retrieval. The retrieval view is
+  # restricted to estimable cancer-labelled queries, while the complete
+  # transformed matrices remain available to structural diagnostics.
   # Cancer-labelled endpoints use their pre-declared estimable view.  The
   # transformed query matrices themselves remain complete candidates so that
   # geometry, continuous anchors and structural diagnostics are not silently
@@ -5102,6 +5224,9 @@ ablation <- function(
     retrieval_metadata,
     config$anchors$primary_role
   )
+
+  # Phase 3: run paired null controls against the same retrieval contract.
+  # These controls remain separate from the primary comparison in the result.
   null_perm <- if (config$controls$null_perm) {
     .ablation_null_perm_eligibility(retrieval_metadata, anchor)
   } else {
@@ -5152,6 +5277,9 @@ ablation <- function(
     null_rp = null_rp,
     null_perm = null_perm
   )
+
+  # Phase 4: evaluate the supervised cancer readout and learning curves only
+  # on the pre-declared estimable query view.
   readout_view <- prepared$query_views[["cancer_readout"]]
   if (config$validation$enabled && nrow(readout_view$metadata) > 0L) {
     readout_rows <- match(
@@ -5270,6 +5398,8 @@ ablation <- function(
     learning_curve <- readout
   }
 
+  # Phase 5: optional scaling and decoder diagnostics. These are auxiliary
+  # analyses and do not redefine the primary retrieval result.
   cohort_scaling <- if (config$scaling$enabled) {
     .ablation_representation_scaling(
       prepared = prepared,
@@ -5330,6 +5460,9 @@ ablation <- function(
     excluded_duplicate_samples = prepared$excluded_duplicate_samples,
     decoder = decoder
   )
+
+  # Phase 6: construct the reproducibility manifest and compact audit table.
+  # Candidate and estimable query counts are both retained for review.
   endpoint_summary <- stats::aggregate(
     cbind(
       candidate_count = prepared$endpoint_eligibility$candidate_status == "candidate",
@@ -5352,6 +5485,11 @@ ablation <- function(
     query_cohort_count = length(unique(readout_view_for_manifest$metadata$cohort)),
     external_candidate_sample_count = nrow(prepared$query_metadata),
     external_candidate_cohort_count = length(unique(prepared$query_metadata$cohort)),
+    excluded_query_d1_count = length(prepared$excluded_query_d1_ids),
+    excluded_query_d1_sample_hash = digest::digest(
+      sort(prepared$excluded_query_d1_ids),
+      algo = "md5"
+    ),
     estimable_cohort_count = length(unique(readout_view_for_manifest$metadata$cohort)),
     not_estimable_cohort_count = sum(
       prepared$endpoint_eligibility$endpoint == "cancer_readout" &
@@ -5395,10 +5533,14 @@ ablation <- function(
   audit$query_sample_count <- nrow(readout_view_for_manifest$metadata)
   audit$external_candidate_sample_count <- nrow(prepared$query_metadata)
   audit$external_candidate_cohort_count <- length(unique(prepared$query_metadata$cohort))
+  audit$excluded_query_d1_count <- manifest$excluded_query_d1_count
+  audit$excluded_query_d1_sample_hash <- manifest$excluded_query_d1_sample_hash
   audit$estimable_cohort_count <- manifest$estimable_cohort_count
   audit$not_estimable_cohort_count <- manifest$not_estimable_cohort_count
   audit$config_hash <- manifest$config_hash
 
+  # Phase 7: persist reviewer-facing products separately, then return the
+  # stable CCSAblation object expected by callers of the public API.
   saveRDS(manifest, file.path(output.dir, "manifest.rds"))
   saveRDS(native_geometry, file.path(output.dir, "native_geometry.rds"))
   saveRDS(retrieval, file.path(output.dir, "retrieval.rds"))
@@ -5410,6 +5552,15 @@ ablation <- function(
   utils::write.csv(
     prepared$endpoint_eligibility,
     file.path(output.dir, "endpoint_eligibility.csv"),
+    row.names = FALSE
+  )
+  utils::write.csv(
+    data.frame(
+      sample_id = prepared$excluded_query_d1_ids,
+      reason = rep("missing_precomputed_d1", length(prepared$excluded_query_d1_ids)),
+      stringsAsFactors = FALSE
+    ),
+    file.path(output.dir, "excluded-query-d1.csv"),
     row.names = FALSE
   )
   utils::write.csv(audit, file.path(output.dir, "audit.csv"), row.names = FALSE)
