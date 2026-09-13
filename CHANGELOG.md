@@ -6,6 +6,7 @@
 
 ## [Unreleased]
 
+- 优化 `ablation-03` external query 资格边界：共享准备层保留全部候选 cohort，新增 endpoint-specific `candidate`/`estimable`/`not_estimable` 审计表；癌种相关 retrieval、technical excess、readout 与 learning curve 继续使用预先声明的跨 cohort 支持门槛，而 geometry、连续 anchor 与结构复现使用完整候选集合；manifest、audit 和回归测试同步记录候选数与可估计数。
 - 修复 `ablation-03` 环境初始化在无活动图形设备的 `Rscript` 会话中调用 `par()`、从而偶发生成空 `Rplots.pdf` 的问题，并新增图形设备副作用回归测试。
 - 将 `ablation-03` 独立队列结构验证扩展为双向外部投影：新增 150 个 reference modules → external samples 与 43 个 external modules → reference samples 的分向结果、完整样本/module/tissue 审计，以及共同 tissue 内 20 次 22 对 22 module-bank 匹配敏感性分析；同步新增 Figure 14、回归测试、机器可读产物与 HTML 解读，并明确 externality 由 bank 与 target 是否重叠定义。
 - 改写 `ablation-03` 独立队列结构分析的 R Markdown 解读：增加一句话结论、地图类比、癌种协调说明、逐图读法和统计边界的通俗解释，并同步更新报告总结与 HTML。

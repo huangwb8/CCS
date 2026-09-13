@@ -16,6 +16,10 @@
 
 ---
 
+基于 docs\plans\2026-09-12-ablation-03必要分析双向外部验证优化计划.md docs\plans\2026-09-13-ablation-03-reference-query资格边界修订计划.md 优化 ablation-03 的分析。
+
+---
+
 这是一个分析prompt:
 
 ```
