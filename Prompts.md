@@ -9,7 +9,7 @@
 - 学习分析
 
 ```
-我对 test/ablation-02 的分析有一些疑问，想请你解答。 你准备好了吗？
+我对 test/ablation-03 的分析有一些疑问，想请你解答。 你准备好了吗？
 ```
 
 # 日常
@@ -248,6 +248,8 @@ If the existing repository structure or available data make the preferred design
 Most importantly: preserve the conceptual distinction between **within-cohort biological preservation** and **between-cohort structural reproducibility**.
 
 ablation-03所依赖的原始数据及其该分析里产出的二次分析数据应该足够支撑这次小分析的。
+
+你觉得这个分析有做的价值吗？为什么？
 ```
 
 
