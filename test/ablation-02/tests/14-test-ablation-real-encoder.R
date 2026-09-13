@@ -1,49 +1,48 @@
 #!/usr/bin/env Rscript
 
-# Purpose: Prove that optimized frozen-bank encoding is identical on real CCS data.
-# Input: 100 non-duplicate reference samples and the first three frozen modules.
-# Parameters: Sequential encoding to keep this contract test deterministic and light.
-# Output: Exact feature-contract and probability-parity assertions.
+# Purpose: Verify that representation ablation consumes precomputed d1 only.
+# Input: Real CCS data with a bounded reference/query slice.
+# Output: Query rows are the intersection with object@Data$Probability$d1;
+# missing rows are reported and never sent through a model encoder.
 
 source(file.path("test", "ablation-02", "01-ablation-test-data.R"))
 source(file.path("R", "ablation.R"))
 
 module_manifest <- .ablation_module_manifest(resCCS)
-feature_manifest <- .ablation_frozen_feature_manifest(resCCS, module_manifest)
-stopifnot(length(feature_manifest$features) == 529L)
-stopifnot(length(feature_manifest$tsp_features) == 496L)
-stopifnot(identical(
-  as.integer(table(feature_manifest$feature_manifest$feature_type)[
-    c("single_bin", "gene_pair", "set_pair")
-  ]),
-  c(32L, 496L, 1L)
-))
-
-flattened <- .ablation_flatten_expression(reference_data)
-d1 <- as.matrix(resCCS@Data$Probability$d1)
-sample_ids <- intersect(rownames(d1), colnames(flattened$expr))
-sample_ids <- sample_ids[seq_len(100L)]
-direct <- .ablation_gsclassifier_matrix(
-  resCCS,
-  flattened$expr[, sample_ids, drop = FALSE],
-  feature_manifest
-)
 module_ids <- module_manifest$modules$module_id[seq_len(3L)]
+config <- .ablation_resolve_representation_config(
+  seed = 1401L,
+  params = list(
+    comparison = list(module_ids = module_ids),
+    provenance = list(max_reference_samples = 80L, max_query_samples = 40L),
+    geometry = list(k = c(1L, 3L), search = "exact", geometry_samples = 80L),
+    validation = list(enabled = FALSE),
+    controls = list(null_rp = FALSE, null_perm = TRUE),
+    output = list(cover = TRUE)
+  )
+)
 
-encoded <- .ablation_encode_d1_from_direct(
+prepared <- .ablation_prepare_representation_input(
   object = resCCS,
-  direct = direct,
-  module_manifest = module_manifest,
-  module_ids = module_ids,
-  numCores = 1L,
+  data = data_all,
+  metadata = ablation_metadata[
+    ablation_metadata$sample_id %in%
+      rownames(resCCS@Data$Probability$d1),
+    ,
+    drop = FALSE
+  ],
+  config = config,
+  output.dir = tempfile("ablation-real-input-"),
+  seed = 1401L,
   verbose = FALSE
 )
-expected_columns <- unlist(module_manifest$blocks[module_ids], use.names = FALSE)
-expected <- d1[sample_ids, expected_columns, drop = FALSE]
 
-stopifnot(identical(dim(encoded), dim(expected)))
-stopifnot(identical(rownames(encoded), rownames(expected)))
-stopifnot(identical(colnames(encoded), colnames(expected)))
-stopifnot(max(abs(encoded - expected)) == 0)
+d1_ids <- rownames(resCCS@Data$Probability$d1)
+stopifnot(all(rownames(prepared$query_d1) %in% d1_ids))
+stopifnot(all(!prepared$excluded_query_d1_ids %in% d1_ids))
+stopifnot(identical(
+  sort(rownames(prepared$query_d1)),
+  sort(intersect(rownames(prepared$query_direct), d1_ids))
+))
 
-message("14-test-ablation-real-encoder: all tests passed")
+message("14-test-ablation-real-encoder: precomputed d1 contract passed")

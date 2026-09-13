@@ -47,8 +47,8 @@ source(.ablation03_path("templates", "datatables_helper.R"))
 
 result_dir <- .ablation03_path("tmp", "ablation-experiment")
 profile_path <- file.path(result_dir, "data-profile.rds")
-data_script_name <- "01-ablation-test-data.R"
-data_functions_name <- "01-ablation-test-data_functions.R"
+data_script_name <- "01-ablation03-test-data.R"
+data_functions_name <- "01-ablation03-test-data_functions.R"
 experiment_report_name <- "02-ablation-experiment.Rmd"
 data_profile <- readRDS(profile_path)
 
@@ -61,7 +61,7 @@ preview_dir <- bensz_run_dir(
 
 profile_value <- function(item) .atd_profile_value(data_profile, item)
 find_source_line <- function(pattern) .atd_find_source_line(
-  "01-ablation-test-data_functions.R",
+  "01-ablation03-test-data_functions.R",
   pattern
 )
 

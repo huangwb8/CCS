@@ -638,7 +638,7 @@ render_dt(overview_table, pageLength = 11)
 |---|---|---|---|---|
 | 数据审计输入 | `data_profile` | `r data_profile_path` | 复用第一阶段完整画像，不在实验报告中重复加载或重画数据审计 | `r data_report_name` |
 | 完整 GSClassifier 输入 | `.ablation_gsclassifier_matrix()` | 冻结 `geneSet`、`breakVec`、feature manifest | 保留 32 single-bin、496 gene-pair、1 set-pair 的真实合同 | `R/ablation.R:` `r find_source_line(".ablation_gsclassifier_matrix <- function")` |
-| 外部 d1 重编码 | `.ablation_encode_d1_from_direct()` | 150 modules；模型 repeat 中位数 | filtered query 从未参与 bank 训练；优化编码与既有 d1 零误差一致 | `R/ablation.R:` `r find_source_line(".ablation_encode_d1_from_direct <- function")` |
+| Query d1 输入边界 | `object@Data$Probability$d1` | 仅使用已有 d1 行 | 缺失 query 行由 `ablation()` 发出警告并取交集，不在下游函数内自动重算 | `excluded-query-d1.csv` |
 | query-to-reference 检索 | `.ablation_query_reference_retrieval()` + `.ae_retrieval_inference()` | k = `r paste(manifest$config$geometry$k, collapse = "/")`；cohort bootstrap = `r params$inference_bootstrap` | query 只到其它 cohorts 的 atlas 找邻居；按 cohort 估计 CI 与配对 p 值 | `R/ablation.R:` `r find_source_line(".ablation_query_reference_retrieval <- function")`；`02-ablation-experiment_functions.R` |
 | d1 距离 | `.ablation_module_balanced_transform()` | module 等权标准化 Euclidean | d1 blocks 的行和不满足 simplex，故不伪用 Hellinger | `R/ablation.R:` `r find_source_line(".ablation_module_balanced_transform <- function")` |
 | 外部 readout | `.ablation_linear_readout()` + `.ae_readout_inference()` | grouped `r manifest$config$validation$inner_folds`-fold CV；lambda = `r paste(manifest$config$validation$lambda, collapse = "/")` | 预处理与调参均在 reference 内完成，两臂预算一致；query cohort bootstrap 单独报告 | `R/ablation.R:` `r find_source_line(".ablation_linear_readout <- function")`；`02-ablation-experiment_functions.R` |

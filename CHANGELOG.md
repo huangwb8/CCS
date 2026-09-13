@@ -6,6 +6,10 @@
 
 ## [Unreleased]
 
+- 收紧 `ablation()` 的 d1 输入边界：移除下游函数内部的 query d1 自动重算；缺失 d1 的 query 仅发出警告、按已有 d1 取交集，并将排除样本写入 `excluded-query-d1.csv`，由调用方负责准备一致的 CCS object。
+- 重构 `R/ablation.R` 的消融实验编排：公共入口直接区分 representation 与 layered 实验流程，将 layered 运行拆分为上下文准备、实验调度和结果汇总阶段，并补充阶段性审阅注释；保持现有实验顺序、Gate 1 依赖和输出文件契约不变。
+- 恢复 `ablation()` 内置的合成数据 smoke fixture：默认关闭，设置 `CCS_ABLATION_RUN_SMOKE=true` 时可直接运行并校验当前 layered 编排、四类 cohort 指标和审计表。
+
 - 优化 `ablation-03` external query 资格边界：共享准备层保留全部候选 cohort，新增 endpoint-specific `candidate`/`estimable`/`not_estimable` 审计表；癌种相关 retrieval、technical excess、readout 与 learning curve 继续使用预先声明的跨 cohort 支持门槛，而 geometry、连续 anchor 与结构复现使用完整候选集合；manifest、audit 和回归测试同步记录候选数与可估计数。
 - 修复 `ablation-03` 环境初始化在无活动图形设备的 `Rscript` 会话中调用 `par()`、从而偶发生成空 `Rplots.pdf` 的问题，并新增图形设备副作用回归测试。
 - 将 `ablation-03` 独立队列结构验证扩展为双向外部投影：新增 150 个 reference modules → external samples 与 43 个 external modules → reference samples 的分向结果、完整样本/module/tissue 审计，以及共同 tissue 内 20 次 22 对 22 module-bank 匹配敏感性分析；同步新增 Figure 14、回归测试、机器可读产物与 HTML 解读，并明确 externality 由 bank 与 target 是否重叠定义。

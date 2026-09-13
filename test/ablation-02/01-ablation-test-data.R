@@ -72,6 +72,19 @@ resccs_path <- file.path(
   "models",
   paste0("resCCS_", paramMD5, ".rds")
 )
+full_resccs_path <- Sys.getenv(
+  "CCS_FULL_RESCCS_RDS",
+  unset = file.path(
+    root_path,
+    "iProjects",
+    "RCheck",
+    "GSClassifier",
+    "routine01",
+    "ccs",
+    model_version,
+    "resCCS.rds"
+  )
+)
 batch_workbook_path <- file.path(
   "test",
   "pre-train-info",
@@ -91,6 +104,7 @@ tissue_mapping_path <- file.path(
 required_paths <- c(
   data_path,
   resccs_path,
+  full_resccs_path,
   batch_workbook_path,
   tissue_mapping_path,
   model.dir
@@ -119,6 +133,20 @@ resolved_cohort_index <- .atd_cohort_index(data_all)
 
 resCCS <- readRDS(resccs_path)
 resCCS@Repeat$model.dir <- model.dir
+resCCS_full <- readRDS(full_resccs_path)
+full_d1 <- resCCS_full@Data$Probability$d1
+filtered_d1 <- resCCS@Data$Probability$d1
+if (!all(colnames(filtered_d1) %in% colnames(full_d1)) ||
+    !all(rownames(filtered_d1) %in% rownames(full_d1))) {
+  stop("ablation-test-data: filtered d1 is not covered by full d1.", call. = FALSE)
+}
+if (!isTRUE(all.equal(
+  unname(full_d1[rownames(filtered_d1), colnames(filtered_d1), drop = FALSE]),
+  unname(filtered_d1)
+))) {
+  stop("ablation-test-data: frozen training d1 disagrees with full d1.", call. = FALSE)
+}
+resCCS@Data$Probability$d1 <- full_d1[, colnames(filtered_d1), drop = FALSE]
 filtered_model_cohorts <- as.character(resCCS@Data$filtered.cohort)
 filtered_cohorts <- .atd_resolve_cohort_keys(
   filtered_model_cohorts,

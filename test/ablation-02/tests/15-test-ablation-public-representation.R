@@ -75,7 +75,8 @@ expected_files <- c(
   "readout.rds",
   "learning_curve.rds",
   "tradeoffs.rds",
-  "audit.csv"
+  "audit.csv",
+  "excluded-query-d1.csv"
 )
 stopifnot(all(file.exists(file.path(output_dir, expected_files))))
 
