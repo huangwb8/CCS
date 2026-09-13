@@ -95,7 +95,11 @@ if (TRUE) {
   bensz_setup_plot_font <- function(prefer = NULL, enable_showtext = FALSE) {
     base_family <- if (is.character(prefer) && nzchar(prefer)) prefer else .bensz_pick_cjk_family()
     options(bensz.base_family = base_family)
-    try(graphics::par(family = base_family), silent = TRUE)
+    # par() opens the default device when none exists, which makes Rscript
+    # create an empty Rplots.pdf in the current working directory.
+    if (grDevices::dev.cur() != 1L) {
+      try(graphics::par(family = base_family), silent = TRUE)
+    }
 
     # Prefer showtext path-based registration for consistent rendering across devices.
     enable_showtext <- isTRUE(enable_showtext) || identical(Sys.getenv("BENSZ_ENABLE_SHOWTEXT"), "1")
@@ -108,7 +112,9 @@ if (TRUE) {
         sysfonts::font_add("bensz_base", regular = mf$path)
         showtext::showtext_auto(enable = TRUE)
         options(bensz.base_family = "bensz_base")
-        try(graphics::par(family = "bensz_base"), silent = TRUE)
+        if (grDevices::dev.cur() != 1L) {
+          try(graphics::par(family = "bensz_base"), silent = TRUE)
+        }
         return(getOption("bensz.base_family"))
       }
     }
