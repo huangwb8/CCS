@@ -6,6 +6,7 @@
 
 - `01-ablation03-test-data.R`：准备数据审计缓存；
 - `02-ablation03-experiment.R`：运行完整消融实验；
+- `tests/26-test-endpoint-eligibility.R`：检查 external candidate 保留与癌种相关 endpoint 的分层资格合同；
 - `02-ablation03-cohort-scaling.R`：单独重算 cohort scaling；
 - `01-ablation03-biology-cache.R`：一次性构建表达矩阵/anchor 子集缓存；
 - `03-ablation-biology.R`：运行生物学锚点评估（也可使用同名 Python 脚本）。
@@ -24,7 +25,7 @@
 5. 在相同 top-15 邻居边界上配对比较 Direct-GSClassifier 与 Cohort-d1，输出覆盖审计、utility、bootstrap 区间和图形；结果作为 HTML 的新增章节。
 6. 以外部 query cohort 为独立统计单位，对 d1−Direct utility 计算 cohort bootstrap 95% CI、精确配对符号置换 P 值，并对四个 anchor 做 BH 校正。
 7. 对 assay、platform、source 的 technical-neighbor excess 使用同一 cohort-level 配对框架，计算 95% CI、sign-flip P 值和 Holm 校正。
-8. `04-ablation03-structural-reproducibility.R` 将 4 个表达锚点的队列内低/高三分位定义为 8 个共享生物实体，分别执行 150 个 reference modules → external samples 与 43 个 external modules → reference samples 的互不重叠投影。每个方向只在 module-bank 一侧拟合 Direct、d1 与 anchor 尺度；另以共同 tissue 内每侧 22 个 modules、20 次重复匹配检查 bank 规模与组成敏感性。正向保留 17 个队列的 136 个队列对，反向包含 143 个队列的 10,153 个队列对，并分别报告节点 bootstrap。
+8. `04-ablation03-structural-reproducibility.R` 将 4 个表达锚点的队列内低/高三分位定义为 8 个共享生物实体，分别执行 150 个 reference modules → external samples 与 43 个 external modules → reference samples 的互不重叠投影。每个方向只在 module-bank 一侧拟合 Direct、d1 与 anchor 尺度；另以共同 tissue 内每侧 22 个 modules、20 次重复匹配检查 bank 规模与组成敏感性。结构分析保留全部候选 external cohorts；癌种 retrieval/readout 仍按 endpoint-specific 资格表报告可估计子集，并分别报告节点 bootstrap。
 
 ## 主要产物
 
@@ -51,5 +52,7 @@
 - `02-ablation03-experiment.html`
 
 外部表达矩阵和 signature RDS 均为只读输入；当前报告不把 cancer_type 当作 biological utility，也不执行 PAM50/CMS 的临时反推。
+
+共享准备层会保留通过样本对齐、无 fit/target 重叠和矩阵可用性检查的全部 external candidate cohorts。`endpoint_eligibility.csv` 同时记录 `candidate`、`estimable` 与 `not_estimable`；癌种 retrieval、technical excess、linear readout 和 learning curve 使用预先声明的 reference cancer-cohort 支持门槛，geometry、连续 anchor 与结构复现不再被该门槛静默截断。报告中的 `query_cohort_count` 是癌种 readout 的可估计集合；完整候选数使用 `external_candidate_cohort_count`。
 
 结构可复现性模块与现有 anchor readout 回答不同问题：前者检查生物状态原型之间的几何能否跨独立队列复现，后者检查单个 query 的局部邻居是否保持连续锚点接近。这里的 externality 由“目标样本是否参与当前 module-bank 的训练”定义，因此 reference/external 两组可以交换 bank 与 target 角色；反向投影用于检验互惠性和 bank 依赖，不替代生产模型的正向外部验证。队列对共享 cohort 节点，故报告使用 cohort-node bootstrap 区间；22 对 22 重复匹配报告的是设计敏感性范围，不是置信区间。

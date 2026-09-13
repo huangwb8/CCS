@@ -3999,6 +3999,43 @@ ablation <- function(
     intersect(colnames(reference_metadata), colnames(query_metadata))
   )
 
+  if (nrow(query) == 0L) {
+    neighbors <- data.frame(
+      query_sample = character(), query_cohort = character(),
+      query_label = character(), neighbor_rank = integer(),
+      reference_sample = character(), reference_cohort = character(),
+      reference_label = character(), distance = numeric(),
+      label_match = logical(), stringsAsFactors = FALSE
+    )
+    per_sample <- do.call(rbind, lapply(k, function(k_i) {
+      result <- data.frame(
+        sample_id = character(), cohort = character(), label = character(),
+        k = integer(), top1_label_match = numeric(),
+        top_k_label_rate = numeric(), mrr = numeric(),
+        stringsAsFactors = FALSE
+      )
+      for (column in technical_columns) {
+        result[[paste0(column, "_match_rate")]] <- numeric()
+        result[[paste0(column, "_expected_rate")]] <- numeric()
+        result[[paste0(column, "_match_excess")]] <- numeric()
+      }
+      result
+    }))
+    summary <- data.frame(
+      k = k, top1_label_match = NA_real_,
+      top_k_label_rate = NA_real_, mrr = NA_real_
+    )
+    return(list(
+      neighbors = neighbors,
+      per_sample = per_sample,
+      summary = summary,
+      search = search,
+      k = k,
+      status = "not_estimable",
+      reason = "no_estimable_query_cohorts"
+    ))
+  }
+
   max_k <- max(k)
   candidate_k <- min(nrow(reference), max(max_k * 5L, max_k + 20L))
   if (search == "exact") {
@@ -4264,7 +4301,8 @@ ablation <- function(
     stop("ablation: query metadata is missing d1 provenance.", call. = FALSE)
   }
   provenance <- unique(as.character(query_metadata[[provenance_column]]))
-  qualified <- all(provenance %in% c("external_frozen", "out_of_fold"))
+  qualified <- nrow(query_metadata) > 0L &&
+    all(provenance %in% c("external_frozen", "out_of_fold"))
   independent <- identical(anchor_role, "independent")
   reasons <- c(
     if (!independent) "anchor_is_not_independent",
@@ -4300,7 +4338,13 @@ ablation <- function(
       primary_role = "independent",
       bank_aligned = "tissue",
       technical = c("assay_type", "platform_id", "source_system"),
-      min_reference_cohorts = 2L
+      min_reference_cohorts = 2L,
+      endpoint_min_reference_cohorts = list(
+        cancer_retrieval = 2L,
+        technical_excess = 2L,
+        cancer_readout = 2L,
+        learning_curve = 2L
+      )
     ),
     geometry = list(
       k = c(5L, 15L, 30L),
@@ -4366,6 +4410,15 @@ ablation <- function(
   }
   if (config$anchors$min_reference_cohorts < 1) {
     stop("ablation: anchors$min_reference_cohorts must be positive.", call. = FALSE)
+  }
+  endpoint_thresholds <- unlist(config$anchors$endpoint_min_reference_cohorts)
+  if (length(endpoint_thresholds) == 0L ||
+      any(!is.finite(endpoint_thresholds)) || any(endpoint_thresholds < 1) ||
+      any(endpoint_thresholds != as.integer(endpoint_thresholds))) {
+    stop(
+      "ablation: anchors$endpoint_min_reference_cohorts must contain positive integers.",
+      call. = FALSE
+    )
   }
   if (length(config$scaling$enabled) != 1 ||
       !is.logical(config$scaling$enabled) ||
@@ -4694,24 +4747,32 @@ ablation <- function(
 .ablation_bind_retrieval <- function(results) {
   neighbors <- do.call(rbind, lapply(names(results), function(name) {
     data <- results[[name]]$neighbors
-    data$representation <- name
+    data$representation <- rep(name, nrow(data))
     data
   }))
   per_sample <- do.call(rbind, lapply(names(results), function(name) {
     data <- results[[name]]$per_sample
-    data$representation <- name
+    data$representation <- rep(name, nrow(data))
     data
   }))
   summary <- do.call(rbind, lapply(names(results), function(name) {
     data <- results[[name]]$summary
-    data$representation <- name
+    data$representation <- rep(name, nrow(data))
     data
   }))
-  by_cohort <- stats::aggregate(
-    cbind(top1_label_match, top_k_label_rate, mrr) ~ representation + cohort + k,
-    data = per_sample,
-    FUN = mean
-  )
+  by_cohort <- if (nrow(per_sample) == 0L) {
+    data.frame(
+      representation = character(), cohort = character(), k = integer(),
+      top1_label_match = numeric(), top_k_label_rate = numeric(), mrr = numeric(),
+      stringsAsFactors = FALSE
+    )
+  } else {
+    stats::aggregate(
+      cbind(top1_label_match, top_k_label_rate, mrr) ~ representation + cohort + k,
+      data = per_sample,
+      FUN = mean
+    )
+  }
 
   direct <- per_sample[
     per_sample$representation == "Direct-GSClassifier",
@@ -4743,8 +4804,117 @@ ablation <- function(
 }
 
 
-# Apply the shared external-query eligibility boundary once so full and
-# scaling-only representation runs cannot drift in sample composition.
+# Build a shared candidate/endpoint qualification table.  Cancer-labelled
+# endpoints may consume an estimable view, while label-free endpoints retain
+# the complete candidate target set.
+.ablation_endpoint_eligibility <- function(
+    reference_metadata,
+    query_metadata,
+    config,
+    direction = "reference_bank_to_external_targets"
+) {
+  required <- c("sample_id", "cohort", "cohort_key", "cancer_type")
+  missing_reference <- setdiff(required, colnames(reference_metadata))
+  missing_query <- setdiff(required, colnames(query_metadata))
+  missing <- c(
+    if (length(missing_reference) > 0L) paste0("reference:", missing_reference),
+    if (length(missing_query) > 0L) paste0("query:", missing_query)
+  )
+  if (length(missing) > 0L) {
+    stop(
+      "ablation: endpoint eligibility metadata is missing: ",
+      paste(missing, collapse = ", "),
+      ".",
+      call. = FALSE
+    )
+  }
+  reference_support <- vapply(
+    split(reference_metadata$cohort, as.character(reference_metadata$cancer_type)),
+    function(x) length(unique(x)),
+    integer(1)
+  )
+  query_cohorts <- unique(query_metadata[, c(
+    "cohort_key", "cohort", "cancer_type"
+  ), drop = FALSE])
+  query_sample_counts <- table(query_metadata$cohort_key)
+  endpoint_thresholds <- config$anchors$endpoint_min_reference_cohorts
+  if (is.null(endpoint_thresholds)) endpoint_thresholds <- list()
+  endpoints <- c(
+    "cancer_retrieval", "technical_excess", "cancer_readout",
+    "learning_curve", "geometry", "anchor", "structural_reproducibility"
+  )
+  rows <- do.call(rbind, lapply(seq_len(nrow(query_cohorts)), function(i) {
+    label <- as.character(query_cohorts$cancer_type[i])
+    support <- unname(reference_support[label])
+    if (is.na(support)) support <- 0L
+    cancer_qualified <- vapply(
+      endpoints,
+      function(endpoint) {
+        threshold <- endpoint_thresholds[[endpoint]]
+        if (is.null(threshold)) threshold <- config$anchors$min_reference_cohorts
+        support >= threshold
+      },
+      logical(1)
+    )
+    data.frame(
+      direction = direction,
+      bank_role = if (identical(direction, "reference_bank_to_external_targets"))
+        "reference" else "external",
+      target_role = if (identical(direction, "reference_bank_to_external_targets"))
+        "external" else "reference",
+      cohort_key = as.character(query_cohorts$cohort_key[i]),
+      cohort = as.character(query_cohorts$cohort[i]),
+      cancer_type = label,
+      endpoint = endpoints,
+      candidate_status = "candidate",
+      qualification_status = ifelse(
+        endpoints %in% c(
+          "cancer_retrieval", "technical_excess", "cancer_readout", "learning_curve"
+        ),
+        ifelse(cancer_qualified, "estimable", "not_estimable"),
+        "estimable"
+      ),
+      qualification_reason = ifelse(
+        endpoints %in% c(
+          "cancer_retrieval", "technical_excess", "cancer_readout", "learning_curve"
+        ),
+        ifelse(
+          cancer_qualified,
+          "reference_cancer_support_meets_threshold",
+          ifelse(support == 0L, "no_reference_cancer_support",
+                 "reference_cancer_support_below_threshold")
+        ),
+        "endpoint_does_not_require_cancer_label"
+      ),
+      reference_support_cohort_count = as.integer(support),
+      target_sample_count = as.integer(unname(query_sample_counts[query_cohorts$cohort_key[i]])),
+      fit_target_overlap = 0L,
+      stringsAsFactors = FALSE
+    )
+  }))
+  rows$sample_hash <- vapply(rows$cohort_key, function(key) {
+    digest::digest(sort(query_metadata$sample_id[query_metadata$cohort_key == key]), algo = "md5")
+  }, character(1))
+  rows$config_hash <- digest::digest(config, algo = "md5")
+  rows
+}
+
+
+.ablation_endpoint_view <- function(prepared, endpoint) {
+  audit <- prepared$endpoint_eligibility
+  keep_cohorts <- unique(audit$cohort_key[
+    audit$endpoint == endpoint & audit$qualification_status == "estimable"
+  ])
+  rows <- prepared$query_metadata$cohort_key %in% keep_cohorts
+  list(
+    metadata = prepared$query_metadata[rows, , drop = FALSE],
+    direct = prepared$query_direct[rows, , drop = FALSE],
+    d1 = prepared$query_d1[rows, , drop = FALSE],
+    audit = audit[audit$endpoint == endpoint, , drop = FALSE]
+  )
+}
+
+
 .ablation_prepare_representation_analysis <- function(
     object,
     data,
@@ -4768,24 +4938,21 @@ ablation <- function(
       !anchor %in% colnames(prepared$query_metadata)) {
     stop("ablation: primary anchor is missing from metadata.", call. = FALSE)
   }
-  reference_cohort_count <- vapply(
-    split(
-      prepared$reference_metadata$cohort,
-      prepared$reference_metadata[[anchor]]
-    ),
-    function(x) length(unique(x)),
-    integer(1)
+  prepared$endpoint_eligibility <- .ablation_endpoint_eligibility(
+    reference_metadata = prepared$reference_metadata,
+    query_metadata = prepared$query_metadata,
+    config = config
   )
-  eligible_labels <- names(reference_cohort_count)[
-    reference_cohort_count >= config$anchors$min_reference_cohorts
-  ]
-  keep_query <- as.character(prepared$query_metadata[[anchor]]) %in% eligible_labels
-  prepared$query_metadata <- prepared$query_metadata[keep_query, , drop = FALSE]
-  prepared$query_direct <- prepared$query_direct[keep_query, , drop = FALSE]
-  prepared$query_d1 <- prepared$query_d1[keep_query, , drop = FALSE]
-  if (nrow(prepared$query_metadata) == 0) {
-    stop("ablation: no external query has an eligible reference anchor.", call. = FALSE)
-  }
+  prepared$candidate_query_metadata <- prepared$query_metadata
+  prepared$candidate_query_direct <- prepared$query_direct
+  prepared$candidate_query_d1 <- prepared$query_d1
+  prepared$query_views <- setNames(
+    lapply(
+      unique(prepared$endpoint_eligibility$endpoint),
+      function(endpoint) .ablation_endpoint_view(prepared, endpoint)
+    ),
+    unique(prepared$endpoint_eligibility$endpoint)
+  )
   list(prepared = prepared, anchor = anchor)
 }
 
@@ -4845,12 +5012,25 @@ ablation <- function(
   )
   native_geometry <- .ablation_native_geometry(prepared, transformed, config, seed)
 
+  # Cancer-labelled endpoints use their pre-declared estimable view.  The
+  # transformed query matrices themselves remain complete candidates so that
+  # geometry, continuous anchors and structural diagnostics are not silently
+  # truncated by a readout-specific cancer support rule.
+  retrieval_view <- prepared$query_views[["cancer_retrieval"]]
+  retrieval_rows <- match(
+    retrieval_view$metadata$sample_id,
+    prepared$query_metadata$sample_id
+  )
+  retrieval_metadata <- retrieval_view$metadata
+  retrieval_direct <- transformed$direct$query[retrieval_rows, , drop = FALSE]
+  retrieval_d1 <- transformed$d1$query[retrieval_rows, , drop = FALSE]
+
   retrieval_results <- list(
     `Direct-GSClassifier` = .ablation_query_reference_retrieval(
       transformed$direct$reference,
-      transformed$direct$query,
+      retrieval_direct,
       prepared$reference_metadata,
-      prepared$query_metadata,
+      retrieval_metadata,
       label_column = anchor,
       technical_columns = config$anchors$technical,
       k = config$geometry$k,
@@ -4861,9 +5041,9 @@ ablation <- function(
     ),
     `Cohort-d1` = .ablation_query_reference_retrieval(
       transformed$d1$reference,
-      transformed$d1$query,
+      retrieval_d1,
       prepared$reference_metadata,
-      prepared$query_metadata,
+      retrieval_metadata,
       label_column = anchor,
       technical_columns = config$anchors$technical,
       k = config$geometry$k,
@@ -4873,13 +5053,14 @@ ablation <- function(
       search_k = config$geometry$search_k
     )
   )
-  search_validation <- if (config$geometry$search == "annoy") {
+  search_validation <- if (config$geometry$search == "annoy" &&
+      nrow(retrieval_metadata) > 0L) {
     validation <- list(
       `Direct-GSClassifier` = .ablation_validate_neighbor_search(
         transformed$direct$reference,
-        transformed$direct$query,
+        retrieval_direct,
         prepared$reference_metadata,
-        prepared$query_metadata,
+        retrieval_metadata,
         label_column = anchor,
         k = max(config$geometry$k),
         query_samples = config$geometry$exact_validation_queries,
@@ -4889,9 +5070,9 @@ ablation <- function(
       ),
       `Cohort-d1` = .ablation_validate_neighbor_search(
         transformed$d1$reference,
-        transformed$d1$query,
+        retrieval_d1,
         prepared$reference_metadata,
-        prepared$query_metadata,
+        retrieval_metadata,
         label_column = anchor,
         k = max(config$geometry$k),
         query_samples = config$geometry$exact_validation_queries,
@@ -4910,17 +5091,19 @@ ablation <- function(
       )
     }
     validation
+  } else if (config$geometry$search == "annoy") {
+    list(status = "not_estimable", reason = "no_estimable_query_cohorts")
   } else {
     list(status = "not_required", search = "exact")
   }
   retrieval <- .ablation_bind_retrieval(retrieval_results)
   retrieval$search_validation <- search_validation
   evidence <- .ablation_evidence_level(
-    prepared$query_metadata,
+    retrieval_metadata,
     config$anchors$primary_role
   )
   null_perm <- if (config$controls$null_perm) {
-    .ablation_null_perm_eligibility(prepared$query_metadata, anchor)
+    .ablation_null_perm_eligibility(retrieval_metadata, anchor)
   } else {
     list(status = "not_run", reason = "disabled")
   }
@@ -4937,9 +5120,9 @@ ablation <- function(
       )
       .ablation_query_reference_retrieval(
         transformed$direct$reference %*% projection,
-        transformed$direct$query %*% projection,
+        retrieval_direct %*% projection,
         prepared$reference_metadata,
-        prepared$query_metadata,
+        retrieval_metadata,
         label_column = anchor,
         technical_columns = config$anchors$technical,
         k = config$geometry$k,
@@ -4969,13 +5152,21 @@ ablation <- function(
     null_rp = null_rp,
     null_perm = null_perm
   )
-  if (config$validation$enabled) {
+  readout_view <- prepared$query_views[["cancer_readout"]]
+  if (config$validation$enabled && nrow(readout_view$metadata) > 0L) {
+    readout_rows <- match(
+      readout_view$metadata$sample_id,
+      prepared$query_metadata$sample_id
+    )
+    readout_metadata <- readout_view$metadata
+    readout_direct <- transformed$direct$query[readout_rows, , drop = FALSE]
+    readout_d1 <- transformed$d1$query[readout_rows, , drop = FALSE]
     readout_results <- list(
       `Direct-GSClassifier` = .ablation_linear_readout(
         train = prepared$reference_direct,
-        test = prepared$query_direct,
+        test = readout_direct,
         train_metadata = prepared$reference_metadata,
-        test_metadata = prepared$query_metadata,
+        test_metadata = readout_metadata,
         label_column = anchor,
         lambda = config$validation$lambda,
         inner_folds = config$validation$inner_folds,
@@ -4986,9 +5177,9 @@ ablation <- function(
       ),
       `Cohort-d1` = .ablation_linear_readout(
         train = prepared$reference_d1,
-        test = prepared$query_d1,
+        test = readout_d1,
         train_metadata = prepared$reference_metadata,
-        test_metadata = prepared$query_metadata,
+        test_metadata = readout_metadata,
         label_column = anchor,
         lambda = config$validation$lambda,
         inner_folds = config$validation$inner_folds,
@@ -5047,17 +5238,17 @@ ablation <- function(
       representations = list(
         `Direct-GSClassifier` = list(
           train = prepared$reference_direct,
-          test = prepared$query_direct,
+          test = readout_direct,
           blocks = NULL
         ),
         `Cohort-d1` = list(
           train = prepared$reference_d1,
-          test = prepared$query_d1,
+          test = readout_d1,
           blocks = prepared$selected_blocks
         )
       ),
       train_metadata = prepared$reference_metadata,
-      test_metadata = prepared$query_metadata,
+      test_metadata = readout_metadata,
       label_column = anchor,
       fractions = config$validation$learning_fractions,
       repeats = config$validation$repeats,
@@ -5068,8 +5259,15 @@ ablation <- function(
       seed = seed + 30000L
     )
   } else {
-    readout <- list(status = "not_run", reason = "disabled")
-    learning_curve <- list(status = "not_run", reason = "disabled")
+    readout <- list(
+      status = if (config$validation$enabled) "not_estimable" else "not_run",
+      reason = if (config$validation$enabled) {
+        "no_estimable_query_cohorts"
+      } else {
+        "disabled"
+      }
+    )
+    learning_curve <- readout
   }
 
   cohort_scaling <- if (config$scaling$enabled) {
@@ -5132,16 +5330,34 @@ ablation <- function(
     excluded_duplicate_samples = prepared$excluded_duplicate_samples,
     decoder = decoder
   )
+  endpoint_summary <- stats::aggregate(
+    cbind(
+      candidate_count = prepared$endpoint_eligibility$candidate_status == "candidate",
+      estimable_count = prepared$endpoint_eligibility$qualification_status == "estimable",
+      not_estimable_count = prepared$endpoint_eligibility$qualification_status == "not_estimable"
+    ) ~ endpoint,
+    data = prepared$endpoint_eligibility,
+    FUN = sum
+  )
+  readout_view_for_manifest <- prepared$query_views[["cancer_readout"]]
   manifest <- list(
-    version = 5L,
+    version = 6L,
     created = format(Sys.time(), "%Y-%m-%dT%H:%M:%S%z"),
     seed = seed,
     experiment = "representation",
     groups = c("Direct-GSClassifier", "Cohort-d1"),
     reference_sample_count = nrow(prepared$reference_metadata),
-    query_sample_count = nrow(prepared$query_metadata),
+    query_sample_count = nrow(readout_view_for_manifest$metadata),
     reference_cohort_count = length(unique(prepared$reference_metadata$cohort)),
-    query_cohort_count = length(unique(prepared$query_metadata$cohort)),
+    query_cohort_count = length(unique(readout_view_for_manifest$metadata$cohort)),
+    external_candidate_sample_count = nrow(prepared$query_metadata),
+    external_candidate_cohort_count = length(unique(prepared$query_metadata$cohort)),
+    estimable_cohort_count = length(unique(readout_view_for_manifest$metadata$cohort)),
+    not_estimable_cohort_count = sum(
+      prepared$endpoint_eligibility$endpoint == "cancer_readout" &
+        prepared$endpoint_eligibility$qualification_status == "not_estimable"
+    ),
+    endpoint_summary = endpoint_summary,
     direct_feature_count = ncol(prepared$reference_direct),
     tsp_feature_count = length(prepared$feature_manifest$tsp_features),
     d1_feature_count = ncol(prepared$reference_d1),
@@ -5160,6 +5376,7 @@ ablation <- function(
       NA_integer_
     },
     external_cohorts = prepared$filtered_cohorts,
+    endpoint_eligibility = prepared$endpoint_eligibility,
     anchor = anchor,
     anchor_role = config$anchors$primary_role,
     evidence_level = evidence$level,
@@ -5175,7 +5392,11 @@ ablation <- function(
   audit$evidence_level <- evidence$level
   audit$anchor <- anchor
   audit$reference_sample_count <- nrow(prepared$reference_metadata)
-  audit$query_sample_count <- nrow(prepared$query_metadata)
+  audit$query_sample_count <- nrow(readout_view_for_manifest$metadata)
+  audit$external_candidate_sample_count <- nrow(prepared$query_metadata)
+  audit$external_candidate_cohort_count <- length(unique(prepared$query_metadata$cohort))
+  audit$estimable_cohort_count <- manifest$estimable_cohort_count
+  audit$not_estimable_cohort_count <- manifest$not_estimable_cohort_count
   audit$config_hash <- manifest$config_hash
 
   saveRDS(manifest, file.path(output.dir, "manifest.rds"))
@@ -5185,6 +5406,12 @@ ablation <- function(
   saveRDS(learning_curve, file.path(output.dir, "learning_curve.rds"))
   saveRDS(cohort_scaling, file.path(output.dir, "cohort_scaling.rds"))
   saveRDS(tradeoffs, file.path(output.dir, "tradeoffs.rds"))
+  saveRDS(prepared$endpoint_eligibility, file.path(output.dir, "endpoint_eligibility.rds"))
+  utils::write.csv(
+    prepared$endpoint_eligibility,
+    file.path(output.dir, "endpoint_eligibility.csv"),
+    row.names = FALSE
+  )
   utils::write.csv(audit, file.path(output.dir, "audit.csv"), row.names = FALSE)
 
   structure(
@@ -5194,6 +5421,7 @@ ablation <- function(
       evidence_level = evidence$level,
       evidence = evidence,
       manifest = manifest,
+      endpoint_eligibility = prepared$endpoint_eligibility,
       native_geometry = native_geometry,
       retrieval = retrieval,
       readout = readout,
