@@ -384,6 +384,71 @@ biology_anchor_summary_display$min_coverage <- scales::label_percent(
 render_dt(biology_anchor_summary_display, pageLength = 10)
 ```
 
+### Anchor 覆盖率分布图
+
+每个点代表一个 cohort 的 signature 基因覆盖率，箱线表示中位数与四分位范围；各 cohort 等权，不按样本量加权。纵轴固定为 0–100%，顶部标注每类 anchor 所需的基因数和可计算 cohort 数。点的横向偏移仅用于减少重叠，不代表额外指标；同一 cohort 在四类 anchor 中重复出现，因此这些点不是独立生物学重复。
+
+```{r figure-data-biology-anchor-coverage, interp_check=TRUE}
+# Purpose: Audit the full cohort-level signature coverage distribution.
+# Input: Derived biology cache coverage; no records are filtered.
+# Parameters: Fixed percentage axis and seeded jitter for reproducibility.
+# Output: Vector PDF and same-ratio JPG preview embedded in the HTML.
+fig_data4 <- list(width_in = 8.2, height_in = 5.8, base_size = 10)
+biology_coverage_plot <- biology_profile$coverage
+anchor_order <- biology_profile$anchor_summary$anchor
+biology_coverage_plot$anchor <- factor(
+  biology_coverage_plot$anchor, levels = anchor_order
+)
+anchor_axis_labels <- with(
+  biology_profile$anchor_summary,
+  paste0(anchor, "\n", genes_required, " genes\n",
+         estimable_cohort_count, "/", cohort_count, " estimable")
+)
+stopifnot(
+  nrow(biology_coverage_plot) == nrow(biology_profile$coverage),
+  all(is.finite(biology_coverage_plot$coverage)),
+  all(biology_coverage_plot$coverage >= 0 & biology_coverage_plot$coverage <= 1)
+)
+p_data4 <- ggplot2::ggplot(
+  biology_coverage_plot,
+  ggplot2::aes(x = .data$anchor, y = .data$coverage)
+) +
+  ggplot2::geom_hline(yintercept = 1, linetype = "dashed", color = "grey65") +
+  ggplot2::geom_boxplot(
+    width = 0.45, outlier.shape = NA, fill = "grey95", linewidth = 0.4
+  ) +
+  ggplot2::geom_point(
+    ggplot2::aes(color = .data$status),
+    position = ggplot2::position_jitter(width = 0.17, height = 0, seed = 3),
+    size = 1.5, alpha = 0.45
+  ) +
+  ggplot2::scale_color_manual(
+    values = c(estimable = nature_colors[["navy"]],
+               not_estimable = nature_colors[["red"]]),
+    name = "Calculation status"
+  ) +
+  ggplot2::scale_x_discrete(labels = stats::setNames(anchor_axis_labels, anchor_order)) +
+  ggplot2::scale_y_continuous(
+    limits = c(0, 1), breaks = seq(0, 1, 0.2),
+    labels = scales::label_percent(accuracy = 1),
+    expand = ggplot2::expansion(mult = c(0.02, 0.05))
+  ) +
+  ggplot2::labs(x = NULL, y = "Signature genes found / required") +
+  theme_nature_readable(
+    base_size = fig_data4$base_size, x_text_angle = 0,
+    legend_position = "bottom"
+  )
+fig_data4_jpg <- .atd_save_plot(
+  p_data4, "figure-data-04-biology-anchor-coverage", figure_dir,
+  preview_dir, fig_data4, params$plot_preview_dpi
+)
+knitr::include_graphics(fig_data4_jpg)
+```
+
+#### 图形解读
+
+本图保留全部 `r nrow(biology_profile$coverage)` 条记录；覆盖率低于 100% 的记录有 `r sum(biology_profile$coverage$coverage < 1)` 条。四类 anchor 的最低覆盖率依次为 `r paste(biology_profile$anchor_summary$anchor, scales::label_percent(accuracy = 0.1)(biology_profile$anchor_summary$min_coverage), sep = " = ", collapse = "；")`。靠近顶部的点表示 signature 基因较完整，较低的点提示应在下方明细表核查具体 cohort 与基因标识类型。可计算只要求至少找到两个基因，不等同于 signature 完整，也不证明跨组织或跨来源的生物学有效性。
+
 #### 结果解读
 
 观察：四类 anchor 在当前缓存中共有 `r nrow(biology_profile$coverage)` 条 cohort-anchor 审计记录，其中 `r sum(biology_profile$coverage$status == "estimable")` 条达到可计算条件。The table displays coverage differences across anchors and indicates which cohorts are estimable. 结论：这里的基因覆盖率审计回答的是“完整表达矩阵中是否找得到 signature 基因”，不是模型效果评价；即使覆盖率较高，也不能单独证明 anchor 在不同来源或不同组织中的生物学解释完全一致。
@@ -419,4 +484,4 @@ render_dt(biology_coverage_display, pageLength = 15)
 | cohort 与来源异质性 | `data_profile$tissue_totals` / `$source_profile` | 同上 |
 | biology anchor 基因与覆盖 | `biology_profile$anchor_summary` / `$coverage` | `r biology_cache_path` |
 
-主数据画像的核心数字均从 `data-profile.rds` 动态嵌入；biology 数字均从 `expression-anchor-cache.rds` 动态嵌入。三张主数据图仍由同一对象生成矢量 PDF，再转换为保持相同比例的 JPG 供 HTML 展示；Rmd 只读取 biology 派生缓存，不重复加载完整表达矩阵，也未对数据应用业务阈值。
+主数据画像的核心数字均从 `data-profile.rds` 动态嵌入；biology 数字均从 `expression-anchor-cache.rds` 动态嵌入。三张主数据图和一张 biology anchor 覆盖率图均由对应审计对象生成矢量 PDF，再转换为保持相同比例的 JPG 供 HTML 展示；Rmd 只读取 biology 派生缓存，不重复加载完整表达矩阵，也未对数据应用业务阈值。
