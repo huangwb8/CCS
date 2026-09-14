@@ -52,6 +52,18 @@ data_functions_name <- "01-ablation03-test-data_functions.R"
 experiment_report_name <- "02-ablation-experiment.Rmd"
 data_profile <- readRDS(profile_path)
 
+biology_cache_path <- .ablation03_path(
+  "tmp", "ablation-biology", "expression-anchor-cache.rds"
+)
+if (!file.exists(biology_cache_path)) {
+  stop(
+    "ablation-03: biology cache is missing; run 01-ablation03-biology-cache.R first.",
+    call. = FALSE
+  )
+}
+biology_cache <- readRDS(biology_cache_path)
+biology_profile <- .atd_biology_profile(biology_cache)
+
 figure_dir <- .ablation03_path("figures")
 dir.create(figure_dir, recursive = TRUE, showWarnings = FALSE)
 preview_dir <- bensz_run_dir(
@@ -73,6 +85,7 @@ remapped_cohort_count <- profile_value("Remapped cohorts")
 remapped_sample_count <- profile_value("Remapped samples")
 unresolved_sample_count <- profile_value("Unresolved tissue samples")
 external_cohort_count <- profile_value("External filtered cohorts")
+main_feature_count <- max(data_profile$raw_cohort_index$feature_count)
 
 tissue_profile_plot <- data_profile$tissue_profile
 tissue_order <- data_profile$tissue_totals$tissue[
@@ -121,7 +134,7 @@ external_sample_count <- sum(
 )
 ```
 
-本报告是数据审计阶段，只审计完整输入数据、组织标签恢复和 reference-query 原始构成。它不运行表示学习，也不根据样本量、效应大小或显著性阈值筛选数据；确认性表示实验的资格条件与结果由 `r experiment_report_name` 单独报告。
+本报告是数据审计阶段，同时审计 `r main_feature_count` 特征主输入、biology anchor 的完整表达矩阵派生缓存、组织标签恢复和 reference-query 原始构成。它不运行表示学习，也不根据样本量、效应大小或显著性阈值筛选数据；确认性表示实验的资格条件与结果由 `r experiment_report_name` 单独报告。
 
 之所以把数据审计放在所有模型分析之前，是因为模型就像按花名册分组做游戏：如果同一个班被写成两个名字，或者不同班被误写成一个名字，后面的分数再精确也回答错了问题。本阶段先确认“有多少人、分别来自哪里、哪些人用于参照、哪些人用于提问”，让客户先看懂实验地基是否可靠，再进入 d1 与 Direct-GSClassifier 的比较。
 
@@ -145,6 +158,10 @@ render_dt(
 )
 ```
 
+#### 结果解读
+
+观察：下面的明细表逐条保留历史 `Undefined` cohort 的来源、恢复组织和样本数。The table displays each mapping and its sample count, so any difference in totals is visible. 结论：恢复过程只改变组织标签，不应改变样本或表达值；任何无法对应的 cohort 都应在这里暴露。
+
 恢复规模最大的三个 tissue 是 `r paste(mapping_tissue_summary$resolved_tissue[seq_len(3L)], mapping_tissue_summary$sample_count[seq_len(3L)], sep = " = ", collapse = "; ")` 个样本。冻结 CCS bank 仍保留历史 `bank_tissue/bank_cohort_key` 作为 module provenance，真实 `tissue/cohort_key` 则用于数据分层。**双键并存避免了把历史存储标签误当成未知组织，同时保留 `r external_cohort_count` 个 external filtered cohort 的模型追溯能力。**
 
 ## 关键函数、参数与源代码位置
@@ -155,6 +172,7 @@ render_dt(
 | 双 cohort key | `.atd_resolve_cohort_keys()` | `bank_cohort_key` / `cohort_key` | 同时满足冻结模型追溯与真实 tissue 分层 | `r paste0(data_functions_name, ":", find_source_line(".atd_resolve_cohort_keys <- function"))` |
 | 全量数据画像 | `.atd_build_data_profile()` | 不应用业务阈值 | 保留全部 cohort 与样本供审计，展示层不改变数据 | `r paste0(data_functions_name, ":", find_source_line(".atd_build_data_profile <- function"))` |
 | 审计产物 | `saveRDS()` | `r profile_path` | 让 Rmd 不重复加载完整表达矩阵与冻结模型 | `r data_script_name` |
+| biology anchor 摘要 | `.atd_biology_profile()` | `r biology_cache_path` | 复用完整表达矩阵派生缓存，集中审计 anchor 基因覆盖，不在 Rmd 重算大矩阵 | `r paste0(data_functions_name, ":", find_source_line(".atd_biology_profile <- function"))` |
 
 ## 指标取值与通俗解读
 
@@ -345,11 +363,51 @@ knitr::include_graphics(fig_data3_jpg)
 
 当前数据结果显示，在 `r nrow(tissue_totals)` 个 tissue 中，GEO、cBioPortal 与 UCSC Xena 的支撑比例存在明显差异；图中按 tissue 内部归一化，避免大样本组织遮蔽小组织。**该差异提示，单一 source 占主导的 tissue 不能被当作生物学重复。** 跨来源验证以 `r tissue_totals$tissue[1]`、`r tissue_totals$tissue[2]` 和 `r tissue_totals$tissue[3]` 的 source 分层数据为输入，方法为 leave-one-source-out，判据为移除主要来源后效应方向仍一致。
 
+## Biology anchor 数据审计
+
+上面的主数据画像来自 `r main_feature_count` 特征表达数据；本节单独核对 biology anchor 所依赖的完整表达矩阵入口。完整矩阵由 `01-ablation03-biology-cache.R` 一次性读取，再按冻结的四类 gene signature 提取所需基因；因此这里读取的是可追溯的派生缓存，不会在 Rmd 中重复载入大矩阵。
+
+当前缓存状态为 `r biology_cache$status`，来源文件为 `r biology_profile$source_file`，包含 `r biology_profile$required_gene_count` 个唯一 anchor 基因、`r biology_profile$anchor_count` 类 anchor、`r biology_profile$cohort_count` 个 cohort 和 `r biology_profile$sample_count` 个目标样本，覆盖 `r biology_profile$tissue_count` 个 tissue。这个范围是 biology 阶段为 anchor 计算保留的 retrieval 邻居样本集合，不等同于上面的全量 `r raw_sample_count` 个样本。
+
+### Anchor 基因覆盖
+
+下表按 anchor 汇总所需基因数、参与的 cohort 数和实际基因覆盖率。覆盖率越低，表示该 anchor 在部分 cohort 中缺少更多 signature 基因；`estimable` 表示至少找到两个基因，可以计算该 cohort 的 anchor 分数。
+
+```{r biology-anchor-summary, interp_check=TRUE}
+biology_anchor_summary_display <- biology_profile$anchor_summary
+biology_anchor_summary_display$median_coverage <- scales::label_percent(
+  accuracy = 0.1
+)(biology_anchor_summary_display$median_coverage)
+biology_anchor_summary_display$min_coverage <- scales::label_percent(
+  accuracy = 0.1
+)(biology_anchor_summary_display$min_coverage)
+render_dt(biology_anchor_summary_display, pageLength = 10)
+```
+
+#### 结果解读
+
+观察：四类 anchor 在当前缓存中共有 `r nrow(biology_profile$coverage)` 条 cohort-anchor 审计记录，其中 `r sum(biology_profile$coverage$status == "estimable")` 条达到可计算条件。The table displays coverage differences across anchors and indicates which cohorts are estimable. 结论：这里的基因覆盖率审计回答的是“完整表达矩阵中是否找得到 signature 基因”，不是模型效果评价；即使覆盖率较高，也不能单独证明 anchor 在不同来源或不同组织中的生物学解释完全一致。
+
+### Cohort 级覆盖明细
+
+```{r biology-anchor-coverage, interp_check=TRUE}
+biology_coverage_display <- biology_profile$coverage[, c(
+  "tissue", "cohort", "anchor", "genes_required", "genes_found",
+  "coverage", "sample_count", "id_type", "status"
+)]
+biology_coverage_display$coverage <- scales::label_percent(accuracy = 0.1)(
+  biology_coverage_display$coverage
+)
+render_dt(biology_coverage_display, pageLength = 15)
+```
+
+观察：该明细表保留每个 tissue/cohort/anchor 的原始覆盖证据，便于定位某个 anchor 是否因缺少基因而不可估计。The table displays the source evidence and indicates where coverage is lower. 结论：它与上方 `r main_feature_count` 特征数据表是互补关系，前者检查 biology 输入是否足够，后者检查主消融数据的组织、来源和 reference-query 构成。
+
 ## 讨论与分析
 
 第一阶段确认了 tissue 恢复没有改变样本总数或 cohort 总数，`r remapped_cohort_count` 个历史 `Undefined` cohort 均可追溯到已核验组织，剩余未解析样本为 `r unresolved_sample_count`。同时，reference-query 构成与 source system 明显不均衡，因此第二阶段不能把样本级重复当作独立 cohort 证据，也不能把 filtered cohort 直接等同于最终确认性 query。
 
-该审计不评价 d1 的优劣。消融实验的输入边界是保留历史 bank key 以复现冻结模型、使用恢复后的 tissue key 做分层，并对来源占主导和 cohort 规模失衡进行显式敏感性分析。`r experiment_report_name` 将在相同数据画像上报告真正进入外部比较的样本、cohort 和表示合同。
+该审计不评价 d1 的优劣。消融实验的输入边界是保留历史 bank key 以复现冻结模型、使用恢复后的 tissue key 做分层，并对来源占主导和 cohort 规模失衡进行显式敏感性分析。biology anchor 另以完整表达矩阵派生的 `r biology_profile$required_gene_count` 个基因作为输入，当前缓存覆盖 `r biology_profile$sample_count` 个目标样本；`r experiment_report_name` 将在相同数据画像上报告真正进入外部比较的样本、cohort 和表示合同。
 
 ## 数字准确性验证
 
@@ -359,5 +417,6 @@ knitr::include_graphics(fig_data3_jpg)
 | tissue 恢复规模 | `data_profile$resolution_audit` | 同上 |
 | reference-query 原始构成 | `data_profile$tissue_profile` | 同上 |
 | cohort 与来源异质性 | `data_profile$tissue_totals` / `$source_profile` | 同上 |
+| biology anchor 基因与覆盖 | `biology_profile$anchor_summary` / `$coverage` | `r biology_cache_path` |
 
-所有核心数字均从 `data-profile.rds` 动态嵌入。三张图均由同一对象生成矢量 PDF，再转换为保持相同比例的 JPG 供 HTML 展示；Rmd 未重复加载完整表达矩阵，也未对数据应用业务阈值。
+主数据画像的核心数字均从 `data-profile.rds` 动态嵌入；biology 数字均从 `expression-anchor-cache.rds` 动态嵌入。三张主数据图仍由同一对象生成矢量 PDF，再转换为保持相同比例的 JPG 供 HTML 展示；Rmd 只读取 biology 派生缓存，不重复加载完整表达矩阵，也未对数据应用业务阈值。

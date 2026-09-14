@@ -218,6 +218,57 @@
   profile$overview$value[match(item, profile$overview$item)]
 }
 
+.atd_biology_profile <- function(cache) {
+  required_fields <- c(
+    "schema_version", "status", "source", "required_genes", "anchors",
+    "cohorts", "coverage", "sample_ids"
+  )
+  missing_fields <- setdiff(required_fields, names(cache))
+  if (length(missing_fields)) {
+    stop(
+      "ablation-test-data: biology cache is missing fields: ",
+      paste(missing_fields, collapse = ", "),
+      call. = FALSE
+    )
+  }
+  if (!identical(cache$status, "complete")) {
+    stop("ablation-test-data: biology cache is not complete.", call. = FALSE)
+  }
+
+  coverage <- as.data.frame(cache$coverage, stringsAsFactors = FALSE)
+  coverage$coverage <- as.numeric(coverage$coverage)
+  anchor_summary <- coverage |>
+    dplyr::group_by(.data$anchor) |>
+    dplyr::summarise(
+      genes_required = dplyr::first(.data$genes_required),
+      cohort_count = dplyr::n_distinct(.data$cohort_key),
+      estimable_cohort_count = dplyr::n_distinct(
+        .data$cohort_key[which(.data$status == "estimable")]
+      ),
+      median_coverage = stats::median(.data$coverage, na.rm = TRUE),
+      min_coverage = min(.data$coverage, na.rm = TRUE),
+      .groups = "drop"
+    ) |>
+    dplyr::arrange(.data$anchor)
+
+  list(
+    source_file = basename(cache$source$path),
+    source_md5 = cache$source$md5,
+    schema_version = cache$schema_version,
+    anchor_count = length(cache$anchors),
+    required_gene_count = length(unique(cache$required_genes)),
+    cohort_count = length(cache$cohorts),
+    tissue_count = length(unique(vapply(
+      cache$cohorts,
+      function(x) as.character(x$tissue),
+      character(1)
+    ))),
+    sample_count = length(unique(cache$sample_ids)),
+    anchor_summary = anchor_summary,
+    coverage = coverage
+  )
+}
+
 .atd_find_source_line <- function(path, pattern) {
   lines <- readLines(path, warn = FALSE)
   match(TRUE, grepl(pattern, lines, fixed = TRUE))
