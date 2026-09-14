@@ -6,7 +6,7 @@
 
 ## [Unreleased]
 
-- 将 `ablation-03` 的 biology-anchor 输入审计并入 `01-ablation03-test-data.Rmd`：复用完整表达矩阵派生缓存，报告 anchor 基因覆盖、缓存样本/cohort 范围与 cohort 级明细，并保留 32 特征主数据画像与 biology 输入边界的区分。
+- 将 `ablation-03` 的 biology-anchor 输入审计并入 `01-ablation03-test-data.Rmd`：复用完整表达矩阵派生缓存，报告 anchor 基因覆盖、缓存样本/cohort 范围与 cohort 级明细，新增逐 cohort 的 anchor 覆盖率分布图，并保留 32 特征主数据画像与 biology 输入边界的区分。
 - 收紧 `ablation()` 的 d1 输入边界：移除下游函数内部的 query d1 自动重算；缺失 d1 的 query 仅发出警告、按已有 d1 取交集，并将排除样本写入 `excluded-query-d1.csv`，由调用方负责准备一致的 CCS object。
 - 重构 `R/ablation.R` 的消融实验编排：公共入口直接区分 representation 与 layered 实验流程，将 layered 运行拆分为上下文准备、实验调度和结果汇总阶段，并补充阶段性审阅注释；保持现有实验顺序、Gate 1 依赖和输出文件契约不变。
 - 恢复 `ablation()` 内置的合成数据 smoke fixture：默认关闭，设置 `CCS_ABLATION_RUN_SMOKE=true` 时可直接运行并校验当前 layered 编排、四类 cohort 指标和审计表。
