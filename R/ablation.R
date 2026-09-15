@@ -5020,6 +5020,67 @@ ablation <- function(
 }
 
 
+# Cache the exact native-geometry diagnostics separately from downstream
+# endpoints. The key binds both representations and the sampling contract.
+.ablation_native_geometry_cache_key <- function(prepared, config, seed) {
+  digest::digest(
+    list(
+      schema_version = 1L,
+      representation_key = prepared$cache_key,
+      direct_key = prepared$direct_cache$key,
+      reference_ids = rownames(prepared$reference_d1),
+      reference_d1 = prepared$reference_d1,
+      geometry = config$geometry,
+      seed = seed
+    ),
+    algo = "md5"
+  )
+}
+
+
+.ablation_read_native_geometry_cache <- function(path, key) {
+  if (!file.exists(path)) return(NULL)
+  cached <- tryCatch(readRDS(path), error = function(e) NULL)
+  if (!is.list(cached) || !identical(cached$schema_version, 1L) ||
+      !identical(cached$key, key) || !is.list(cached$value)) {
+    return(NULL)
+  }
+  cached$value
+}
+
+
+# Promote a legacy exact result only when its companion manifest proves that
+# the representation, geometry contract, seed and dimensions all match.
+.ablation_promote_legacy_native_geometry <- function(
+    output.dir,
+    prepared,
+    config,
+    seed,
+    key,
+    cache_path
+) {
+  manifest_path <- file.path(output.dir, "manifest.rds")
+  value_path <- file.path(output.dir, "native_geometry.rds")
+  if (!file.exists(manifest_path) || !file.exists(value_path)) return(NULL)
+  manifest <- tryCatch(readRDS(manifest_path), error = function(e) NULL)
+  value <- tryCatch(readRDS(value_path), error = function(e) NULL)
+  valid <- is.list(manifest) && is.list(value) &&
+    identical(manifest$cache_key, prepared$cache_key) &&
+    identical(manifest$config$geometry, config$geometry) &&
+    identical(manifest$seed, seed) &&
+    identical(manifest$reference_sample_count, nrow(prepared$reference_d1)) &&
+    identical(manifest$direct_feature_count, ncol(prepared$reference_direct)) &&
+    identical(manifest$d1_feature_count, ncol(prepared$reference_d1)) &&
+    identical(manifest$module_count, length(prepared$selected_blocks))
+  if (!isTRUE(valid)) return(NULL)
+  .ablation_atomic_save_rds(
+    list(schema_version = 1L, key = key, value = value),
+    cache_path
+  )
+  value
+}
+
+
 .ablation_bind_retrieval <- function(results) {
   neighbors <- do.call(rbind, lapply(names(results), function(name) {
     data <- results[[name]]$neighbors
@@ -5288,7 +5349,65 @@ ablation <- function(
     ),
     d1 = d1_scaled
   )
-  native_geometry <- .ablation_native_geometry(prepared, transformed, config, seed)
+  native_geometry_cache_path <- file.path(
+    output.dir,
+    "native-geometry-cache.rds"
+  )
+  native_geometry_cache_key <- .ablation_native_geometry_cache_key(
+    prepared,
+    config,
+    seed
+  )
+  native_geometry <- .ablation_read_native_geometry_cache(
+    native_geometry_cache_path,
+    native_geometry_cache_key
+  )
+  if (is.null(native_geometry)) {
+    native_geometry <- .ablation_promote_legacy_native_geometry(
+      output.dir = output.dir,
+      prepared = prepared,
+      config = config,
+      seed = seed,
+      key = native_geometry_cache_key,
+      cache_path = native_geometry_cache_path
+    )
+    if (!is.null(native_geometry) && verbose) {
+      luckyBase::LuckyVerbose(
+        "ablation: promoted matching exact native geometry into cache."
+      )
+    }
+  }
+  if (is.null(native_geometry)) {
+    if (verbose) {
+      luckyBase::LuckyVerbose(
+        "ablation: computing exact native geometry (cache miss)..."
+      )
+    }
+    native_geometry <- .ablation_native_geometry(
+      prepared,
+      transformed,
+      config,
+      seed
+    )
+    .ablation_atomic_save_rds(
+      list(
+        schema_version = 1L,
+        key = native_geometry_cache_key,
+        value = native_geometry
+      ),
+      native_geometry_cache_path
+    )
+  } else if (verbose) {
+    luckyBase::LuckyVerbose(
+      "ablation: reusing cached exact native geometry from ",
+      normalizePath(
+        native_geometry_cache_path,
+        winslash = "/",
+        mustWork = TRUE
+      ),
+      "."
+    )
+  }
 
   # Phase 2: evaluate query-to-reference retrieval. The retrieval view is
   # restricted to estimable cancer-labelled queries, while the complete
