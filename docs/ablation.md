@@ -359,6 +359,8 @@ representation 内的 `scaling$enabled` 与 layered 的 scaling 不同：它固�
 
 `.ablation_gsclassifier_matrix()`（`R/ablation.R:1351`）依据 frozen feature manifest 从输入表达矩阵重建 Direct-GSClassifier 特征，并严格保持 manifest 中的列顺序。该矩阵是 representation 路径的主要一次性限速步骤：默认写入 `output.dir/direct-feature-cache.rds`，缓存键同时绑定表达矩阵、样本顺序、冻结模型元数据和 feature manifest；后续运行只有在全部校验一致时才复用，失配或缓存损坏则安全重建并原子替换。representation 路径不会用这些特征补算 d1；d1 始终来自 `object@Data$Probability$d1`。
 
+原生几何中的精确高维 kNN 与有效秩另行写入 `output.dir/native-geometry-cache.rds`。缓存键绑定 Direct/d1 输入、样本顺序、完整 geometry 参数与 seed；旧版 `native_geometry.rds` 只有在配套 manifest 的 representation key、参数、seed 和矩阵维度全部一致时才会被提升为新缓存。缓存命中只跳过完全相同的精确计算，不会切换为近似近邻算法。
+
 ### 抽样与可重复性
 
 `.ablation_stratified_sample()` 对 tissue × cohort 分层；每个实验拥有独立 seed 区间：

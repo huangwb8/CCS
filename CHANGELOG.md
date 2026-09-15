@@ -6,6 +6,8 @@
 
 ## [Unreleased]
 
+- 为 ablation representation 的精确原生几何增加严格键控的持久缓存，并支持在 manifest 完整匹配时安全提升旧版精确产物，避免高维 kNN 在重复运行中成为数小时限速步骤。
+
 - 为 `ablation()` representation 流程增加持久化 Direct-GSClassifier 特征缓存：首次运行生成 `direct-feature-cache.rds`，后续按表达矩阵、样本、模型元数据和 feature manifest 哈希安全复用；缓存失配或损坏时才重建，且 d1 继续只复用 CCS 对象已有的 `Data$Probability$d1`。
 
 - 对齐 `docs/ablation.md` 与 `R/ablation.R` 当前实现：明确预计算 d1、矩阵 metadata、默认 `cancer_type` anchor 和 `cohort` 分派契约，移除不存在的 d1 自动编码 helper，并同步源码定位与输出文件清单。
