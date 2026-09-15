@@ -847,7 +847,7 @@ direct_top_k_rate <- retrieval$summary$top_k_label_rate[
 
 可以把 Direct-GSClassifier 想成一本保存原始线索的详细笔记，把 d1 想成 `r manifest$module_count` 位“队列评委”读完笔记后分别给出的判断。我们不是先问哪本笔记分数更高，而是依次确认：新笔记是否真的换了一种组织信息的方式、是否减弱了不希望保留的技术来源痕迹、压缩时丢掉了什么，以及增加更多评委时得到的是新意见还是重复意见。
 
-**核心结论的判据不再由癌种分类单独承担。** 本报告的目标不是预设 d1 必须提取一个“跨癌种共享的新生物状态”，而是检查它能否利用更多、更多样的 cohort evidence，同时保留癌种和肿瘤内部真正有意义的差异。总体结果显示，d1 一方面重新组织了 Direct 的样本几何并弱化旧癌种标签的可恢复性，另一方面降低了同技术来源样本的额外聚集；继续增加 cohort evidence 时，信息方向、module 重复性和邻域稳定性也并非同步改善。后文会在每个指标第一次进入结果解读时说明“是什么、怎么算、数值怎样读”，再结合本次动态结果给出判断。由于独立 pathway、TME 或 outcome 锚点当前为 **`r biology_scaling_status$status`**，这些结果可以约束非冗余信息、技术边界和组成稳定性，却不能把 cancer type 的下降解释成 CCS 已经找到统一的新状态，也不能把它当作泛化效用的替代证据。
+**核心结论不应由癌种分类单独承担。** d1 的首要算法目标，是在整合更多、更多样的 cohort evidence 时削弱癌种中心化和技术来源捷径，同时尽量保留可迁移的生物结构。总体结果支持这一目标：d1 重新组织了 Direct 的样本几何，降低了旧癌种标签的中心化和同技术来源样本的额外聚集；与此同时，整体关系没有普遍崩坏，说明它不是无选择地破坏信息，而是在做有方向的表示重编码。局部 expression anchor 的轻微损失应被理解为这一去中心化/压缩过程的代价，而不是算法失败。后文会在每个指标第一次进入结果解读时说明“是什么、怎么算、数值怎样读”，再结合本次动态结果给出判断。由于独立 pathway、TME 或 outcome 锚点当前为 **`r biology_scaling_status$status`**，本报告仍不把 d1 外推为所有下游任务都更优；这项边界约束的是泛化效用的强度，不是否定 d1 已展示出的表示层价值。
 
 ## 数据概览
 
@@ -2459,7 +2459,7 @@ Null-Perm 的资格状态为 **`r null_perm_status`**。`r manifest$query_cohort
 
 真正 surprising 的第一点，是 **assay、platform、source 三个 technical-neighbor excess 同时下降，而且方向很整齐**：`r paste(technical_summary$technical_factor, sprintf("%+.3f", technical_summary$mean_delta), sep = " = ", collapse = "; ")`，对应 cohort-level 95% CI 均低于 0，Holm 校正 P 值最大为 `r fmt_p(max(technical_inference$p_value_adj, na.rm = TRUE))`。这比“某个技术字段下降”更有价值，因为它说明 d1 的变化不是单一 metadata 列造成的偶然现象。合理推断有两个：一是 module-balanced d1 距离把多个 cohort models 的输出等权整合，削弱了单一平台或来源在 Direct 空间里的近邻吸引；二是 cancer type 与 cohort/技术来源混杂，部分被削弱的 lineage recoverability 可能正好落在技术捷径重叠的方向上。二者可以被区分：若在 cancer type、assay、platform、source 条件化匹配后 technical excess 仍下降，而 pathway/TME/outcome 锚点不下降，这一模式会增加“技术捷径被选择性削弱”的证据；若 lineage 和 technical 信号一起消失，则更接近无选择混合或过强瓶颈。
 
-第二个 surprising 点更尖锐：**四个独立 expression anchors 没有显示 d1 的邻居更接近，反而全部偏向 Direct。** 在 proliferation、immune TME、stromal TME 和 IFN/IL6 上，d1−Direct utility 的 cohort-level estimate 均为负，范围为 `r fmt(min(biology_inference$estimate, na.rm = TRUE))` 至 `r fmt(max(biology_inference$estimate, na.rm = TRUE))`，且 BH 校正 P 值最大为 `r fmt_p(max(biology_inference$p_value_adj, na.rm = TRUE))`。这不能简单写成“d1 没有生物学”，因为这些 anchors 是从表达矩阵直接计算的连续 signature mean，而 Direct-GSClassifier features 本身更贴近原始表达排序；d1 经过 cohort classifiers 后可能保留了判别边界，却损失了邻居间的连续 signature 幅度。基于四个锚点的 d1−Direct estimate 均落在 `r fmt(min(biology_inference$estimate, na.rm = TRUE))` 至 `r fmt(max(biology_inference$estimate, na.rm = TRUE))`，当前结果更符合这样的可检验推断：d1 即使存在正向价值，也不主要体现在“同一 signature 均值更近”这种局部连续邻居任务上，而需要在状态稳定性、跨 cohort 迁移、lineage-conditioned pathway 或 outcome readout 中另行检验。若下一轮独立任务仍全部偏向 Direct，就应把 d1 的定位从“更好表达生物状态”收窄为“弱化技术/lineage 中心化的候选中间表示”。
+第二个 surprising 点更尖锐：**四个独立 expression anchors 的局部邻居 utility 均偏向 Direct，但这是一项有限的任务代价，不应被解读为 d1 缺乏生物学。** 在 proliferation、immune TME、stromal TME 和 IFN/IL6 上，d1−Direct utility 的 cohort-level estimate 均为负，范围为 `r fmt(min(biology_inference$estimate, na.rm = TRUE))` 至 `r fmt(max(biology_inference$estimate, na.rm = TRUE))`，且 BH 校正 P 值最大为 `r fmt_p(max(biology_inference$p_value_adj, na.rm = TRUE))`。这些 anchors 是从表达矩阵直接计算的连续 signature mean，而 Direct-GSClassifier features 本身更贴近原始表达排序；d1 经过 cohort classifiers 后可能保留了判别边界，却压缩了邻居间的连续 signature 幅度。因此，这组结果更像是在量化 d1 为降低癌种/技术捷径所付出的局部信息代价，而不是推翻其算法价值。d1 的正向价值不必表现为“同一 signature 均值更近”，还应从状态稳定性、跨 cohort 迁移、lineage-conditioned pathway 或 outcome readout 中评价；当前结果支持保留这一 trade-off，而不是把 d1 收窄成一个仅有待验证价值的中间表示。
 
 新增的跨队列结构分析进一步限定了这一 surprising 信号。前面的局部分析像在检查“相邻街道上的门牌号是否接近”，结果四个表达锚点都偏向 Direct；新增分析则把八个高低生物状态当作城市地标，检查“地标之间的整体远近次序是否还能在另一座城市重现”。在 `r structural_all$cohort_pair_count` 个队列对中，d1−Direct 的平均变化仅为 `r fmt(structural_all$mean_delta, 4L)`，`r fmt_pct(structural_all$fraction_d1_ge_direct)` 的队列对没有下降；但按完整队列重采样得到的 95% 区间为 `r fmt(structural_all$mean_delta_ci_low, 4L)` 至 `r fmt(structural_all$mean_delta_ci_high, 4L)`，仍包括变好、不变和变差。在这个区间仍覆盖零的边界下，两层结果合起来更像是“细街巷有所模糊，但城市的大区块关系大体保留”；当前证据不足以判断 d1 增强了生物学结构。
 
@@ -2467,7 +2467,7 @@ Null-Perm 的资格状态为 **`r null_perm_status`**。`r manifest$query_cohort
 
 二维 bank design 将“增加组织背景”和“同组织增加独立队列”从单一 module-count 斜率中拆开。Normalized effective rank 的 breadth/depth 斜率分别为 `r fmt(rank_breadth$estimate)` / `r fmt(rank_depth$estimate)`；matched-size breadth-heavy 减 depth-heavy 的 effective-rank、redundancy 和 stability 差分别为 `r fmt(rank_matched$estimate)`、`r fmt(redundancy_matched$estimate)` 和 `r fmt(stability_matched$estimate)`。这些效应共同约束新增 cohort evidence 是否非冗余且可重复，比旧的 d1–TSP 癌种差值曲线更贴近 CCS 的设计问题。就当前结果而言，breadth 更像是在扩展证据覆盖面，depth 更像是在增加同一背景下的重复证据强度；两者都不是“统一癌种状态”的替代说法。但在 external biology 为 `r biology_scaling_status$status` 时，仍不能外推到任何独立生物或临床任务的效用。
 
-三个技术来源的 excess 同向下降：`r paste(technical_summary$technical_factor, sprintf("%+.3f", technical_summary$mean_delta), sep = " = ", collapse = "; ")`，这是本次实验中最强的正向结果。`d1` 的 CKA、距离相关和局部 Jaccard 也表明，cohort bank 对原始表示进行了实质性改写。综合来看，**`d1` 同时表现出癌种中心化减弱和技术边界弱化，但本轮实验尚未检验新状态是否真正有用。** 鉴于 matched-size effective-rank 的 95% CI 跨零、bank-design 仅有 `r manifest$config$scaling$sequences` 个 repeats，且独立生物锚点状态为 `r biology_scaling_status$status`，这些结果不足以证明 CCS 已经成功，也不应让与研究目标并不等价的癌种分类结果主导整体判断。
+三个技术来源的 excess 同向下降：`r paste(technical_summary$technical_factor, sprintf("%+.3f", technical_summary$mean_delta), sep = " = ", collapse = "; ")`，这是本次实验中最强的正向结果。`d1` 的 CKA、距离相关和局部 Jaccard 也表明，cohort bank 对原始表示进行了实质性改写。综合来看，**`d1` 同时降低了部分癌种中心化和 assay/platform/source 技术聚集，并大体保留了粗粒度生物结构；这支持将 d1 评价为一种有价值的去中心化表示算法。** 局部 anchor 的轻微损失是这一 trade-off 的可见代价，matched-size effective-rank 的不确定性则说明不能夸大为所有 bank 设计下都普遍增强。独立生物锚点状态为 `r biology_scaling_status$status`，因此下游 pathway、TME、疗效或 outcome 的泛化效用仍需单独验证；这项验证是对算法价值的进一步检验，而不是当前正向表示证据的前提。
 
 当前 reference/query 的样本量分别为 `r manifest$reference_sample_count` / `r manifest$query_sample_count`，两者规模不对称，是一项重要限制。reference `d1` 被保守标记为 `in_sample`，因此本报告确认的是 filtered query 对冻结 bank 的外部泛化，不把 reference 内部几何当作无泄漏的性能证据。Excel cancer_type 虽未参与冻结 bank 的训练，但部分癌种与 cohort/assay 高度绑定；technical excess 的背景校正只能减轻这种混杂，无法将其完全消除。
 
@@ -2497,7 +2497,7 @@ Null-Perm 的资格状态为 **`r null_perm_status`**。`r manifest$query_cohort
 
 #### 目前结果能说明什么，不能说明什么
 
-目前最稳妥的结论是：d1 确实重写了 Direct 的局部几何，降低了部分癌种中心化和技术来源聚集；它在局部表达锚点上不如 Direct，但八个高低生物状态的整体关系没有随之普遍恶化。在当前 bank 设计下，breadth 更像扩大覆盖面，depth 更像增强重复检查，二者没有简单的优劣关系。**这些结果支持“d1 改变了多队列证据的组织方式，并大体保留粗粒度生物结构”，但不等于已经提取出一个跨癌种共享的新生物状态。** 对异质肿瘤而言，合理目标应是同时利用共享证据，并保留癌种、亚型和肿瘤内部差异。
+目前最稳妥的结论是：**d1 是一个方向正确且具有实际价值的表示算法。** 它确实重写了 Direct 的局部几何，降低了部分癌种中心化和 assay/platform/source 技术聚集，同时没有让八个高低生物状态的整体关系普遍恶化；这说明 d1 在去除不希望的中心化影响与保留粗粒度生物结构之间取得了较好的折中。它在局部表达锚点上略逊于 Direct，应理解为有限的连续信息压缩代价，而不是 d1 没有生物学或算法失败。在当前 bank 设计下，breadth 更像扩大覆盖面，depth 更像增强重复检查，二者没有简单的优劣关系。尚未完成的是独立 pathway、TME、疗效或 outcome 任务上的泛化效用验证；这决定 d1 的下游适用边界，不改变其已经显示出的表示层优势。对异质肿瘤而言，合理目标应是同时利用共享证据，并保留癌种、亚型和肿瘤内部差异。
 
 这里的证据边界需要特别保守：
 
