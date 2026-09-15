@@ -6,6 +6,9 @@
 
 ## [Unreleased]
 
+- 为 `ablation()` representation 流程增加持久化 Direct-GSClassifier 特征缓存：首次运行生成 `direct-feature-cache.rds`，后续按表达矩阵、样本、模型元数据和 feature manifest 哈希安全复用；缓存失配或损坏时才重建，且 d1 继续只复用 CCS 对象已有的 `Data$Probability$d1`。
+
+- 对齐 `docs/ablation.md` 与 `R/ablation.R` 当前实现：明确预计算 d1、矩阵 metadata、默认 `cancer_type` anchor 和 `cohort` 分派契约，移除不存在的 d1 自动编码 helper，并同步源码定位与输出文件清单。
 - 将 `ablation-03` 的 biology-anchor 输入审计并入 `01-ablation03-test-data.Rmd`：复用完整表达矩阵派生缓存，报告 anchor 基因覆盖、缓存样本/cohort 范围与 cohort 级明细，新增逐 cohort 的 anchor 覆盖率分布图，并保留 32 特征主数据画像与 biology 输入边界的区分。
 - 收紧 `ablation()` 的 d1 输入边界：移除下游函数内部的 query d1 自动重算；缺失 d1 的 query 仅发出警告、按已有 d1 取交集，并将排除样本写入 `excluded-query-d1.csv`，由调用方负责准备一致的 CCS object。
 - 重构 `R/ablation.R` 的消融实验编排：公共入口直接区分 representation 与 layered 实验流程，将 layered 运行拆分为上下文准备、实验调度和结果汇总阶段，并补充阶段性审阅注释；保持现有实验顺序、Gate 1 依赖和输出文件契约不变。
