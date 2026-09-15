@@ -14,6 +14,10 @@
 
 # 日常
 
+----
+
+简要分析ablation-03的结论。 和 1691d68d3e14ee9bb70b1c1d0166cd89dbd9a015 那个版本的 ablation-03的结论有什么出入 ？
+
 ---
 
 基于 docs\plans\2026-09-12-ablation-03必要分析双向外部验证优化计划.md docs\plans\2026-09-13-ablation-03-reference-query资格边界修订计划.md 优化 ablation-03 的分析。
