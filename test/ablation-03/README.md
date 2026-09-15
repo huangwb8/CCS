@@ -29,6 +29,8 @@
 
 ## 主要产物
 
+- `tmp/ablation-experiment/direct-feature-cache.rds`（持久化 Direct-GSClassifier 特征缓存；缓存键校验表达矩阵、样本顺序、冻结模型元数据与 feature manifest，命中后跳过 Direct 特征重建）
+
 - `tmp/ablation-biology/anchor_coverage.csv`
 - `tmp/ablation-biology/anchor_utility.csv`
 - `tmp/ablation-biology/anchor_contrasts.csv`

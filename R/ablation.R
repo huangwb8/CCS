@@ -252,6 +252,10 @@
 #'   Output handling:
 #'
 #'   \describe{
+#'     \item{`output$cache_direct`}{Logical; persist the reconstructed
+#'       Direct-GSClassifier matrix in `direct-feature-cache.rds` and reuse it
+#'       only when the expression, sample, model, and feature-contract hashes
+#'       all match. Default: `TRUE`.}
 #'     \item{`general$cover`}{Logical; allow writing into a non-empty `output.dir` and
 #'       replacing same-named ablation result files. Default: `FALSE`.}
 #'   }
@@ -1385,6 +1389,102 @@ ablation <- function(
       "ablation: GSClassifier Direct features contain non-finite values.",
       call. = FALSE
     )
+  }
+  direct
+}
+
+
+# Build a content-addressed key for the expensive Direct reconstruction.  Hash
+# only the expression rows that can affect GSClassifier features; hashing the
+# complete RNA matrix would recreate the same memory/time bottleneck we are
+# trying to avoid.
+.ablation_direct_expression_fingerprint <- function(object, expr) {
+  gene_candidates <- unique(as.character(unlist(object@Repeat$geneSet, use.names = FALSE)))
+  row_ids <- rownames(expr)
+  relevant <- rep(TRUE, length(row_ids))
+  if (length(gene_candidates) > 0L && any(nzchar(gene_candidates))) {
+    annotation <- object@Repeat$geneAnnotation
+    geneid <- as.character(object@Repeat$geneid)[1L]
+    annotation_names <- if (is.data.frame(annotation)) {
+      tolower(colnames(annotation))
+    } else {
+      character()
+    }
+    annotation_column <- match(tolower(geneid), annotation_names)
+    annotation_values <- if (is.data.frame(annotation) &&
+        nzchar(geneid) && !is.na(annotation_column) &&
+        nrow(annotation) == length(row_ids)) {
+      as.character(annotation[[annotation_column]])
+    } else {
+      row_ids
+    }
+    relevant <- annotation_values %in% gene_candidates | row_ids %in% gene_candidates
+    if (!any(relevant)) relevant <- rep(TRUE, length(row_ids))
+  }
+  digest::digest(
+    list(
+      dim = dim(expr),
+      rownames = row_ids,
+      colnames = colnames(expr),
+      relevant_rows = which(relevant),
+      relevant_values = expr[relevant, , drop = FALSE]
+    ),
+    algo = "xxhash64"
+  )
+}
+
+
+.ablation_direct_feature_cache_key <- function(object, expr, feature_manifest, sample_ids) {
+  digest::digest(
+    list(
+      version = 2L,
+      method = object@Repeat$method,
+      feature_builder = "GSClassifier::trainDataProc_X",
+      feature_builder_version = as.character(utils::packageVersion("GSClassifier")),
+      geneSet = object@Repeat$geneSet,
+      geneAnnotation = object@Repeat$geneAnnotation,
+      geneid = object@Repeat$geneid,
+      feature_hash = digest::digest(feature_manifest, algo = "md5"),
+      sample_ids = as.character(sample_ids),
+      expression_hash = .ablation_direct_expression_fingerprint(object, expr)
+    ),
+    algo = "md5"
+  )
+}
+
+
+# Save generated cache files through a temporary sibling and rename so an
+# interrupted R session cannot leave a partially written cache that looks
+# valid to the next run.
+.ablation_atomic_save_rds <- function(value, path) {
+  dir.create(dirname(path), recursive = TRUE, showWarnings = FALSE)
+  tmp <- paste0(path, ".tmp-", Sys.getpid(), "-", as.integer(stats::runif(1, 1, 1e9)))
+  on.exit(unlink(tmp, force = TRUE), add = TRUE)
+  saveRDS(value, tmp, compress = FALSE)
+  backup <- paste0(path, ".bak-", Sys.getpid())
+  if (file.exists(path) && !file.rename(path, backup)) {
+    stop("ablation: cannot stage existing cache file for replacement: ", path, call. = FALSE)
+  }
+  if (!file.rename(tmp, path)) {
+    if (file.exists(backup)) file.rename(backup, path)
+    stop("ablation: cannot finalize cache file: ", path, call. = FALSE)
+  }
+  if (file.exists(backup)) unlink(backup, force = TRUE)
+  invisible(path)
+}
+
+
+.ablation_read_direct_feature_cache <- function(path, key, sample_ids, feature_manifest) {
+  if (!file.exists(path)) return(NULL)
+  cached <- tryCatch(readRDS(path), error = function(e) NULL)
+  if (!is.list(cached) || !identical(cached$key, key)) return(NULL)
+  direct <- cached$direct
+  if (!is.matrix(direct) ||
+      !identical(rownames(direct), as.character(sample_ids)) ||
+      !identical(colnames(direct), feature_manifest$features) ||
+      any(dim(direct) != c(length(sample_ids), length(feature_manifest$features))) ||
+      any(!is.finite(direct))) {
+    return(NULL)
   }
   direct
 }
@@ -4515,7 +4615,8 @@ ablation <- function(
       decoder_max_query_samples = 5000L
     ),
     output = list(
-      cover = FALSE
+      cover = FALSE,
+      cache_direct = TRUE
     )
   )
 }
@@ -4547,6 +4648,11 @@ ablation <- function(
       !is.logical(config$scaling$enabled) ||
       is.na(config$scaling$enabled)) {
     stop("ablation: scaling$enabled must be TRUE or FALSE.", call. = FALSE)
+  }
+  if (length(config$output$cache_direct) != 1L ||
+      !is.logical(config$output$cache_direct) ||
+      is.na(config$output$cache_direct)) {
+    stop("ablation: output$cache_direct must be TRUE or FALSE.", call. = FALSE)
   }
   if (length(config$scaling$module_counts) < 2 ||
       any(!is.finite(config$scaling$module_counts)) ||
@@ -4731,7 +4837,7 @@ ablation <- function(
 
   if (verbose) {
     luckyBase::LuckyVerbose(
-      "ablation: building Direct-GSClassifier for ",
+      "ablation: preparing Direct-GSClassifier for ",
       length(reference_ids),
       " reference and ",
       length(query_ids),
@@ -4739,11 +4845,58 @@ ablation <- function(
     )
   }
   all_ids <- c(reference_ids, query_ids)
-  direct <- .ablation_gsclassifier_matrix(
-    object,
-    flattened$expr[, all_ids, drop = FALSE],
-    feature_manifest
+  direct_expr <- flattened$expr[, all_ids, drop = FALSE]
+  direct_cache_path <- file.path(output.dir, "direct-feature-cache.rds")
+  direct_cache_key <- .ablation_direct_feature_cache_key(
+    object = object,
+    expr = direct_expr,
+    feature_manifest = feature_manifest,
+    sample_ids = all_ids
   )
+  direct <- if (isTRUE(config$output$cache_direct)) {
+    .ablation_read_direct_feature_cache(
+      path = direct_cache_path,
+      key = direct_cache_key,
+      sample_ids = all_ids,
+      feature_manifest = feature_manifest
+    )
+  } else {
+    NULL
+  }
+  direct_cache_status <- if (!is.null(direct)) "hit" else "miss"
+  if (is.null(direct)) {
+    if (verbose) {
+      luckyBase::LuckyVerbose(
+        "ablation: rebuilding Direct-GSClassifier features (cache miss)..."
+      )
+    }
+    direct <- .ablation_gsclassifier_matrix(
+      object,
+      direct_expr,
+      feature_manifest
+    )
+    if (isTRUE(config$output$cache_direct)) {
+      .ablation_atomic_save_rds(
+        list(
+          schema_version = 1L,
+          key = direct_cache_key,
+          sample_ids = all_ids,
+          feature_manifest = feature_manifest,
+          direct = direct
+        ),
+        direct_cache_path
+      )
+      direct_cache_status <- "written"
+    } else {
+      direct_cache_status <- "disabled"
+    }
+  } else if (verbose) {
+    luckyBase::LuckyVerbose(
+      "ablation: reusing cached Direct-GSClassifier features from ",
+      normalizePath(direct_cache_path, winslash = "/", mustWork = TRUE),
+      "."
+    )
+  }
   reference_direct <- direct[reference_ids, , drop = FALSE]
   query_direct <- direct[query_ids, , drop = FALSE]
 
@@ -4782,6 +4935,12 @@ ablation <- function(
     feature_manifest = feature_manifest,
     excluded_duplicate_samples = flattened$excluded_duplicate_samples,
     excluded_query_d1_ids = excluded_query_d1_ids,
+    direct_cache = list(
+      path = direct_cache_path,
+      key = direct_cache_key,
+      status = direct_cache_status,
+      enabled = isTRUE(config$output$cache_direct)
+    ),
     cache_key = cache_key,
     filtered_cohorts = filtered
   )
@@ -5500,6 +5659,7 @@ ablation <- function(
     tsp_feature_count = length(prepared$feature_manifest$tsp_features),
     d1_feature_count = ncol(prepared$reference_d1),
     module_count = length(prepared$selected_blocks),
+    direct_feature_cache = prepared$direct_cache,
     gene_signature_count = unname(as.integer(feature_counts["single_bin"])),
     scaling_direct_feature_count = if (config$scaling$enabled) {
       cohort_scaling$diagnostics$direct_contracts$feature_count[

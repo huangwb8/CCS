@@ -24,7 +24,8 @@ CCS object + raw expression + metadata
                 │         → supervised readout + learning curve
                 │         → optional scaling/decoder
                 │
-                └─ experiment ∈ {cohort, scaling, tissue_first, metaccs}
+                └─ layered experiment vector
+                       ∈ {cohort, scaling, tissue_first, metaccs}
                        └─ shared frozen context
                           → Experiment 1: cohort representation
                           → Gate 1
@@ -33,7 +34,7 @@ CCS object + raw expression + metadata
                           → Experiment 4: end-to-end metaCCS
 ```
 
-默认 `experiment = "representation"`。旧值 `"cohort"` 只作为兼容别名映射到 representation，并发出弃用警告；`representation` 不能与其它 layered 实验混用（`R/ablation.R:414-465`）。
+默认 `experiment = "representation"`。单独传入旧值 `"cohort"` 时，它只作为兼容别名映射到 representation，并发出弃用警告；`"cohort"` 出现在包含其它 layered 分支的实验向量中时，仍表示 layered Experiment 1。`representation` 不能与 layered 实验混用（`R/ablation.R:414-465`）。
 
 ## 公共入口如何分派
 
@@ -72,7 +73,7 @@ if (identical(experiment, "representation")) {
 - `object@Data$filtered.cohort`：默认用于划分外部 query cohort；
 - `object$Repeat`：GSClassifier 的 feature、gene annotation 与模型元数据。
 
-`ablation()` 和两个 orchestrator 都会在计算前检查 `methods::is(object, "CCS")`（`R/ablation.R:522-528`、`5178-5190`）。
+两个 orchestrator 都会在计算前检查 `methods::is(object, "CCS")`；公共入口负责分派，并由选中的 orchestrator 执行该检查（`R/ablation.R:474-528`、`5077-5089`）。
 
 ### `data`
 
@@ -110,9 +111,9 @@ data <- list(
 | `cohort` | 分组折叠、跨 cohort 检索、训练/测试划分 |
 | `tissue` | 模块覆盖、组织分层抽样与 tissue-first |
 | `biology` | 外部生物学邻域一致性（可选） |
-| `cancer_type` | representation 的主 anchor（默认） |
+| `cancer_type` | representation 的默认主 anchor；必须作为独立列提供 |
 
-如果使用矩阵输入而没有 metadata，脚本会尝试从 CCS 对象派生；无法派生时直接报错。所有关键矩阵都按 `sample_id` 重新排序，避免“矩阵位置相同但样本含义不同”的隐性错误。
+矩阵输入必须显式提供 metadata；只有嵌套列表输入能够从列表层级派生基础 metadata。规范化过程保证 `sample_id/cohort/tissue/biology` 四个核心列：缺少 `tissue` 时才尝试从 CCS 对象派生，缺少 `biology` 时使用 `tissue`。`cancer_type` 不属于自动生成的核心列；representation 默认以它作为主 anchor，并且 endpoint 资格表也依赖该列，因此调用方应同时提供独立的 `tissue` 与 `cancer_type`，避免只有 `cancer_type` 时它被识别为 `tissue` 别名。所有关键矩阵都按 `sample_id` 重新排序，避免“矩阵位置相同但样本含义不同”的隐性错误（`R/ablation.R:1289-1324`、`4927-4938`）。
 
 ## 两套参数 schema
 
@@ -153,7 +154,7 @@ params <- list(
 
 ### Representation schema
 
-representation 使用独立的 `.ablation_representation_default_params()`（`R/ablation.R:4541`），避免 layered 参数意外影响默认主分析：
+representation 使用独立的 `.ablation_representation_default_params()`（`R/ablation.R:4446`），避免 layered 参数意外影响默认主分析：
 
 | 分组 | 关键字段 | 作用 |
 | --- | --- | --- |
@@ -267,12 +268,12 @@ paired <- .ablation_paired_two_stage_embeddings(
 
 ### 参考集、外部 query 与 d1 provenance
 
-`.ablation_prepare_representation_input()`（`R/ablation.R:4727`）先读取冻结模块与 feature manifest，再将 cohort 分为：
+`.ablation_prepare_representation_input()`（`R/ablation.R:4632`）先读取冻结模块与 feature manifest，再将 cohort 分为：
 
 - **reference**：不属于 `filtered.cohort`，且必须已有 d1 行；
 - **external query**：属于 filtered cohort，可以没有 d1 行。
 
-query 的 d1 采用“能复用就复用，缺失才重编码”：已有行直接取自 `object@Data$Probability$d1`；缺失行先由 Direct-GSClassifier 特征通过冻结模型 bank 编码。该行为由 `d1_provenance = "in_sample"` 或 `"external_frozen"` 明确记录。
+reference 与 query 都只消费 `object@Data$Probability$d1` 中已有的行。query 缺少预计算 d1 时，函数发出警告并将该样本排除；如果排除后没有可用 query，则直接报错。保留的 reference/query 分别记录为 `d1_provenance = "in_sample"` 与 `"external_frozen"`。
 
 ```r
 precomputed_query_ids <- intersect(query_ids, rownames(d1))
@@ -281,7 +282,7 @@ query_ids <- precomputed_query_ids
 query_d1 <- d1[query_ids, expected_columns, drop = FALSE]
 ```
 
-这样既避免对所有 query 重跑模型，又不会让 query 样本“看到”不属于自己的新模型。若 `anchors$primary_role = "independent"` 且 query provenance 全部为 `external_frozen` 或 `out_of_fold`，最终 evidence level 才会是 `confirmatory`；否则是 `descriptive`（`R/ablation.R:4511-4535`）。
+这个边界把 d1 准备责任留给调用方，避免下游分析静默预测新的 d1。若 `anchors$primary_role = "independent"` 且 query provenance 全部为 `external_frozen` 或 `out_of_fold`，最终 evidence level 才会是 `confirmatory`；否则是 `descriptive`（`R/ablation.R:4418-4443`）。
 
 ### Phase 1：native geometry
 
@@ -302,11 +303,11 @@ d1_scaled <- .ablation_module_balanced_transform(
 )
 ```
 
-`.ablation_native_geometry()`（`R/ablation.R:4892`）在 reference 上报告 linear CKA、distance Spearman、kNN Jaccard、Direct/d1 effective rank，并检查每个 d1 module block 是否近似 simplex（行和约等于 1）。
+`.ablation_native_geometry()`（`R/ablation.R:4791`）在 reference 上报告 linear CKA、distance Spearman、kNN Jaccard、Direct/d1 effective rank，并检查每个 d1 module block 是否近似 simplex（行和约等于 1）。
 
 ### Phase 2：cross-cohort retrieval
 
-`.ablation_query_reference_retrieval()`（`R/ablation.R:4183`）严格执行“query 对 reference”的检索：对每个 query 排除同 cohort reference，再取 `k = c(5, 15, 30)` 邻居。它同时支持 exact 和 Annoy：
+`.ablation_query_reference_retrieval()`（`R/ablation.R:4088`）严格执行“query 对 reference”的检索：对每个 query 排除同 cohort reference，再取 `k = c(5, 15, 30)` 邻居。它同时支持 exact 和 Annoy：
 
 - exact：逐 query 计算欧氏距离；
 - Annoy：先取候选邻居，再过滤同 cohort；
@@ -354,9 +355,9 @@ representation 内的 `scaling$enabled` 与 layered 的 scaling 不同：它固�
 
 `.ablation_module_manifest()`、`.ablation_frozen_feature_manifest()`（`R/ablation.R:960-1082`）从 CCS 模型中提取：模块 ID、模块所属 tissue、d1 block 列、Direct feature、TSP feature、break vector 和 feature type。所有后续矩阵都依赖这个 manifest，避免从列名猜测模块边界。
 
-### Direct → d1 的冻结编码
+### Direct-GSClassifier 特征重建
 
-`.ablation_encode_d1_from_direct()`（`R/ablation.R:4052`）按 module 读取 `modelFit.rds`，调用 `.ablation_predict_module_from_direct()`，最后按原始 d1 列顺序重新拼接。`numCores > 1` 时使用 PSOCK cluster；主进程负责列顺序和完整性检查，worker 只负责独立模块预测。
+`.ablation_gsclassifier_matrix()`（`R/ablation.R:1351`）依据 frozen feature manifest 从输入表达矩阵重建 Direct-GSClassifier 特征，并严格保持 manifest 中的列顺序。该矩阵是 representation 路径的主要一次性限速步骤：默认写入 `output.dir/direct-feature-cache.rds`，缓存键同时绑定表达矩阵、样本顺序、冻结模型元数据和 feature manifest；后续运行只有在全部校验一致时才复用，失配或缓存损坏则安全重建并原子替换。representation 路径不会用这些特征补算 d1；d1 始终来自 `object@Data$Probability$d1`。
 
 ### 抽样与可重复性
 
@@ -402,6 +403,7 @@ result <- structure(
 | `cohort_scaling.rds` | 可选 frozen bank scaling |
 | `tradeoffs.rds` | feature type 统计、simplex 检查、decoder |
 | `endpoint_eligibility.rds/csv` | candidate 与 estimable endpoint 资格表 |
+| `excluded-query-d1.csv` | 因缺少预计算 d1 而被排除的 query 样本及原因 |
 | `audit.csv` | 面向审阅者的紧凑摘要 |
 
 ### Layered 输出
@@ -452,7 +454,7 @@ result <- ablation(
   object = ccs_fit,
   data = nested_data,
   metadata = metadata,
-  experiment = c("cohort", "scaling", "tissue_first", "metaccs"),
+  experiment = c("scaling", "tissue_first", "metaccs"),
   output.dir = "results/ablation-layered",
   params = list(
     general = list(rank = 50L, bootstrap = 1000L),
@@ -466,6 +468,8 @@ result$experiments$scaling$summary
 result$experiments$tissue_first$contrasts
 result$experiments$metaccs$contrasts
 ```
+
+请求 `scaling` 时会自动先运行 layered Experiment 1，因此结果仍包含 `result$experiments$cohort`，无需在实验向量中额外写入已弃用的单值入口 `"cohort"`。
 
 ### 内嵌 smoke fixture
 
@@ -496,6 +500,7 @@ Rscript -e "library(CCS); source('R/ablation.R'); ablation(object = NULL, data =
 - 任何随机步骤都应从显式 seed 派生；不要在循环内依赖不可见的全局 RNG 状态。
 
 换句话说，`R/ablation.R` 的核心不是“运行很多指标”，而是把冻结表示、独立 query、paired 对照、资格判定和审计证据绑定在同一条可复现流水线上。
+
 ## d1 输入边界（当前契约）
 
 表示层 `ablation()` 只消费 `object@Data$Probability$d1` 中已有的样本行。
