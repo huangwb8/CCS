@@ -6,9 +6,14 @@
 
 ## [Unreleased]
 
+- ablation-03 biology 阶段收敛为纯 R 工作流，移除无实质计算作用的 Python 入口，避免产生多套分析实现和结果来源歧义。
+
+- 修复 ablation-03 审核发现的表示尺度与评估总体问题：readout/learning curve 统一使用原始 reference/query，继续复用 CCS 已计算的 d1；连续 anchor 覆盖全部候选 query，固定完整 reference 标准化并按 query 配对；按名称解析 signature，拒绝分位边界并列的伪状态。
+- 加强 ablation-03 可复现性：恢复后的 tissue 标签用于 bank scaling；缓存增加完整输入与验证参数指纹，取消证据不足的旧几何缓存提升；三个分析阶段增加来源核验，Python biology 统一转交 R 实现；同步回归测试、报告解释与运行文档。
+
 - 更新 ablation-03 实验报告的精确与 Monte Carlo sign-flip 方法说明并重新渲染 HTML；完整枚举保持尾部比例，Monte Carlo 使用加一校正。结构复现设计表新增每次重复的 seed 与 n_repeats，并对重复 cohort key 显式报错。
 
-- 为 ablation representation 的精确原生几何增加严格键控的持久缓存，并支持在 manifest 完整匹配时安全提升旧版精确产物，避免高维 kNN 在重复运行中成为数小时限速步骤。
+- 为 ablation representation 的精确原生几何增加严格键控的持久缓存，旧版精确产物需重算后建立完整内容键，不能仅凭 manifest 提升，避免高维 kNN 在重复运行中成为数小时限速步骤。
 
 - 为 `ablation()` representation 流程增加持久化 Direct-GSClassifier 特征缓存：首次运行生成 `direct-feature-cache.rds`，后续按表达矩阵、样本、模型元数据和 feature manifest 哈希安全复用；缓存失配或损坏时才重建，且 d1 继续只复用 CCS 对象已有的 `Data$Probability$d1`。
 

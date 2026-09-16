@@ -1002,6 +1002,24 @@ ablation <- function(
   .ablation_frozen_feature_manifest(object, module_manifest)$features
 }
 
+# Keep frozen module IDs while using audited tissue names for bank designs.
+.ablation_resolve_bank_tissues <- function(module_manifest, metadata) {
+  lookup <- unique(metadata[, c("cohort", "tissue"), drop = FALSE])
+  if (anyDuplicated(lookup$cohort)) {
+    stop("ablation: cohort-to-tissue mapping is ambiguous.", call. = FALSE)
+  }
+  modules <- module_manifest$modules
+  mapped <- lookup$tissue[match(modules$cohort, lookup$cohort)]
+  modules$bank_tissue <- modules$tissue
+  use <- !is.na(mapped) & nzchar(mapped)
+  modules$tissue[use] <- as.character(mapped[use])
+  if (any(modules$tissue == "Undefined")) {
+    stop("ablation: bank design contains unresolved tissue labels.", call. = FALSE)
+  }
+  module_manifest$modules <- modules
+  module_manifest
+}
+
 
 # Recover module- and tissue-level frozen GSClassifier feature support once.
 .ablation_frozen_feature_manifest <- function(object, module_manifest) {
@@ -4914,6 +4932,14 @@ ablation <- function(
     algo = "md5"
   )
   query_d1 <- d1[query_ids, expected_columns, drop = FALSE]
+  # Prediction caches additionally bind reference values and labels. Keep the
+  # representation key stable for the existing independently keyed exact
+  # geometry cache, which already includes reference d1 and Direct content.
+  input_key <- digest::digest(list(
+    cache_key = cache_key, reference_direct = reference_direct,
+    reference_d1 = reference_d1, reference_metadata = reference_metadata,
+    query_metadata = query_metadata, feature_manifest = feature_manifest
+  ), algo = "md5")
 
   selected_blocks <- lapply(module_ids, function(module_id) {
     module_columns <- colnames(d1)[
@@ -4929,7 +4955,7 @@ ablation <- function(
     query_d1 = query_d1,
     reference_metadata = reference_metadata,
     query_metadata = query_metadata,
-    module_manifest = module_manifest,
+    module_manifest = .ablation_resolve_bank_tissues(module_manifest, metadata),
     selected_blocks = selected_blocks,
     selected_module_ids = module_ids,
     feature_manifest = feature_manifest,
@@ -4942,6 +4968,7 @@ ablation <- function(
       enabled = isTRUE(config$output$cache_direct)
     ),
     cache_key = cache_key,
+    input_key = input_key,
     filtered_cohorts = filtered
   )
 }
@@ -5059,25 +5086,10 @@ ablation <- function(
     key,
     cache_path
 ) {
-  manifest_path <- file.path(output.dir, "manifest.rds")
-  value_path <- file.path(output.dir, "native_geometry.rds")
-  if (!file.exists(manifest_path) || !file.exists(value_path)) return(NULL)
-  manifest <- tryCatch(readRDS(manifest_path), error = function(e) NULL)
-  value <- tryCatch(readRDS(value_path), error = function(e) NULL)
-  valid <- is.list(manifest) && is.list(value) &&
-    identical(manifest$cache_key, prepared$cache_key) &&
-    identical(manifest$config$geometry, config$geometry) &&
-    identical(manifest$seed, seed) &&
-    identical(manifest$reference_sample_count, nrow(prepared$reference_d1)) &&
-    identical(manifest$direct_feature_count, ncol(prepared$reference_direct)) &&
-    identical(manifest$d1_feature_count, ncol(prepared$reference_d1)) &&
-    identical(manifest$module_count, length(prepared$selected_blocks))
-  if (!isTRUE(valid)) return(NULL)
-  .ablation_atomic_save_rds(
-    list(schema_version = 1L, key = key, value = value),
-    cache_path
-  )
-  value
+  # Old manifests did not bind reference content. Recompute instead of
+  # promoting an unverifiable result after a cache miss.
+  return(NULL)
+
 }
 
 
@@ -5498,6 +5510,20 @@ ablation <- function(
   }
   retrieval <- .ablation_bind_retrieval(retrieval_results)
   retrieval$search_validation <- search_validation
+  # Continuous anchors have no cancer-support requirement. Their neighbors
+  # must cover all external candidates, independently of cancer retrieval.
+  anchor_results <- lapply(c("Direct-GSClassifier", "Cohort-d1"), function(name) {
+    matrices <- if (name == "Direct-GSClassifier") transformed$direct else transformed$d1
+    .ablation_query_reference_retrieval(
+      matrices$reference, matrices$query,
+      prepared$reference_metadata, prepared$query_metadata,
+      label_column = anchor, k = config$geometry$k,
+      search = config$geometry$search, seed = seed,
+      n_trees = config$geometry$n_trees, search_k = config$geometry$search_k
+    )
+  })
+  names(anchor_results) <- c("Direct-GSClassifier", "Cohort-d1")
+  anchor_retrieval <- .ablation_bind_retrieval(anchor_results)
   evidence <- .ablation_evidence_level(
     retrieval_metadata,
     config$anchors$primary_role
@@ -5565,8 +5591,8 @@ ablation <- function(
       prepared$query_metadata$sample_id
     )
     readout_metadata <- readout_view$metadata
-    readout_direct <- transformed$direct$query[readout_rows, , drop = FALSE]
-    readout_d1 <- transformed$d1$query[readout_rows, , drop = FALSE]
+    readout_direct <- prepared$query_direct[readout_rows, , drop = FALSE]
+    readout_d1 <- prepared$query_d1[readout_rows, , drop = FALSE]
     readout_results <- list(
       `Direct-GSClassifier` = .ablation_linear_readout(
         train = prepared$reference_direct,
@@ -5801,6 +5827,7 @@ ablation <- function(
     direct_distance = transformed$direct$distance,
     d1_distance = transformed$d1$distance,
     cache_key = prepared$cache_key,
+    input_key = prepared$input_key,
     config = config,
     config_hash = digest::digest(config, algo = "md5")
   )
@@ -5823,6 +5850,9 @@ ablation <- function(
   saveRDS(manifest, file.path(output.dir, "manifest.rds"))
   saveRDS(native_geometry, file.path(output.dir, "native_geometry.rds"))
   saveRDS(retrieval, file.path(output.dir, "retrieval.rds"))
+  saveRDS(anchor_retrieval, file.path(output.dir, "anchor_retrieval.rds"))
+  saveRDS(list(reference = prepared$reference_metadata, query = prepared$query_metadata),
+    file.path(output.dir, "sample-contract.rds"))
   saveRDS(readout, file.path(output.dir, "readout.rds"))
   saveRDS(learning_curve, file.path(output.dir, "learning_curve.rds"))
   saveRDS(cohort_scaling, file.path(output.dir, "cohort_scaling.rds"))
@@ -5854,6 +5884,7 @@ ablation <- function(
       endpoint_eligibility = prepared$endpoint_eligibility,
       native_geometry = native_geometry,
       retrieval = retrieval,
+      anchor_retrieval = anchor_retrieval,
       readout = readout,
       learning_curve = learning_curve,
       cohort_scaling = cohort_scaling,
@@ -7255,7 +7286,11 @@ ablation <- function(
     algo = "md5"
   )
   cache_key <- digest::digest(list(
+    schema_version = 2L,
     prepared_cache_key = prepared$cache_key,
+    input_key = digest::digest(list(prepared$reference_direct, prepared$query_direct,
+      prepared$reference_d1, prepared$query_d1, prepared$reference_metadata,
+      prepared$query_metadata), algo = "md5"),
     bank_design_hash = bank_design$design_hash,
     direct_contracts = lapply(contracts, function(x) x$feature_hash),
     query_hash = query_hash,
@@ -7263,6 +7298,7 @@ ablation <- function(
     score_query_hash = score_query_hash,
     geometry = config$geometry,
     scaling = config$scaling,
+    validation = config$validation,
     seed = seed
   ), algo = "md5")
   fit_cache <- list(key = cache_key, direct = list(), d1 = list())
