@@ -26,9 +26,12 @@ dir.create(fig_dir, recursive = TRUE, showWarnings = FALSE)
 
 result_dir <- file.path(.ablation03_dir, "tmp", "ablation-experiment")
 manifest <- readRDS(file.path(result_dir, "manifest.rds"))
-retrieval <- readRDS(file.path(result_dir, "retrieval.rds"))
+retrieval <- readRDS(file.path(result_dir, "anchor_retrieval.rds"))
 neighbours <- retrieval$neighbors[retrieval$neighbors$neighbor_rank <= 15, , drop = FALSE]
-target_ids <- sort(unique(c(as.character(neighbours$query_sample), as.character(neighbours$reference_sample))))
+source(file.path(.ablation03_dir, "02-ablation03-experiment_functions.R"))
+.ae_validate_stage_receipt(result_dir)
+contract <- readRDS(file.path(result_dir, "sample-contract.rds"))
+target_ids <- sort(unique(c(contract$reference$sample_id, contract$query$sample_id)))
 full_path <- Sys.getenv("CCS_FULL_EXPRESSION_RDS", unset = "E:/Sync/@Analysis/PanCan_Data/Level 1/PanCan_CancerSample_DataListForCCS_GEO+cBioPortal+UCXCXenav20240809.rds")
 sig_path <- Sys.getenv("CCS_GENE_SIGNATURE_RDS", unset = "E:/RCloud/database/Signature/report/GeneSignature-HWB.rds")
 cache_path <- Sys.getenv("CCS_BIOLOGY_CACHE_RDS", unset = file.path(out_dir, "expression-anchor-cache.rds"))
@@ -36,7 +39,7 @@ if (!file.exists(cache_path)) {
   stop("ablation-03 biology: expression-anchor-cache.rds is missing; run 01-ablation03-biology-cache.R first.", call. = FALSE)
 }
 cache <- readRDS(cache_path)
-if (!identical(cache$schema_version, 1L) || !identical(cache$status, "complete")) {
+if (!identical(cache$schema_version, 2L) || !identical(cache$status, "complete")) {
   stop("ablation-03 biology: unsupported or incomplete cache schema.", call. = FALSE)
 }
 expected_sample_hash <- digest::digest(paste(target_ids, collapse = "\n"), algo = "md5", serialize = FALSE)
@@ -46,6 +49,15 @@ if (!identical(cache$sample_key_hash, expected_sample_hash)) {
 if (!identical(normalizePath(sig_path, winslash = "/", mustWork = FALSE), cache$signature$path)) {
   stop("ablation-03 biology: signature source mismatch; rebuild the cache.", call. = FALSE)
 }
+config_path <- file.path(.ablation03_dir, "config", "biological-anchors.yml")
+builder_path <- file.path(.ablation03_dir, "01-ablation03-biology-cache.R")
+if (!identical(digest::digest(file = sig_path, algo = "md5"), cache$signature$md5) ||
+    !identical(digest::digest(file = builder_path, algo = "md5"), cache$builder_md5) ||
+    !identical(digest::digest(file = config_path, algo = "md5"), cache$signature$config_md5) ||
+    !identical(digest::digest(file = file.path(result_dir, "sample-contract.rds"), algo = "md5"), cache$sample_contract_md5)) {
+  stop("biology: signature/config/sample contract changed; rebuild cache.", call. = FALSE)
+}
+if (!file.exists(full_path)) stop("biology: source atlas unavailable for verification.")
 if (file.exists(full_path)) {
   source_hash <- digest::digest(file = full_path, algo = "md5")
   if (!identical(source_hash, cache$source$md5)) {
@@ -60,7 +72,7 @@ coverage$external_query_cohort <- coverage$cohort_key %in% manifest$external_coh
 # that fixed transform to both query and reference samples.  Per-cohort z-scoring
 # would put every cohort in a different coordinate system and make cross-cohort
 # absolute deltas uninterpretable.
-reference_keys <- setdiff(names(cache$cohorts), manifest$external_cohorts)
+reference_keys <- intersect(names(cache$cohorts), cache$reference_cohorts)
 if (!length(reference_keys)) {
   stop("ablation-03 biology: no reference cohorts available for global scaling.", call. = FALSE)
 }
@@ -68,7 +80,7 @@ global_stats <- lapply(sort(unique(unlist(anchors, use.names = FALSE))), functio
   values <- unlist(lapply(cache$cohorts[reference_keys], function(cohort) {
     mat <- cohort$expression
     if (!gene %in% rownames(mat)) return(numeric())
-    as.numeric(mat[gene, , drop = TRUE])
+    as.numeric(mat[gene, cohort$sample_id %in% cache$reference_sample_ids, drop = TRUE])
   }), use.names = FALSE)
   values <- values[is.finite(values)]
   if (length(values) < 2L) return(c(mean = NA_real_, sd = NA_real_, n = length(values)))
@@ -120,6 +132,13 @@ for (anchor in names(anchors)) {
   per_query <- aggregate(cbind(abs_delta, utility) ~ representation + query_sample + query_cohort,
     data = q, FUN = mean)
   per_query$anchor <- anchor
+  # Require all top-15 scores in each arm, then retain the same queries.
+  valid_counts <- aggregate(utility ~ representation + query_sample + query_cohort, data = q, FUN = length)
+  valid_counts <- valid_counts[valid_counts$utility == 15L, , drop = FALSE]
+  shared <- intersect(valid_counts$query_sample[valid_counts$representation == "Direct-GSClassifier"],
+    valid_counts$query_sample[valid_counts$representation == "Cohort-d1"])
+  per_query <- per_query[per_query$query_sample %in% shared, , drop = FALSE]
+  if (!nrow(per_query)) stop("biology: no complete paired top-15 queries for anchor ", anchor)
   pp <- pp + 1L
   per_query_rows[[pp]] <- per_query[, c(
     "anchor", "representation", "query_sample", "query_cohort", "utility"
@@ -185,3 +204,10 @@ saveRDS(list(anchors = anchors, coverage = coverage, utility = utility, contrast
 # stage writes tabular/RDS products only and does not recreate deprecated
 # biological-anchor figures under names that could be mistaken for report plots.
 cat(sprintf("anchors=%d coverage_rows=%d utility_rows=%d output=%s\n", length(anchors), nrow(coverage), nrow(utility), out_dir))
+
+.ae_write_stage_receipt(out_dir,
+  inputs = c(file.path(result_dir, "stage-receipt.rds"), cache_path, builder_path,
+    config_path, file.path(.ablation03_dir, "03-ablation-biology.R"),
+    file.path(.ablation03_dir, "03-ablation-biology_functions.R")),
+  outputs = file.path(out_dir, c("anchor_coverage.csv", "anchor_utility.csv",
+    "anchor_contrasts.csv", "anchor_inference.csv", "anchor_missing_pairs.csv", "ablation03-biology.rds")))

@@ -9,7 +9,7 @@
 - `tests/26-test-endpoint-eligibility.R`：检查 external candidate 保留与癌种相关 endpoint 的分层资格合同；
 - `02-ablation03-cohort-scaling.R`：单独重算 cohort scaling；
 - `01-ablation03-biology-cache.R`：一次性构建表达矩阵/anchor 子集缓存；
-- `03-ablation-biology.R`：运行生物学锚点评估（也可使用同名 Python 脚本）。
+- `03-ablation-biology.R`：运行生物学锚点评估。
 - `04-ablation03-structural-reproducibility.R`：比较 Direct 与 d1 的独立队列间生物状态几何可复现性。
 
 中间结果统一写入本目录的 `tmp/`，图表写入本目录的 `figures/`。外部数据路径可通过 `CCS_DATA_ROOT`、`CCS_SYNC_ROOT`、`CCS_FULL_EXPRESSION_RDS` 和 `CCS_GENE_SIGNATURE_RDS` 覆盖，便于在不同机器上复现或排查。
@@ -18,14 +18,15 @@
 
 ## 执行顺序
 
-1. `02-ablation03-experiment.Rmd` 读取并完整展示 `test/ablation-02/tmp/ablation-experiment/` 的 02 基线结果。
-2. `01-ablation03-biology-cache.R` 在一次性准备阶段读取完整表达矩阵，按冻结 manifest 提取目标样本/基因并写入 `expression-anchor-cache.rds`；脚本完成后释放大对象。
-3. `03-ablation-biology.R` 只消费带 source/signature/sample hash 校验的缓存，不会回退读取完整表达矩阵。
-4. 以仅由 reference cohorts 拟合的全局 gene-wise z-score signature mean 计算增殖、免疫 TME、基质 TME、IFN/IL6 四类独立 anchor，并将同一尺度应用于 query 与 reference。
-5. 在相同 top-15 邻居边界上配对比较 Direct-GSClassifier 与 Cohort-d1，输出覆盖审计、utility、bootstrap 区间和图形；结果作为 HTML 的新增章节。
-6. 以外部 query cohort 为独立统计单位，对 d1−Direct utility 计算 cohort bootstrap 95% CI、精确配对符号置换 P 值，并对四个 anchor 做 BH 校正。
-7. 对 assay、platform、source 的 technical-neighbor excess 使用同一 cohort-level 配对框架，计算 95% CI、sign-flip P 值和 Holm 校正。
-8. `04-ablation03-structural-reproducibility.R` 将 4 个表达锚点的队列内低/高三分位定义为 8 个共享生物实体，分别执行 150 个 reference modules → external samples 与 43 个 external modules → reference samples 的互不重叠投影。每个方向只在 module-bank 一侧拟合 Direct、d1 与 anchor 尺度；另以共同 tissue 内每侧 22 个 modules、20 次重复匹配检查 bank 规模与组成敏感性。结构分析保留全部候选 external cohorts；癌种 retrieval/readout 仍按 endpoint-specific 资格表报告可估计子集，并分别报告节点 bootstrap。
+1. 运行 `02-ablation03-experiment.R`：自动准备数据，复用 CCS 中已有 d1，重建或读取严格校验的 Direct 缓存，生成本目录的完整实验结果。
+2. 运行 `01-ablation03-biology-cache.R`：校验主实验来源，按 `sample-contract.rds` 固定的完整 reference/query 范围提取表达锚点。signature 按名称选择，来源与配置均记录哈希。
+3. 运行 `03-ablation-biology.R`：完整 reference 拟合共同基因尺度，按 `anchor_retrieval.rds` 中所有候选 query 的 top-15 邻居评价；两臂完整后先按 query 配对，再以 cohort 为独立单位推断。
+4. 运行 `04-ablation03-structural-reproducibility.R`：计算双向 module-bank 投影及共同 tissue 的匹配敏感性；并列分位边界不强制切成高低状态。
+5. 渲染 `01-ablation03-test-data.Rmd` 和 `02-ablation03-experiment.Rmd`。主报告读取本目录 `tmp/` 的本轮产物，渲染前验证三个阶段的来源指纹。
+
+癌种检索、technical excess、readout 和 learning curve 使用其预先声明的可估计子集；连续 anchor 与结构分析保留全部候选外部 cohort，实际有效覆盖另行审计。readout 两边均从原始表示进入函数，由每个训练折拟合尺度，避免 query 重复标准化。
+
+任何受追踪输入/代码改变后，按依赖顺序重跑；旧产物不能与新产物拼接后渲染。仅重跑 scaling 时可使用 `02-ablation03-cohort-scaling.R`，它会验证完整输入和配置，并更新主实验指纹；后续生物学与结构阶段需重新生成。
 
 ## 主要产物
 

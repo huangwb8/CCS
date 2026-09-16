@@ -36,6 +36,17 @@ saveRDS(
   file.path(output_dir, "ablation-result.rds")
 )
 
+.ae_write_stage_receipt(output_dir,
+  inputs = c(.ablation03_repo_path("R", "ablation.R"),
+    .ablation03_path("02-ablation03-experiment.R"),
+    .ablation03_path("02-ablation03-experiment_functions.R"),
+    .ablation03_path("01-ablation03-test-data.R"),
+    .ablation03_path("01-ablation03-test-data_functions.R")),
+  outputs = file.path(output_dir, c("manifest.rds", "native_geometry.rds",
+    "retrieval.rds", "anchor_retrieval.rds", "sample-contract.rds", "readout.rds",
+    "learning_curve.rds", "cohort_scaling.rds", "tradeoffs.rds", "ablation-result.rds",
+    "endpoint_eligibility.rds", "data-profile.rds")))
+
 luckyBase::LuckyVerbose(
   "02-ablation-experiment: complete; evidence level = ",
   ablation_result$evidence_level,

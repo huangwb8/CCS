@@ -32,6 +32,7 @@ knitr::opts_chunk$set(
   message = FALSE,
   fig.align = "center"
 )
+if (.Platform$OS.type == "windows") Sys.setlocale("LC_CTYPE", "Chinese_China.utf8")
 env_path <- c(
   file.path(getwd(), "00.Environment.R"),
   file.path(getwd(), "test", "ablation-03", "00.Environment.R")
@@ -40,16 +41,19 @@ env_path <- env_path[file.exists(env_path)][1L]
 if (is.na(env_path)) stop("ablation-03: knit from the project directory or repository root.", call. = FALSE)
 source(env_path)
 source(.ablation03_path("01-ablation03-test-data_functions.R"))
+source(.ablation03_path("02-ablation03-experiment_functions.R"))
 source(.ablation03_path("templates", "nature_colors.R"))
 source(.ablation03_path("templates", "nature_theme.R"))
 source(.ablation03_path("templates", "plot_delivery_helpers.R"))
 source(.ablation03_path("templates", "datatables_helper.R"))
 
 result_dir <- .ablation03_path("tmp", "ablation-experiment")
+.ae_validate_stage_receipt(result_dir)
+.ae_validate_stage_receipt(.ablation03_path("tmp", "ablation-biology"))
 profile_path <- file.path(result_dir, "data-profile.rds")
 data_script_name <- "01-ablation03-test-data.R"
 data_functions_name <- "01-ablation03-test-data_functions.R"
-experiment_report_name <- "02-ablation-experiment.Rmd"
+experiment_report_name <- "02-ablation03-experiment.Rmd"
 data_profile <- readRDS(profile_path)
 
 biology_cache_path <- .ablation03_path(
@@ -367,7 +371,7 @@ knitr::include_graphics(fig_data3_jpg)
 
 上面的主数据画像来自 `r main_feature_count` 特征表达数据；本节单独核对 biology anchor 所依赖的完整表达矩阵入口。完整矩阵由 `01-ablation03-biology-cache.R` 一次性读取，再按冻结的四类 gene signature 提取所需基因；因此这里读取的是可追溯的派生缓存，不会在 Rmd 中重复载入大矩阵。
 
-当前缓存状态为 `r biology_cache$status`，来源文件为 `r biology_profile$source_file`，包含 `r biology_profile$required_gene_count` 个唯一 anchor 基因、`r biology_profile$anchor_count` 类 anchor、`r biology_profile$cohort_count` 个 cohort 和 `r biology_profile$sample_count` 个目标样本，覆盖 `r biology_profile$tissue_count` 个 tissue。这个范围是 biology 阶段为 anchor 计算保留的 retrieval 邻居样本集合，不等同于上面的全量 `r raw_sample_count` 个样本。
+当前缓存状态为 `r biology_cache$status`，来源文件为 `r biology_profile$source_file`，包含 `r biology_profile$required_gene_count` 个唯一 anchor 基因、`r biology_profile$anchor_count` 类 anchor、`r biology_profile$cohort_count` 个 cohort 和 `r biology_profile$sample_count` 个目标样本，覆盖 `r biology_profile$tissue_count` 个 tissue。这个范围由主实验的完整 reference 与候选 query 合同确定，不再只缓存被选中的邻居；经过输入对齐后，它不等同于上面的全量 `r raw_sample_count` 个原始样本。
 
 ### Anchor 基因覆盖
 
@@ -383,6 +387,8 @@ biology_anchor_summary_display$min_coverage <- scales::label_percent(
 )(biology_anchor_summary_display$min_coverage)
 render_dt(biology_anchor_summary_display, pageLength = 10)
 ```
+
+解读：本次数据中，表格展示 `r nrow(biology_profile$anchor_summary)` 类 anchor 的基因覆盖中位数与最低值。最低覆盖偏低提示部分队列的分数依据较少，跨队列效应可能受到测量范围影响。这里的可计算状态只反映基因数门槛，不保证查询样本及两臂全部邻居的分数完整；最终成对覆盖须结合主报告的缺失审计判断，也不能将基因覆盖率直接解释为生物学预测性能。
 
 ### Anchor 覆盖率分布图
 

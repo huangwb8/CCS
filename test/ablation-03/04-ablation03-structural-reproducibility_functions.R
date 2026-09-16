@@ -437,6 +437,11 @@
     part <- part[order(part$score, part$sample_id), , drop = FALSE]
     tail_n <- floor(nrow(part) * tail_fraction)
     if (tail_n < min_entity_n) return(NULL)
+    # Ties at a tail boundary must not be split by arbitrary sample IDs.
+    if (part$score[tail_n] >= part$score[tail_n + 1L] ||
+        part$score[nrow(part) - tail_n] >= part$score[nrow(part) - tail_n + 1L]) {
+      return(NULL)
+    }
     selected <- rbind(
       transform(part[seq_len(tail_n), , drop = FALSE], state = "low"),
       transform(

@@ -223,6 +223,26 @@
 }
 
 # Cohort-level inference helpers -------------------------------------------------
+.ae_write_stage_receipt <- function(stage_dir, inputs, outputs) {
+  paths <- unique(normalizePath(c(inputs, outputs), winslash = "/", mustWork = TRUE))
+  receipt <- list(schema_version = 1L, created = format(Sys.time(), tz = "UTC"),
+    hashes = tools::md5sum(paths))
+  saveRDS(receipt, file.path(stage_dir, "stage-receipt.rds"))
+  invisible(receipt)
+}
+
+.ae_validate_stage_receipt <- function(stage_dir) {
+  path <- file.path(stage_dir, "stage-receipt.rds")
+  if (!file.exists(path)) stop("Missing stage receipt; rerun analysis: ", stage_dir, call. = FALSE)
+  receipt <- readRDS(path)
+  current <- tools::md5sum(names(receipt$hashes))
+  if (!identical(receipt$schema_version, 1L) || anyNA(current) ||
+      !identical(current, receipt$hashes)) {
+    stop("Stale or mixed analysis products; rerun stage: ", stage_dir, call. = FALSE)
+  }
+  invisible(TRUE)
+}
+
 # All resampling is performed on complete clusters, then the same sampled
 # clusters are used for both representations through their paired delta.
 .ae_paired_inference <- function(

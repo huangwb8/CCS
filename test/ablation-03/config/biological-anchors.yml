@@ -15,7 +15,7 @@ anchors:
   ifn_il6:
     family: "IFN-IL6"
     names:
-      - "IFN signaling"
+      - "IFNγ signaling"
       - "IL6-JAK-STAT3 signaling"
 exclusions:
   cancer_type_substitution: false

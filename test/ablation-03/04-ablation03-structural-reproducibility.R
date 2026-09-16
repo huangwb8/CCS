@@ -36,9 +36,15 @@ manifest <- readRDS(.ablation03_path("tmp", "ablation-experiment", "manifest.rds
 biology_cache <- readRDS(.ablation03_path(
   "tmp", "ablation-biology", "expression-anchor-cache.rds"
 ))
-if (!identical(biology_cache$schema_version, 1L) ||
+if (!identical(biology_cache$schema_version, 2L) ||
     !identical(biology_cache$status, "complete")) {
   stop("structural reproducibility: unsupported biology cache schema.", call. = FALSE)
+}
+.ae_validate_stage_receipt(.ablation03_path("tmp", "ablation-experiment"))
+.ae_validate_stage_receipt(.ablation03_path("tmp", "ablation-biology"))
+if (!file.exists(biology_cache$source$path) ||
+    !identical(digest::digest(file = biology_cache$source$path, algo = "md5"), biology_cache$source$md5)) {
+  stop("structural reproducibility: source atlas changed; rebuild biology cache.", call. = FALSE)
 }
 
 # Step 2: Build Direct once under the existing 150-module feature contract.
@@ -55,6 +61,9 @@ analysis <- .ablation_prepare_representation_analysis(
   verbose = TRUE
 )
 prepared <- analysis$prepared
+if (!identical(prepared$input_key, manifest$input_key)) {
+  stop("structural reproducibility: main experiment inputs changed; rerun stage 02.", call. = FALSE)
+}
 
 full_module_manifest <- .ablation_module_manifest(resCCS_full)
 module_table <- .asr_resolve_module_table(
@@ -91,6 +100,7 @@ cohort_key_lookup <- stats::setNames(
 )
 anchor_sample_ids <- sort(unique(c(reference_ids, external_ids)))
 anchor_cache_key <- digest::digest(list(
+  schema_version = 2L,
   sample_ids = anchor_sample_ids,
   anchors = biology_cache$anchors,
   source_md5 = biology_cache$source$md5,
@@ -383,11 +393,7 @@ saveRDS(
       biology_cache_source_md5 = biology_cache$source$md5,
       structural_anchor_cache_key = anchor_cache_key,
       module_manifest_hash = digest::digest(module_table, algo = "md5"),
-      full_d1_hash = digest::digest(list(
-        dim = dim(full_d1),
-        rows = rownames(full_d1),
-        columns = colnames(full_d1)
-      ), algo = "md5")
+      full_d1_hash = digest::digest(full_d1, algo = "md5")
     ),
     module_table = module_table,
     sample_audit = sample_audit,
@@ -428,6 +434,12 @@ saveRDS(
 forward_all <- forward_result$summary[
   forward_result$summary$scope == "all_cohort_pairs", , drop = FALSE
 ]
+.ae_write_stage_receipt(output_dir,
+  inputs = c(.ablation03_path("tmp", "ablation-experiment", "stage-receipt.rds"),
+    .ablation03_path("tmp", "ablation-biology", "stage-receipt.rds"),
+    .ablation03_path("04-ablation03-structural-reproducibility.R"),
+    .ablation03_path("04-ablation03-structural-reproducibility_functions.R")),
+  outputs = list.files(output_dir, pattern = "^(structural_|ablation03-structural).*\\.(csv|rds)$", full.names = TRUE))
 reverse_all <- reverse_result$summary[
   reverse_result$summary$scope == "all_cohort_pairs", , drop = FALSE
 ]

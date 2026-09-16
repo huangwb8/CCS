@@ -31,6 +31,13 @@ analysis <- .ablation_prepare_representation_analysis(
   verbose = TRUE
 )
 prepared <- analysis$prepared
+.ae_validate_stage_receipt(output_dir)
+previous_receipt <- readRDS(file.path(output_dir, "stage-receipt.rds"))
+previous_manifest <- readRDS(file.path(output_dir, "manifest.rds"))
+if (!identical(previous_manifest$input_key, prepared$input_key) ||
+    !identical(previous_manifest$config, config)) {
+  stop("Scaling-only update requires the same inputs/config as stage 02; rerun stage 02.", call. = FALSE)
+}
 cohort_scaling <- .ablation_representation_scaling(
   prepared = prepared,
   config = config,
@@ -65,6 +72,7 @@ ablation_result <- readRDS(result_path)
 ablation_result$manifest <- manifest
 ablation_result$cohort_scaling <- cohort_scaling
 saveRDS(ablation_result, result_path)
+.ae_write_stage_receipt(output_dir, names(previous_receipt$hashes), character())
 
 luckyBase::LuckyVerbose(
   "02-ablation-cohort-scaling: complete; output = ",

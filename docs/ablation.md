@@ -359,7 +359,15 @@ representation 内的 `scaling$enabled` 与 layered 的 scaling 不同：它固�
 
 `.ablation_gsclassifier_matrix()`（`R/ablation.R:1351`）依据 frozen feature manifest 从输入表达矩阵重建 Direct-GSClassifier 特征，并严格保持 manifest 中的列顺序。该矩阵是 representation 路径的主要一次性限速步骤：默认写入 `output.dir/direct-feature-cache.rds`，缓存键同时绑定表达矩阵、样本顺序、冻结模型元数据和 feature manifest；后续运行只有在全部校验一致时才复用，失配或缓存损坏则安全重建并原子替换。representation 路径不会用这些特征补算 d1；d1 始终来自 `object@Data$Probability$d1`。
 
-原生几何中的精确高维 kNN 与有效秩另行写入 `output.dir/native-geometry-cache.rds`。缓存键绑定 Direct/d1 输入、样本顺序、完整 geometry 参数与 seed；旧版 `native_geometry.rds` 只有在配套 manifest 的 representation key、参数、seed 和矩阵维度全部一致时才会被提升为新缓存。缓存命中只跳过完全相同的精确计算，不会切换为近似近邻算法。
+原生几何中的精确高维 kNN 与有效秩另行写入 `output.dir/native-geometry-cache.rds`。缓存键绑定 Direct/d1 输入、样本顺序、完整 geometry 参数与 seed；旧版 `native_geometry.rds` 不再自动提升为新缓存，因为旧 manifest 不能证明完整输入内容一致。缓存命中只跳过完全相同的精确计算，不会切换为近似近邻算法。
+
+### ablation-03 审核修复后的输入与结果契约
+
+readout 和 learning curve 的 reference/query 均传入原始表示，由训练折内部拟合变换，并应用于该折测试集；最终模型只在完整 reference 上拟合尺度。这里的原始 d1 指 CCS 中已有的概率矩阵，不重新预测 cohort 模型。
+
+`anchor_retrieval.rds` 为所有候选外部样本提供邻居，独立于癌种资格限定的 `retrieval.rds`；`sample-contract.rds` 保存固定 reference/query 身份。连续 anchor 用完整 reference 拟合基因尺度，要求两臂的 top-15 邻居分数完整，再先按 query 配对、后按 cohort 推断。IFN/IL6 signature 由名称解析，并校验 signature、配置和表达来源内容。结构状态若在分位边界并列则不强行切分。
+
+bank scaling 使用经审计的 tissue 标签，同时保留原始模块 ID；缓存绑定 reference/query 内容、metadata、feature manifest 和验证参数。manifest 的 `input_key` 独立记录完整输入，数值未改变的原生几何仍可使用自身严格缓存键。主实验、生物学、结构三个阶段各写入 `stage-receipt.rds`，下游和 Rmd 渲染核验输入/产物内容指纹，拒绝混合批次。ablation-03 的 biology 阶段仅使用 R 实现。
 
 ### 抽样与可重复性
 

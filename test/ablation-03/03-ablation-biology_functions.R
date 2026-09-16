@@ -3,6 +3,21 @@
 # neighbour pair. This prevents the 15 neighbours of one query from being
 # treated as independent observations.
 
+.biology_select_anchors <- function(config, signatures) {
+  lapply(config$anchors, function(spec) {
+    selected_names <- if (!is.null(spec$names)) spec$names else spec$name
+    family <- signatures[[spec$family]]
+    if (!length(selected_names) || !all(selected_names %in% names(family))) {
+      stop("biology: signature names are missing from the declared family.", call. = FALSE)
+    }
+    genes <- sort(unique(as.character(unlist(family[selected_names], use.names = FALSE))))
+    if (length(genes) < 2L || anyNA(genes) || any(!nzchar(genes))) {
+      stop("biology: each anchor needs at least two nonblank genes.", call. = FALSE)
+    }
+    genes
+  })
+}
+
 .biology_paired_contrast <- function(
     per_query,
     n_boot = 2000L,
@@ -34,24 +49,22 @@
     data = per_query,
     FUN = mean
   )
-  cohort_means <- stats::aggregate(
-    utility ~ anchor + query_cohort + representation,
-    data = per_query,
-    FUN = mean
-  )
-  direct <- cohort_means[
-    cohort_means$representation == "Direct-GSClassifier",
-    c("anchor", "query_cohort", "utility"),
+  direct <- per_query[
+    per_query$representation == "Direct-GSClassifier",
+    c("anchor", "query_cohort", "query_sample", "utility"),
     drop = FALSE
   ]
-  d1 <- cohort_means[
-    cohort_means$representation == "Cohort-d1",
-    c("anchor", "query_cohort", "utility"),
+  d1 <- per_query[
+    per_query$representation == "Cohort-d1",
+    c("anchor", "query_cohort", "query_sample", "utility"),
     drop = FALSE
   ]
-  names(direct)[3L] <- "utility_direct"
-  names(d1)[3L] <- "utility_d1"
-  paired <- merge(direct, d1, by = c("anchor", "query_cohort"))
+  names(direct)[4L] <- "utility_direct"
+  names(d1)[4L] <- "utility_d1"
+  query_pairs <- merge(direct, d1, by = c("anchor", "query_cohort", "query_sample"))
+  if (!nrow(query_pairs)) return(data.frame())
+  paired <- stats::aggregate(cbind(utility_direct, utility_d1) ~ anchor + query_cohort,
+    data = query_pairs, FUN = mean)
   if (!nrow(paired)) {
     return(data.frame())
   }
