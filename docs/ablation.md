@@ -369,6 +369,14 @@ readout 和 learning curve 的 reference/query 均传入原始表示，由训练
 
 bank scaling 使用经审计的 tissue 标签，同时保留原始模块 ID；缓存绑定 reference/query 内容、metadata、feature manifest 和验证参数。manifest 的 `input_key` 独立记录完整输入，数值未改变的原生几何仍可使用自身严格缓存键。主实验、生物学、结构三个阶段各写入 `stage-receipt.rds`，下游和 Rmd 渲染核验输入/产物内容指纹，拒绝混合批次。ablation-03 的 biology 阶段仅使用 R 实现。
 
+### ablation-03 的准备、分析与报告分层
+
+ablation-03 的运行入口已按业务分层，见 [ablation-03 运行说明](../test/ablation-03/README.md)。`01a/01b/01c` 顺序准备审计数据、Direct/d1 表示与表达 anchor 缓存；完整样本契约在 `01b` 生成，`01c` 不再依赖主实验结果。结构表达提取前移，尺度拟合和统计比较仍留在分析阶段。
+
+`02-ablation03-representation.R`、`03-ablation03-biology.R` 与 `04-ablation03-structural-reproducibility.R` 都是同一个实验的模块入口，读取准备好的输入，不隐式运行准备脚本。每个模块有同名 Rmd，渲染为同名 HTML；数据准备另有 `01-ablation03-data-overview.Rmd`。报告保留原有图表与摘要计算，表示报告不再等待后两个模块。
+
+包内 `.ablation_run_representation()` 保留公共 `ablation()` 的原始输入准备路径，并委托 `.ablation_run_prepared_representation()` 执行抽出的原计算体；新实验入口直接使用后者。提取不调整科学计算、默认参数或随机种子，也不新增导出 API。准备缓存的来源凭据及其上游依赖会递归核验，旧凭据不能直接作为新流程的完成证明。已有 Direct、精确几何和 scaling 缓存仍按原内容键判断复用，本次未运行任何数据准备、实验或报告渲染。
+
 ### 抽样与可重复性
 
 `.ablation_stratified_sample()` 对 tissue × cohort 分层；每个实验拥有独立 seed 区间：

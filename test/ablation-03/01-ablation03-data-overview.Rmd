@@ -12,7 +12,7 @@ output:
     toc: true
     toc_float: true
     toc_depth: 3
-    number_sections: true
+    number_sections: false
     theme: default
     highlight: tango
     code_folding: show
@@ -33,35 +33,33 @@ knitr::opts_chunk$set(
   fig.align = "center"
 )
 if (.Platform$OS.type == "windows") Sys.setlocale("LC_CTYPE", "Chinese_China.utf8")
-env_path <- c(
-  file.path(getwd(), "00.Environment.R"),
-  file.path(getwd(), "test", "ablation-03", "00.Environment.R")
-)
-env_path <- env_path[file.exists(env_path)][1L]
-if (is.na(env_path)) stop("ablation-03: knit from the project directory or repository root.", call. = FALSE)
-source(env_path)
-source(.ablation03_path("01-ablation03-test-data_functions.R"))
-source(.ablation03_path("02-ablation03-experiment_functions.R"))
+bootstrap <- c("00-workflow_functions.R",
+  "test/ablation-03/00-workflow_functions.R")
+bootstrap <- bootstrap[file.exists(bootstrap)][1L]
+if (is.na(bootstrap)) stop("Run from ablation-03 or the repository root.", call. = FALSE)
+source(bootstrap, local = TRUE)
+source(.ablation03_path("01a-ablation03-prepare-data_functions.R"))
+source(.ablation03_path("02-ablation03-representation_functions.R"))
 source(.ablation03_path("templates", "nature_colors.R"))
 source(.ablation03_path("templates", "nature_theme.R"))
 source(.ablation03_path("templates", "plot_delivery_helpers.R"))
 source(.ablation03_path("templates", "datatables_helper.R"))
 
-result_dir <- .ablation03_path("tmp", "ablation-experiment")
-.ae_validate_stage_receipt(result_dir)
-.ae_validate_stage_receipt(.ablation03_path("tmp", "ablation-biology"))
+result_dir <- .wf_output("01-data")
+.wf_validate(result_dir)
+.wf_validate(.wf_output("01-biology"))
 profile_path <- file.path(result_dir, "data-profile.rds")
-data_script_name <- "01-ablation03-test-data.R"
-data_functions_name <- "01-ablation03-test-data_functions.R"
-experiment_report_name <- "02-ablation03-experiment.Rmd"
+data_script_name <- "01a-ablation03-prepare-data.R"
+data_functions_name <- "01a-ablation03-prepare-data_functions.R"
+experiment_report_name <- "02-ablation03-representation.Rmd"
 data_profile <- readRDS(profile_path)
 
 biology_cache_path <- .ablation03_path(
-  "tmp", "ablation-biology", "expression-anchor-cache.rds"
+  "tmp", "01-biology", "expression-anchor-cache.rds"
 )
 if (!file.exists(biology_cache_path)) {
   stop(
-    "ablation-03: biology cache is missing; run 01-ablation03-biology-cache.R first.",
+    "ablation-03: biology cache is missing; run 01c-ablation03-prepare-biology.R first.",
     call. = FALSE
   )
 }
@@ -77,7 +75,7 @@ preview_dir <- bensz_run_dir(
 
 profile_value <- function(item) .atd_profile_value(data_profile, item)
 find_source_line <- function(pattern) .atd_find_source_line(
-  "01-ablation03-test-data_functions.R",
+  "01a-ablation03-prepare-data_functions.R",
   pattern
 )
 
@@ -369,7 +367,7 @@ knitr::include_graphics(fig_data3_jpg)
 
 ## Biology anchor 数据审计
 
-上面的主数据画像来自 `r main_feature_count` 特征表达数据；本节单独核对 biology anchor 所依赖的完整表达矩阵入口。完整矩阵由 `01-ablation03-biology-cache.R` 一次性读取，再按冻结的四类 gene signature 提取所需基因；因此这里读取的是可追溯的派生缓存，不会在 Rmd 中重复载入大矩阵。
+上面的主数据画像来自 `r main_feature_count` 特征表达数据；本节单独核对 biology anchor 所依赖的完整表达矩阵入口。完整矩阵由 `01c-ablation03-prepare-biology.R` 一次性读取，再按冻结的四类 gene signature 提取所需基因；因此这里读取的是可追溯的派生缓存，不会在 Rmd 中重复载入大矩阵。
 
 当前缓存状态为 `r biology_cache$status`，来源文件为 `r biology_profile$source_file`，包含 `r biology_profile$required_gene_count` 个唯一 anchor 基因、`r biology_profile$anchor_count` 类 anchor、`r biology_profile$cohort_count` 个 cohort 和 `r biology_profile$sample_count` 个目标样本，覆盖 `r biology_profile$tissue_count` 个 tissue。这个范围由主实验的完整 reference 与候选 query 合同确定，不再只缓存被选中的邻居；经过输入对齐后，它不等同于上面的全量 `r raw_sample_count` 个原始样本。
 

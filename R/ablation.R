@@ -5337,6 +5337,20 @@ ablation <- function(
     seed = seed,
     verbose = verbose
   )
+  result <- .ablation_run_prepared_representation(
+    analysis = analysis, config = config, output.dir = output.dir,
+    seed = seed, verbose = verbose
+  )
+  result$call <- match.call()
+  result
+}
+
+
+# Run the same representation calculations from explicitly prepared inputs.
+# This boundary lets analysis scripts consume caches without loading raw data.
+.ablation_run_prepared_representation <- function(
+    analysis, config, output.dir, seed, verbose
+) {
   prepared <- analysis$prepared
   anchor <- analysis$anchor
 

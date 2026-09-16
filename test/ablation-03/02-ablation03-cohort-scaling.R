@@ -1,37 +1,17 @@
-#!/usr/bin/env Rscript
-
-# Purpose: Recompute only the two-dimensional cohort-evidence scaling extension.
-# Input: Stage-01 objects and existing ablation outputs. External d1 is read
-# from the self-consistent CCS object prepared by stage 01.
-# Parameters: Shared experiment params with breadth/depth repeats and matched banks.
-# Output: Schema-v2 cohort_scaling.rds plus synchronized manifest/result references.
-
-env_candidates <- c(
-  file.path(getwd(), "00.Environment.R"),
-  file.path(getwd(), "test", "ablation-03", "00.Environment.R")
-)
-env_path <- env_candidates[file.exists(env_candidates)][1L]
-if (is.na(env_path)) stop("ablation-03: run from the project directory or repository root.", call. = FALSE)
-source(env_path)
-source(.ablation03_path("01-ablation03-test-data.R"))
-source(.ablation03_path("02-ablation03-experiment_functions.R"))
+# Optional scaling-only rerun; other calculations are unchanged.
+bootstrap <- c("00-workflow_functions.R",
+  "test/ablation-03/00-workflow_functions.R")
+bootstrap <- bootstrap[file.exists(bootstrap)][1L]
+if (is.na(bootstrap)) stop("Run from ablation-03 or the repository root.", call. = FALSE)
+source(bootstrap, local = TRUE)
+bundle <- .wf_read("01-representations", "representation-inputs.rds")
 source(.ablation03_repo_path("R", "ablation.R"))
-
-seed <- 20260805L
-output_dir <- .ablation03_path("tmp", "ablation-experiment")
-params <- .ae_ablation_params(filtered_cohorts, n_cores)
-config <- .ablation_resolve_representation_config(seed, params)
-analysis <- .ablation_prepare_representation_analysis(
-  object = resCCS_ablation,
-  data = data_all,
-  metadata = ablation_metadata,
-  config = config,
-  output.dir = output_dir,
-  seed = seed,
-  verbose = TRUE
-)
+seed <- bundle$seed
+config <- bundle$config
+analysis <- bundle$analysis
 prepared <- analysis$prepared
-.ae_validate_stage_receipt(output_dir)
+output_dir <- .wf_output("ablation-experiment")
+.wf_validate(output_dir)
 previous_receipt <- readRDS(file.path(output_dir, "stage-receipt.rds"))
 previous_manifest <- readRDS(file.path(output_dir, "manifest.rds"))
 if (!identical(previous_manifest$input_key, prepared$input_key) ||
@@ -72,7 +52,8 @@ ablation_result <- readRDS(result_path)
 ablation_result$manifest <- manifest
 ablation_result$cohort_scaling <- cohort_scaling
 saveRDS(ablation_result, result_path)
-.ae_write_stage_receipt(output_dir, names(previous_receipt$hashes), character())
+.ae_write_stage_receipt(output_dir,
+  c(names(previous_receipt$hashes), .wf_path("02-ablation03-cohort-scaling.R")), character())
 
 luckyBase::LuckyVerbose(
   "02-ablation-cohort-scaling: complete; output = ",

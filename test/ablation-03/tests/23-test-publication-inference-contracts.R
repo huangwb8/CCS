@@ -2,7 +2,7 @@
 
 source(file.path("R", "ablation.R"))
 source(file.path(
-  "test", "ablation-03", "02-ablation03-experiment_functions.R"
+  "test", "ablation-03", "02-ablation03-representation_functions.R"
 ))
 
 # Exact paired sign-flip tests use the exact tail proportion, without the

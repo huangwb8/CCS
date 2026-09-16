@@ -1,7 +1,7 @@
 # TDD RED test: cohort-level paired inference for biological-anchor utility.
 # The helper is intentionally referenced before implementation in RED phase.
 
-helper_path <- file.path("test", "ablation-03", "03-ablation-biology_functions.R")
+helper_path <- file.path("test", "ablation-03", "03-ablation03-biology_functions.R")
 if (!file.exists(helper_path)) {
   stop("Expected biology inference helper is missing.", call. = FALSE)
 }

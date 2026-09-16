@@ -1,0 +1,167 @@
+---
+title: "CCS 消融实验：生物学锚点"
+author: "Bensz Conan"
+date: "`r Sys.Date()`"
+lang: zh-CN
+params:
+  display_k: 30
+  min_cohort_n: 20
+  interpret_top_n: 3
+  plot_language: "en"
+  plot_run_dir: "tmp/plot-previews"
+  plot_preview_dpi: 200
+  inference_bootstrap: 2000
+  inference_seed: 20260829
+output:
+  html_document:
+    toc: true
+    toc_float: true
+    toc_depth: 3
+    number_sections: false
+    theme: default
+    highlight: tango
+    code_folding: show
+    includes:
+      after_body: "templates/liquid_glass_lightbox.html"
+    css: "templates/liquid_glass_theme.css"
+---
+
+```{r setup, include=FALSE}
+knitr::opts_knit$set(encoding = "UTF-8")
+if (.Platform$OS.type == "windows") {
+  utf8_locale <- Sys.setlocale("LC_CTYPE", "Chinese_China.utf8")
+  if (!nzchar(utf8_locale)) stop("A UTF-8 Windows locale is required to render this report.", call. = FALSE)
+}
+knitr::opts_chunk$set(
+  echo = TRUE,
+  warning = FALSE,
+  message = FALSE,
+  fig.align = "center"
+)
+bootstrap <- c("00-workflow_functions.R",
+  "test/ablation-03/00-workflow_functions.R")
+bootstrap <- bootstrap[file.exists(bootstrap)][1L]
+if (is.na(bootstrap)) stop("Run from ablation-03 or the repository root.", call. = FALSE)
+source(bootstrap, local = TRUE)
+source(.ablation03_path("templates", "nature_colors.R"))
+source(.ablation03_path("templates", "nature_theme.R"))
+source(.ablation03_path("templates", "plot_delivery_helpers.R"))
+source(.ablation03_path("templates", "datatables_helper.R"))
+
+fmt <- function(x, digits = 3L) formatC(x, digits = digits, format = "f")
+fmt_pct <- function(x, digits = 1L) paste0(fmt(100 * x, digits), "%")
+fmt_p <- function(x) ifelse(is.finite(x), format.pval(x, digits = 3, eps = 1e-3), "NA")
+fmt_ci <- function(x) paste0("[", fmt(x$ci_low), ", ", fmt(x$ci_high), "]")
+result_dir <- .wf_output("ablation-experiment")
+.wf_validate(result_dir)
+manifest <- readRDS(file.path(result_dir, "manifest.rds"))
+.wf_validate(.wf_output("ablation-biology"))
+biology_dir <- .ablation03_path("tmp", "ablation-biology")
+biology_files <- file.path(
+  biology_dir,
+  c("anchor_coverage.csv", "anchor_utility.csv", "anchor_contrasts.csv",
+    "anchor_inference.csv")
+)
+biology_available <- all(file.exists(biology_files))
+if (biology_available) {
+  biology_coverage <- read.csv(biology_files[1L], check.names = FALSE)
+  biology_utility <- read.csv(biology_files[2L], check.names = FALSE)
+  biology_contrasts <- read.csv(biology_files[3L], check.names = FALSE)
+  biology_inference <- read.csv(biology_files[4L], check.names = FALSE)
+} else {
+  biology_coverage <- data.frame()
+  biology_utility <- data.frame()
+  biology_contrasts <- data.frame()
+  biology_inference <- data.frame()
+}
+biology_status <- if (biology_available && nrow(biology_utility) > 0L &&
+  nrow(biology_inference) > 0L) {
+  "complete"
+} else {
+  "not_estimable"
+}
+figure_dir <- .ablation03_path("figures")
+dir.create(figure_dir, recursive = TRUE, showWarnings = FALSE)
+preview_dir <- bensz_run_dir(.ablation03_path(params$plot_run_dir),
+  prefix = "03-ablation03-biology")
+```
+
+本报告是 ablation-03 实验的生物学分析模块；只读取已经完成的邻居检索与 anchor 评估结果。
+
+## 数据概览
+
+候选外部队列为 `r manifest$external_candidate_cohort_count` 个，表达覆盖审计包含 `r nrow(biology_coverage)` 行。实际有效 query 由两臂 top-15 分数完整性共同决定。
+
+## 关键函数、参数与源代码位置
+
+| 过程 | 函数与参数 | 约定 | 源代码 |
+|---|---|---|---|
+| 表达输入准备 | signature 名称与完整样本契约 | 在分析前提取表达子集 | `01c-ablation03-prepare-biology.R` |
+| 连续评分 | reference gene-wise z-score | 对两臂应用同一 reference 尺度 | `03-ablation03-biology.R` |
+| 配对推断 | `.biology_paired_contrast()`；2000 次 bootstrap | 先按 query 配对，再以 cohort 为独立单位；BH 校正 | `03-ablation03-biology_functions.R` |
+
+## 指标导读
+
+| 指标 | 定义与边界 |
+|---|---|
+| Anchor utility | `exp(-绝对分数差)`，越高表示邻居的连续表达分数越接近；不是临床效用 |
+| d1−Direct | cohort 等权的配对差；正值表示 d1 的 utility 较高 |
+| 95% CI 与 BH 校正 P 值 | cohort bootstrap 区间与组内多重比较；CI 跨零不证明等价 |
+
+双侧 sign-flip 检验在 cohort 数不超过 18 时枚举符号组合，否则采用 Monte Carlo 加一校正；保留原有统计实现与 seed。
+
+## 连续表达锚点 readout
+
+四个 anchor 按配置中的 signature 名称精确选取；它们独立于癌种标签，但来自表达数据，不能视为独立测量的临床结局。完整 reference 样本拟合 gene-wise z-score，再应用到两侧。每个 query 在两臂均有完整 top-`r 15L` 分数时才进入配对比较。
+
+```{r biology-anchor-coverage, echo=FALSE}
+biology_coverage_widget <- htmltools::tagList()
+if (identical(biology_status, "complete")) {
+  biology_coverage_widget <- render_dt(biology_coverage, pageLength = 10)
+}
+biology_coverage_widget
+```
+
+解读：当前结果显示，coverage 表保留 `r nrow(biology_coverage)` 行 anchor/cohort 覆盖信息。实际基因覆盖与有效 query 范围共同决定可解释性；高覆盖也不意味着 signature 与 CCS 输入完全独立。表格展示的是基因集合能否被当前表达数据支持，提示不同队列可用的基因子集可能不同。覆盖不足会影响分数含义，不能只看最终均值；后续若发现极端效应，应同时核对该队列的基因覆盖和缺失邻居数量。
+
+```{r biology-anchor-utility, echo=FALSE}
+biology_utility_widget <- htmltools::tagList()
+if (identical(biology_status, "complete")) {
+  biology_utility_widget <- render_dt(biology_utility, pageLength = 10)
+}
+biology_utility_widget
+```
+
+解读：当前结果显示，表中 `r nrow(biology_utility)` 行给出同一批完整配对 query 的分臂 utility。较高值表示连续表达分数更接近。此处分臂样本均值及样本重采样的 95% 置信区间用于描述，两臂差异的正式比较使用下面 cohort 等权差及其区间。这里展示连续锚点的一致程度，而非旧癌种标签的一致程度。样本较多的队列会影响单臂样本均值；其区间没有处理队列内依赖，不能用来判断向新队列推广的精度，主要结论应以配对后队列等权的推断为准。
+
+```{r biology-anchor-inference, echo=FALSE}
+biology_inference_widget <- htmltools::tagList()
+if (identical(biology_status, "complete")) {
+  biology_inference_widget <- render_dt(
+    biology_inference[, c(
+      "anchor", "estimate", "ci_low", "ci_high", "p_value",
+      "p_value_adj", "p_method", "cohort_count", "query_count",
+      "inference_status"
+    )],
+    pageLength = 10
+  )
+}
+biology_inference_widget
+```
+
+解读：当前结果显示，`r nrow(biology_inference)` 个 anchor 的 cohort 等权效应范围为 `r fmt(min(biology_inference$estimate))` 至 `r fmt(max(biology_inference$estimate))`。每个 query 先与自身的另一臂配对，然后计算 cohort 均值，避免缺失样本组成改变效应；BH 校正仅覆盖这组 anchor。表中展示每个锚点的效应、区间与多重比较结果，提示统计显著性和生物学意义需要分开判断。较小但稳定的差异仍可能只是表达排序的局部代价；它是否影响生物状态识别，需要在明确的独立任务上检验。
+
+## 讨论与分析
+
+本次 `r nrow(biology_inference)` 个 anchor 的 cohort 等权差范围为 `r fmt(min(biology_inference$estimate))` 至 `r fmt(max(biology_inference$estimate))`。这些结果衡量局部邻居的表达接近程度，不能直接推出整体结构保留或临床效用；跨队列的状态结构另见 04 报告。
+
+表达 anchor 与模型输入具有共同的数据来源，且缺失覆盖会限制有效样本范围。后续应在预先选定的独立 pathway、治疗反应或结局上检验效用，并报告每个 anchor 的有效 cohort 和 query 范围。
+
+## 数字准确性验证
+
+| 核查 | 当前证据 |
+|---|---|
+| 来源 | 当前 anchor CSV/RDS 与表示分析的来源凭据逐项核验 |
+| 配对 | 两臂各有完整 top-15 后按同一 query 配对 |
+| 独立单位 | cohort 等权效应与 cohort bootstrap；BH 校正 |
+| 数字 | 正文动态读取当前 `biology_inference`，未复制历史结果 |

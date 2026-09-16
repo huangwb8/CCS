@@ -1,7 +1,7 @@
 # Regression cases for the manuscript audit. All inputs are synthetic.
 source("R/ccs.R")
 source("R/ablation.R")
-source("test/ablation-03/03-ablation-biology_functions.R")
+source("test/ablation-03/03-ablation03-biology_functions.R")
 source("test/ablation-03/04-ablation03-structural-reproducibility_functions.R")
 failures <- character()
 check <- function(name, code) {

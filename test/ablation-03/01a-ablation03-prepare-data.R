@@ -1,22 +1,11 @@
-# Purpose: Load and audit the complete CCS expression atlas, frozen model, and metadata.
-# Input: PADv20240810 expression RDS, full and filtered resCCS objects, and BatchInfo.
-# Parameters: Environment variables can override machine-specific roots and model hash.
-# Output: Full data plus auditable reference/external partitions; no business filtering.
-
-if (!exists(".ablation03_path", mode = "function")) {
-  env_candidates <- c(
-    file.path(getwd(), "00.Environment.R"),
-    file.path(getwd(), "test", "ablation-03", "00.Environment.R")
-  )
-  env_path <- env_candidates[file.exists(env_candidates)][1L]
-  if (is.na(env_path)) {
-    stop("ablation-03: run from the project directory or repository root.", call. = FALSE)
-  }
-  source(env_path)
-}
-
+# Prepare and persist the unchanged audited input objects.
+bootstrap <- c("00-workflow_functions.R",
+  "test/ablation-03/00-workflow_functions.R")
+bootstrap <- bootstrap[file.exists(bootstrap)][1L]
+if (is.na(bootstrap)) stop("Run from ablation-03 or the repository root.", call. = FALSE)
+source(bootstrap, local = TRUE)
 luckyBase::Plus.library(c("CCS", "readxl", "digest"))
-source(.ablation03_path("01-ablation03-test-data_functions.R"))
+source(.ablation03_path("01a-ablation03-prepare-data_functions.R"))
 
 # Step 1: Resolve cross-platform roots without embedding user-specific directories.
 sysname <- Sys.info()[["sysname"]]
@@ -303,9 +292,7 @@ ablation_data_profile <- .atd_build_data_profile(
   filtered_cohorts = filtered_cohorts
 )
 
-data_output_dir <- file.path(
-  .ablation03_dir, "tmp", "ablation-experiment"
-)
+data_output_dir <- .wf_output("01-data")
 dir.create(data_output_dir, recursive = TRUE, showWarnings = FALSE)
 saveRDS(
   ablation_data_profile,
@@ -325,3 +312,13 @@ luckyBase::LuckyVerbose(
   length(filtered_cohorts),
   " external filtered cohorts."
 )
+
+saveRDS(list(resCCS_ablation = resCCS_ablation, resCCS_full = resCCS_full,
+  data_all = data_all, ablation_metadata = ablation_metadata,
+  filtered_cohorts = filtered_cohorts, n_cores = n_cores, full_d1 = full_d1,
+  tissue_resolution_audit = tissue_resolution_audit),
+  file.path(data_output_dir, "inputs.rds"))
+.wf_receipt("01-data", "01a-ablation03-prepare-data.R",
+  inputs = c(data_path, resccs_path, full_resccs_path, batch_workbook_path,
+    tissue_mapping_path, .ablation03_path("01a-ablation03-prepare-data_functions.R")),
+  outputs = file.path(data_output_dir, c("inputs.rds", "data-profile.rds")))

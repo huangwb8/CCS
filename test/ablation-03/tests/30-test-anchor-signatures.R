@@ -1,4 +1,4 @@
-source("test/ablation-03/03-ablation-biology_functions.R")
+source("test/ablation-03/03-ablation03-biology_functions.R")
 config <- list(anchors = list(a = list(family = "F", names = c("X", "Y"))))
 signatures <- list(F = list(Y = c("g2", "g3"), unused = "g4", X = c("g1", "g2")))
 stopifnot(identical(.biology_select_anchors(config, signatures)$a, c("g1", "g2", "g3")))
@@ -7,7 +7,7 @@ stopifnot(inherits(tryCatch(.biology_select_anchors(config, signatures), error =
 if (.Platform$OS.type == "windows") {
   old_locale <- Sys.getlocale("LC_CTYPE")
   Sys.setlocale("LC_CTYPE", "C")
-  production <- parse("test/ablation-03/01-ablation03-biology-cache.R", encoding = "UTF-8")
+  production <- parse("test/ablation-03/01c-ablation03-prepare-biology.R", encoding = "UTF-8")
   # Execute the production Windows locale initializer without loading data.
   eval(production[[2L]])
   actual_config <- yaml::read_yaml("test/ablation-03/config/biological-anchors.yml")

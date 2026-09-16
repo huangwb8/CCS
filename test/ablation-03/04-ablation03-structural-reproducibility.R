@@ -1,27 +1,11 @@
-#!/usr/bin/env Rscript
-# Purpose: Evaluate reciprocal bank-to-target reproducibility of biological-state geometry.
-# Input: Frozen Direct inputs, complete d1, audited module tissues, and expression anchors.
-# Parameters: Within-cohort tail states, minimum entity size, node bootstrap, matched repeats.
-# Output: Forward-compatible products plus directional and tissue-matched sensitivity results.
-
-options(
-  stringsAsFactors = FALSE,
-  device = function(...) grDevices::pdf(file = NULL)
-)
-env_candidates <- c(
-  file.path(getwd(), "00.Environment.R"),
-  file.path(getwd(), "test", "ablation-03", "00.Environment.R")
-)
-env_path <- env_candidates[file.exists(env_candidates)][1L]
-if (is.na(env_path)) {
-  stop("ablation-03: run from the project directory or repository root.", call. = FALSE)
-}
-source(env_path)
-source(.ablation03_path("01-ablation03-test-data.R"))
-source(.ablation03_path("02-ablation03-experiment_functions.R"))
-source(.ablation03_repo_path("R", "ablation.R"))
+# Evaluate the original reciprocal structural design using prepared inputs only.
+options(stringsAsFactors = FALSE, device = function(...) grDevices::pdf(file = NULL))
+bootstrap <- c("00-workflow_functions.R",
+  "test/ablation-03/00-workflow_functions.R")
+bootstrap <- bootstrap[file.exists(bootstrap)][1L]
+if (is.na(bootstrap)) stop("Run from ablation-03 or the repository root.", call. = FALSE)
+source(bootstrap, local = TRUE)
 source(.ablation03_path("04-ablation03-structural-reproducibility_functions.R"))
-
 # Step 1: Freeze the reciprocal validation contract before inspecting results.
 seed <- 20260912L
 tail_fraction <- 1 / 3
@@ -29,46 +13,24 @@ min_entity_n <- 8L
 min_shared_entities <- 8L
 n_boot <- 2000L
 matched_repeats <- 20L
-output_dir <- .ablation03_path("tmp", "ablation-structural-reproducibility")
+output_dir <- .wf_output("ablation-structural-reproducibility")
 dir.create(output_dir, recursive = TRUE, showWarnings = FALSE)
 
-manifest <- readRDS(.ablation03_path("tmp", "ablation-experiment", "manifest.rds"))
-biology_cache <- readRDS(.ablation03_path(
-  "tmp", "ablation-biology", "expression-anchor-cache.rds"
-))
-if (!identical(biology_cache$schema_version, 2L) ||
-    !identical(biology_cache$status, "complete")) {
-  stop("structural reproducibility: unsupported biology cache schema.", call. = FALSE)
-}
-.ae_validate_stage_receipt(.ablation03_path("tmp", "ablation-experiment"))
-.ae_validate_stage_receipt(.ablation03_path("tmp", "ablation-biology"))
-if (!file.exists(biology_cache$source$path) ||
-    !identical(digest::digest(file = biology_cache$source$path, algo = "md5"), biology_cache$source$md5)) {
-  stop("structural reproducibility: source atlas changed; rebuild biology cache.", call. = FALSE)
-}
-
-# Step 2: Build Direct once under the existing 150-module feature contract.
-# Complete d1 is kept separate so the reverse projection does not alter Direct.
-ablation_params <- .ae_ablation_params(filtered_cohorts, n_cores)
-config <- .ablation_resolve_representation_config(seed, ablation_params)
-analysis <- .ablation_prepare_representation_analysis(
-  object = resCCS_ablation,
-  data = data_all,
-  metadata = ablation_metadata,
-  config = config,
-  output.dir = output_dir,
-  seed = seed,
-  verbose = TRUE
-)
-prepared <- analysis$prepared
+bundle <- .wf_read("01-representations", "structural-inputs.rds")
+prepared <- bundle$analysis$prepared
+full_d1 <- bundle$structural$full_d1
+source(.ablation03_repo_path("R", "ablation.R"))
+manifest <- .wf_read("ablation-experiment", "manifest.rds")
+biology_cache <- .wf_read("01-biology", "expression-anchor-cache.rds")
+anchor_cache <- .wf_read("01-biology", "structural-anchor-cache.rds")
+anchor_cache_key <- anchor_cache$cache_key
 if (!identical(prepared$input_key, manifest$input_key)) {
-  stop("structural reproducibility: main experiment inputs changed; rerun stage 02.", call. = FALSE)
+  stop("Structural and representation inputs differ; rerun from 01b.", call. = FALSE)
 }
-
-full_module_manifest <- .ablation_module_manifest(resCCS_full)
+full_module_manifest <- bundle$structural$full_module_manifest
 module_table <- .asr_resolve_module_table(
   full_module_manifest,
-  tissue_resolution_audit,
+  bundle$structural$tissue_resolution_audit,
   manifest$external_cohorts
 )
 reference_module_ids <- module_table$module_id[module_table$bank_role == "reference"]
@@ -86,50 +48,6 @@ external_ids <- Reduce(intersect, list(
 ))
 if (length(intersect(reference_ids, external_ids)) > 0L) {
   stop("structural reproducibility: reference and external samples overlap.", call. = FALSE)
-}
-
-# Step 3: Extract the four anchors for every common Direct/d1 sample. The old
-# cache supplies frozen signatures and provenance, not the restricted sample set.
-cohort_lookup_rows <- unique(ablation_metadata[, c("cohort", "cohort_key")])
-if (anyDuplicated(cohort_lookup_rows$cohort)) {
-  stop("structural reproducibility: cohort-to-tissue lookup is ambiguous.", call. = FALSE)
-}
-cohort_key_lookup <- stats::setNames(
-  cohort_lookup_rows$cohort_key,
-  cohort_lookup_rows$cohort
-)
-anchor_sample_ids <- sort(unique(c(reference_ids, external_ids)))
-anchor_cache_key <- digest::digest(list(
-  schema_version = 2L,
-  sample_ids = anchor_sample_ids,
-  anchors = biology_cache$anchors,
-  source_md5 = biology_cache$source$md5,
-  cohort_key_lookup = cohort_key_lookup
-), algo = "md5")
-structural_anchor_path <- file.path(output_dir, "structural-anchor-cache.rds")
-anchor_cache <- NULL
-if (file.exists(structural_anchor_path)) {
-  candidate <- readRDS(structural_anchor_path)
-  if (identical(candidate$cache_key, anchor_cache_key)) anchor_cache <- candidate
-}
-if (is.null(anchor_cache)) {
-  if (!file.exists(biology_cache$source$path)) {
-    stop("structural reproducibility: complete expression atlas is unavailable.", call. = FALSE)
-  }
-  expression_atlas <- readRDS(biology_cache$source$path)
-  anchor_cache <- .asr_extract_anchor_cache(
-    expression_atlas,
-    biology_cache$anchors,
-    anchor_sample_ids,
-    cohort_key_lookup = cohort_key_lookup
-  )
-  anchor_cache$schema_version <- 1L
-  anchor_cache$status <- "complete"
-  anchor_cache$cache_key <- anchor_cache_key
-  anchor_cache$source <- biology_cache$source
-  saveRDS(anchor_cache, structural_anchor_path, compress = "gzip")
-  rm(expression_atlas)
-  invisible(gc())
 }
 
 # Step 4: Fit every scale on the module-bank side and score only its target side.
@@ -435,9 +353,10 @@ forward_all <- forward_result$summary[
   forward_result$summary$scope == "all_cohort_pairs", , drop = FALSE
 ]
 .ae_write_stage_receipt(output_dir,
-  inputs = c(.ablation03_path("tmp", "ablation-experiment", "stage-receipt.rds"),
-    .ablation03_path("tmp", "ablation-biology", "stage-receipt.rds"),
-    .ablation03_path("04-ablation03-structural-reproducibility.R"),
+  inputs = c(.wf_output("ablation-experiment", "stage-receipt.rds"),
+    .wf_output("01-biology", "stage-receipt.rds"),
+    .wf_output("01-representations", "stage-receipt.rds"), .wf_path("00-workflow_functions.R"),
+    .wf_path("04-ablation03-structural-reproducibility.R"),
     .ablation03_path("04-ablation03-structural-reproducibility_functions.R")),
   outputs = list.files(output_dir, pattern = "^(structural_|ablation03-structural).*\\.(csv|rds)$", full.names = TRUE))
 reverse_all <- reverse_result$summary[

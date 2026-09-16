@@ -142,4 +142,4 @@
 
 ## 后续入口清理
 
-本审查完成后，已移除旧的 `03-ablation-biology.py` 入口。ablation-03 的 biological-anchor 分析现在仅通过 `03-ablation-biology.R` 执行；本报告中对 Python 实现的描述保留为审查时的历史证据，不代表当前仍存在第二套分析入口。
+本审查完成后，已移除旧的 `03-ablation-biology.py` 入口。后续目录重构将 biological-anchor 分析入口改为 `03-ablation03-biology.R`，输入准备分为 `01a/01b/01c`，三个分析模块分别配套 Rmd。本文中的旧文件名、行号和 Python 实现描述保留为审查时的历史证据；当前执行顺序与审核状态见 [ablation-03 README](../test/ablation-03/README.md)。
