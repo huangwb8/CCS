@@ -68,7 +68,14 @@
       } else {
         paste(tissue, cohort, sep = "/")
       }
-      cohorts[[cohort_key]] <- list(
+        if (cohort_key %in% names(cohorts)) {
+          stop(
+            "structural reproducibility: duplicated cohort_key: ",
+            cohort_key,
+            call. = FALSE
+          )
+        }
+        cohorts[[cohort_key]] <- list(
         tissue = tissue,
         cohort = cohort,
         cohort_key = cohort_key,
@@ -141,14 +148,18 @@
       if (!matched_n) return(NULL)
       rbind(
         data.frame(
-          repeat_id = repeat_id,
+            repeat_id = repeat_id,
+            seed = as.integer(seed + repeat_id - 1L),
+            n_repeats = as.integer(n_repeats),
           bank_role = "reference",
           tissue = tissue,
           module_id = sample(reference_ids, matched_n),
           stringsAsFactors = FALSE
         ),
         data.frame(
-          repeat_id = repeat_id,
+            repeat_id = repeat_id,
+            seed = as.integer(seed + repeat_id - 1L),
+            n_repeats = as.integer(n_repeats),
           bank_role = "external",
           tissue = tissue,
           module_id = sample(external_ids, matched_n),
