@@ -6,6 +6,8 @@
 
 ## [Unreleased]
 
+- 更新 ablation-03 实验报告的精确与 Monte Carlo sign-flip 方法说明并重新渲染 HTML；完整枚举保持尾部比例，Monte Carlo 使用加一校正。结构复现设计表新增每次重复的 seed 与 n_repeats，并对重复 cohort key 显式报错。
+
 - 为 ablation representation 的精确原生几何增加严格键控的持久缓存，并支持在 manifest 完整匹配时安全提升旧版精确产物，避免高维 kNN 在重复运行中成为数小时限速步骤。
 
 - 为 `ablation()` representation 流程增加持久化 Direct-GSClassifier 特征缓存：首次运行生成 `direct-feature-cache.rds`，后续按表达矩阵、样本、模型元数据和 feature manifest 哈希安全复用；缓存失配或损坏时才重建，且 d1 继续只复用 CCS 对象已有的 `Data$Probability$d1`。
