@@ -21,7 +21,9 @@
 \code{cluster} method for \code{CCS} class
 }
 \examples{
+\dontrun{
 resCCS <- cluster(resCCS)
+}
 }
 \seealso{
 \code{\link{ccs}}.

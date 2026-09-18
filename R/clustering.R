@@ -14,7 +14,9 @@ setGeneric("cluster", function(object, ...) {
 #' @importFrom dbscan dbscan
 #' @seealso \code{\link{ccs}}.
 #' @examples
+#' \dontrun{
 #' resCCS <- cluster(resCCS)
+#' }
 #' @exportMethod cluster
 setMethod(
   "cluster",
@@ -90,7 +92,9 @@ setGeneric("optimizeCluster", function(object, ...) {
 #' @importFrom doParallel registerDoParallel stopImplicitCluster
 #' @seealso \code{\link{ccs}}.
 #' @examples
+#' \dontrun{
 #' resCCS <- optimizeCluster(resCCS)
+#' }
 #' @exportMethod optimizeCluster
 setMethod(
   "optimizeCluster",

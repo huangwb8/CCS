@@ -39,7 +39,9 @@ plot: A ggplot2 object
 \code{plot} method for \code{CCS} class. Plot dimension scatter plot for CCS results.
 }
 \examples{
+\dontrun{
 ccs_plot <- plot(resCCS)
+}
 }
 \seealso{
 \code{\link{ccs}}.

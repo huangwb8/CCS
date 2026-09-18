@@ -20,15 +20,14 @@
 
 \item{convertGene}{Whether to convert names like \code{"ENSG00000185811:ENSG00000187189"} to names like \code{"IKZF1:TSPYL4"}.}
 
+\item{nTop}{Number or proportion of top features to display.}
+
 \item{size}{The plot size}
 
 \item{...}{parameters to \code{\link[ggplot2]{geom_bar}}.}
 }
 \description{
 \code{plotImportance} method for \code{CCS} class
-}
-\examples{
-To be continued!
 }
 \seealso{
 \code{\link{ccs}}; \code{\link{importance}}.

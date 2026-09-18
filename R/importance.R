@@ -14,8 +14,6 @@ setGeneric("importance", function(object, ...) {
 #' @inheritParams dr
 #' @importFrom plyr llply
 #' @seealso \code{\link{ccs}};\code{\link{plotImportance}}.
-#' @examples
-#' To be continued!
 #' @exportMethod importance
 setMethod(
   "importance",
@@ -111,6 +109,7 @@ setGeneric("plotImportance", function(object, ...) {
 #' @description \code{plotImportance} method for \code{CCS} class
 #' @param type One of \code{"tissue"}, \code{"cohort"}, or \code{"feature"}.
 #' @param convertGene Whether to convert names like \code{"ENSG00000185811:ENSG00000187189"} to names like \code{"IKZF1:TSPYL4"}.
+#' @param nTop Number or proportion of top features to display.
 #' @param ... parameters to \code{\link[ggplot2]{geom_bar}}.
 #' @inheritParams CCSPublicParams
 #' @inheritParams ccs
@@ -121,8 +120,6 @@ setGeneric("plotImportance", function(object, ...) {
 #' @importFrom ggpubr rotate_x_text
 #' @import ggplot2
 #' @seealso \code{\link{ccs}}; \code{\link{importance}}.
-#' @examples
-#' To be continued!
 #' @exportMethod plotImportance
 setMethod(
   "plotImportance",

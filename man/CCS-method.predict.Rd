@@ -36,7 +36,9 @@ predict: A list object with CCS subtype prediction.
 \code{predict} method for \code{CCS} class
 }
 \examples{
+\dontrun{
 ccs_pred <- predict(resCCS, model.dir = "./ccs/project_01")
+}
 }
 \seealso{
 \code{\link{ccs}}.

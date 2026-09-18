@@ -31,7 +31,9 @@
 \code{optimizeCluster} method for \code{CCS} class
 }
 \examples{
+\dontrun{
 resCCS <- optimizeCluster(resCCS)
+}
 }
 \seealso{
 \code{\link{ccs}}.

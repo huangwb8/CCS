@@ -20,9 +20,6 @@
 \description{
 \code{importance} method for \code{CCS} class
 }
-\examples{
-To be continued!
-}
 \seealso{
 \code{\link{ccs}};\code{\link{plotImportance}}.
 }

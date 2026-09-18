@@ -6,6 +6,8 @@
 
 ## [Unreleased]
 
+- 修复包文档检查阻断：移除两处不可执行的示例占位文本，将依赖外部 `resCCS` 对象的示例标记为不自动运行，将 XGBoost 参数范围中的 Unicode 无穷符号改为 LaTeX 可移植的 `Inf`，并补充 `plotImportance()` 的 `nTop` 参数说明。
+
 - 为 `ablation()` 增加可序列化的 `context`、`plan`、`run`、`result` 阶段调度，
   并通过 `cache.root` 将中间节点缓存与正式 `output.dir` 分离；保留默认
   `step = "all"` 的普通调用语义；默认 `.ccs-cache/` 已加入忽略规则，未修改版本号。

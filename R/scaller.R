@@ -26,7 +26,9 @@ setGeneric("scaller", function(object, ...) {
 #' @seealso \code{\link{ccs}};\code{\link[xgboost]{xgboost}};
 #' @author Weibin Huang<\email{hwb2012@@qq.com}>
 #' @examples
+#' \dontrun{
 #' resCCS <- scaller(resCCS)
+#' }
 #' @exportMethod scaller
 setMethod(
   "scaller",
