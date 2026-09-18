@@ -164,7 +164,9 @@ ccs <- function(
 #' @seealso \code{\link{ccs}}.
 #' @author Weibin Huang<\email{hwb2012@@qq.com}>
 #' @examples
+#' \dontrun{
 #' ccs_pred <- predict(resCCS, model.dir = "./ccs/project_01")
+#' }
 #' @export
 predict.CCS <- function(
     object, X,
@@ -394,7 +396,9 @@ predict.CCS <- function(
 #' @seealso \code{\link{ccs}}.
 #' @author Weibin Huang<\email{hwb2012@@qq.com}>
 #' @examples
+#' \dontrun{
 #' ccs_plot <- plot(resCCS)
+#' }
 #' @export
 plot.CCS <- function(
     object,

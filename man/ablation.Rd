@@ -282,14 +282,17 @@ replacing same-named ablation result files. Default: \code{FALSE}.}
 
 \item{verbose}{Whether to report progress.}
 
-\item{step}{Lifecycle stage: \code{"all"} (default), \code{"context"},
-\code{"plan"}, \code{"run"}, or \code{"result"}.}
+\item{step}{Lifecycle stage: \code{"all"} (default), \code{"context"}, \code{"plan"},
+\code{"run"}, or \code{"result"}. Staged calls consume the object supplied through
+\code{input} and never write reviewer-facing products unless \code{step = "all"}.}
 
-\item{input}{Optional serializable input produced by a preceding lifecycle
-stage.}
+\item{input}{Optional serializable stage input. It must be a context, plan,
+runner result, or a list containing one of those objects as required by
+\code{step}.}
 
-\item{cache.root}{Optional root directory for reusable intermediate cache;
-kept separate from \code{output.dir}.}
+\item{cache.root}{Optional root directory for reusable intermediate cache.
+It is kept separate from \code{output.dir}; when omitted a hidden project-local
+cache root is used.}
 }
 \value{
 An object of class \code{CCSAblation}.

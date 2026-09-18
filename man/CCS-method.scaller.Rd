@@ -51,7 +51,9 @@
 The CCS object must be modified by \code{\link{CCS-method.cluster}} or \code{\link{CCS-method.optimizeCluster}}.
 }
 \examples{
+\dontrun{
 resCCS <- scaller(resCCS)
+}
 }
 \seealso{
 \code{\link{ccs}};\code{\link[xgboost]{xgboost}};

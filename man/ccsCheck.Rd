@@ -37,10 +37,10 @@ ccsCheck(
   \item \code{nrounds} Max number of boosting iterations. GSClassifier have optimized nrounds, so here I set a large value.
   \item \code{nthread} No. of CPU cores used in \code{\link[xgboost]{xgboost}}.
   \item \code{eta} Step size shrinkage used in update to prevent overfitting. Range = [0,1]
-  \item \code{gamma} The larger gamma is, the more conservative the algorithm will be. Range = [0,∞]
-  \item \code{max_depth} Maximum depth of a tree. Deeper trees can capture more complex patterns in the data, but may also lead to overfitting. Range = [0,∞]
+  \item \code{gamma} The larger gamma is, the more conservative the algorithm will be. Range = [0, Inf]
+  \item \code{max_depth} Maximum depth of a tree. Deeper trees can capture more complex patterns in the data, but may also lead to overfitting. Range = [0, Inf]
   \item \code{colsample_bytree} Percentage of columns used for each tree construction. Lowering this value can prevent overfitting by training on a subset of the features. Range = (0, 1]
-  \item \code{min_child_weight} The larger min_child_weight is, the more conservative the algorithm will be. Range = [0,∞]
+  \item \code{min_child_weight} The larger min_child_weight is, the more conservative the algorithm will be. Range = [0, Inf]
   \item \code{subsample} Preventing overfitting
   \item \code{n} \code{\link[GSClassifier]{fitEnsembleModel}} parameter
   \item \code{sampSize} \code{\link[GSClassifier]{fitEnsembleModel}} parameter. Range = (0,1]
