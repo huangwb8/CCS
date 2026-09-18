@@ -101,6 +101,8 @@ A Computational Framework for Personalized Pan-cancer Genomic Classification.
 - `DESCRIPTION` 中的 `Version` 是项目版本号的唯一来源，但该事实不授予 AI 修改版本号的权限
 - 软件何时发布、采用什么版本号、创建什么 tag 以及是否执行发布，只能由项目负责人本人决定；任何 AI 都不得推断、选择、递增或代替决定
 - 除非项目负责人在当前请求中明确给出目标版本并要求修改，否则 AI 严禁修改 `DESCRIPTION` 的 `Version`、README 版本徽章、`CHANGELOG.md` 的发布版本标题、Git tag 或 GitHub Release
+- **ablation 重构版本门禁（项目负责人已明确授权）**：新的 `R/ablation.R` 完成改造并通过声明的包检查、科学等价性验证和 `test/ablation-03` 串行验收后，才将 `DESCRIPTION` 中当前版本的修订号（patch，第三位）恰好递增 1，例如 `0.8.2` → `0.8.3`；不得改变 major/minor，也不得在验证前升版
+- **ablation 包安装门禁**：完成上述 patch 升级后，使用 `C:\R\R-4.3.1` 对应的 R/Rscript 构建、检查并安装该版本 CCS 包；安装目标应是该 R 环境的可写包库，不得把源码或构建临时文件直接混入 R 安装目录
 - 功能新增、问题修复、文档更新、BAC 引入等变更即使按照 SemVer 可能需要升版，AI 也只能记录到 `[Unreleased]`，不得自行调整版本号；如有必要可说明影响，等待项目负责人决定
 - 项目负责人明确要求更新版本时，AI 才可按其指定值同步 `DESCRIPTION`、README、`CHANGELOG.md` 与 tag 说明，不得擅自改成其它版本
 - 影响项目行为、结构、工作流、工程原则、指令文件或关键配置的变更，必须更新 `CHANGELOG.md` 的 `[Unreleased]`
