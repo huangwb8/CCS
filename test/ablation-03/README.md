@@ -71,6 +71,13 @@ Remove-Item Env:CCS_ABLATION_WORKERS
 Remove-Item Env:CCS_ABLATION_MEMORY_GB
 ```
 
+若要启动一条与历史结果完全隔离的新分析线，可直接运行
+`scripts/run-fresh-analysis.ps1`。它默认使用
+`D:/cache/ccs/_ablation-03-fresh`，设置 Windows R 的可用 UTF-8 locale，先完成
+01–03 准备，再运行 learning-curve 基准和 05–07 分析；不会删除或覆盖旧的
+`_ablation-03` 缓存。可用 `-Workers`、`-TotalCores`、`-MemoryGB` 和
+`-SkipBenchmark` 调整执行策略。
+
 可先运行 `scripts/benchmark-learning-curve.R` 比较相同持久输入、seed 和 XGBoost 版本下的串行/并行耗时与结果等价性。默认只取第一个 fraction 和一次 repeat；可用 `CCS_ABLATION_BENCHMARK_FRACTIONS`、`CCS_ABLATION_BENCHMARK_REPEATS` 和 `CCS_ABLATION_BENCHMARK_WORKERS` 扩大基准规模。结果写入外部缓存阶段的 `performance/learning-curve-benchmark.csv`，不覆盖正式分析结果；若正式阶段持有 workflow lock，benchmark 会拒绝启动。
 
 ## 报告渲染
