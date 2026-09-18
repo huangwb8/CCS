@@ -14,6 +14,16 @@
 
 # 日常
 
+---
+
+ablation-03 分析重构和优化
+
+- 我希望依据 bensz-rmd-rules 里的最新规范来重构 ablation-03 的分析。具个分多少 Rmd/html 你自己定
+- 在目前的基础上，加上  docs\plans\2026-09-17-ablation-03-checkpoint-resume.md 这个计划里。 我希望数据的缓存要很好地管理，之后方便我反复调试
+- 我当时缓存太大；我希望 ablation-03 的缓存数据保存位置： "D:\cache\ccs_ablation-03"
+- 当然，用于rmd/html或可发表的图/表还是保存在 test\ablation-03 里的恰当文件夹里
+- 最后，所有的 Rmd/html 都要出。 然后，结束是要简单地汇报一下结果
+
 ----
 
 简要分析ablation-03的结论。 和 1691d68d3e14ee9bb70b1c1d0166cd89dbd9a015 那个版本的 ablation-03的结论有什么出入 ？
