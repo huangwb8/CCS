@@ -6,6 +6,8 @@
 
 ## [Unreleased]
 
+- 新增 `test/ablation-03/scripts/run-fresh-analysis.ps1`，为 Windows R 4.3.1 提供隔离的全新分析缓存根目录、UTF-8 locale、受限 CPU/内存预算、可选 benchmark 与七阶段顺序入口；不覆盖既有 ablation-03 缓存。
+
 - 整理 `test/ablation-03` 目录边界：将重复的 `input/` 说明并入 `raw/`，将生物学锚点配置归入 `raw/config/`，将辅助入口从 `tools/` 统一为 `scripts/`，并把既有正式图表归位到 `reports/figures/`；保留根目录 `analysis-plan.yaml` 作为标准工作流清单，不迁移或删除历史 `tmp/` 缓存。
 
 - 优化 ablation 表示分析执行：readout 内层折叠的标准化/模块平衡矩阵按 fold 只计算一次并复用于全部 lambda；learning curve 改为确定性 job table，按 fraction/repeat/representation 保存可恢复 checkpoint，并通过显式 `CCS_ABLATION_WORKERS` 提供有界 PSOCK 并行。大型只读矩阵在 Windows worker 启动时只传输一次，可用 `CCS_ABLATION_MEMORY_GB` 按估计峰值自动下调 worker；默认仍为单 worker，避免隐式改变既有运行语义。
