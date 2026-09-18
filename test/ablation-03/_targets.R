@@ -23,47 +23,37 @@ list(
   targets::tar_target(runtime_config, .ablation03_runtime_config()),
   targets::tar_target(data_inputs, .ablation03_read_inputs(runtime_config)),
   targets::tar_target(
-    representation_inputs,
-    CCS::ablation_prepare_representation_inputs(
+    context,
+    CCS::ablation(
       object = data_inputs$object,
       data = data_inputs$data,
       metadata = data_inputs$metadata,
       params = .ablation03_representation_params(),
       seed = runtime_config$seed,
-      cache_dir = NULL,
+      step = "context",
+      output.dir = file.path(runtime_config$cache_root, "output"),
+      cache.root = runtime_config$cache_root,
       verbose = FALSE
     )
   ),
-  # One serial calculation target is the migration-safe bridge. The returned
-  # list is split into named downstream targets so report changes do not force
-  # re-preparation of raw inputs once the store is populated.
+  targets::tar_target(plan, CCS::ablation(step = "plan", input = context, verbose = FALSE)),
+  targets::tar_target(run, CCS::ablation(step = "run", input = plan, verbose = FALSE)),
   targets::tar_target(
-    representation_nodes,
-    CCS::ablation_run_representation_nodes(
-      representation_inputs,
-      seed = runtime_config$seed,
+    result,
+    CCS::ablation(
+      step = "result",
+      input = run,
+      output.dir = file.path(runtime_config$cache_root, "output"),
+      params = .ablation03_representation_params(),
       verbose = FALSE
     )
   ),
-  targets::tar_target(native_geometry, representation_nodes$native_geometry),
-  targets::tar_target(retrieval, representation_nodes$retrieval),
-  targets::tar_target(readout, representation_nodes$readout),
-  targets::tar_target(learning_curve, representation_nodes$learning_curve),
-  targets::tar_target(cohort_scaling, representation_nodes$scaling),
-  targets::tar_target(decoder, representation_nodes$decoder),
-  targets::tar_target(
-    learning_jobs,
-    CCS::ablation_make_learning_curve_jobs(representation_inputs)
-  ),
-  targets::tar_target(
-    learning_job_results,
-    .ablation03_split_jobs(learning_jobs, learning_curve$metrics)
-  ),
-  targets::tar_target(
-    learning_curve_combined,
-    CCS::ablation_combine_learning_curve_jobs(learning_jobs, learning_job_results)
-  ),
-  targets::tar_target(scaling_jobs, CCS::ablation_make_scaling_jobs(representation_inputs)),
+  targets::tar_target(native_geometry, run$value$native_geometry),
+  targets::tar_target(retrieval, run$value$retrieval),
+  targets::tar_target(readout, run$value$readout),
+  targets::tar_target(learning_curve, run$value$learning_curve),
+  targets::tar_target(cohort_scaling, run$value$cohort_scaling),
+  targets::tar_target(decoder, run$value$tradeoffs$decoder),
   targets::tar_target(
     biology_inputs,
     .ablation03_require_optional_input(data_inputs, "biology_inputs")
@@ -84,11 +74,12 @@ list(
     report_payload,
     list(
       runtime = runtime_config,
-      inputs = representation_inputs,
+      inputs = plan$context$analysis,
+      result = result,
       native_geometry = native_geometry,
       retrieval = retrieval,
       readout = readout,
-      learning_curve = learning_curve_combined,
+      learning_curve = learning_curve,
       scaling = cohort_scaling,
       decoder = decoder,
       biology = biology_result,
@@ -96,4 +87,3 @@ list(
     )
   )
 )
-

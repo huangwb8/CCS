@@ -267,21 +267,50 @@
 #'   }
 #' @param seed Master random seed.
 #' @param verbose Whether to report progress.
+#' @param step Lifecycle stage: `"all"` (default), `"context"`, `"plan"`,
+#'   `"run"`, or `"result"`. Staged calls consume the object supplied through
+#'   `input` and never write reviewer-facing products unless `step = "all"`.
+#' @param input Optional serializable stage input. It must be a context, plan,
+#'   runner result, or a list containing one of those objects as required by
+#'   `step`.
+#' @param cache.root Optional root directory for reusable intermediate cache.
+#'   It is kept separate from `output.dir`; when omitted a hidden project-local
+#'   cache root is used.
 #'
 #' @return An object of class `CCSAblation`.
 #' @author Weibin Huang <hwb2012@@qq.com>
 #' @md
 #' @export
 ablation <- function(
-    object,
-    data,
+    object = NULL,
+    data = NULL,
     metadata = NULL,
     experiment = "representation",
     output.dir = file.path(getwd(), "ccs-ablation"),
     params = list(),
     seed = 20260727,
-    verbose = TRUE
+    verbose = TRUE,
+    step = "all",
+    input = NULL,
+    cache.root = NULL
 ) {
+  step <- match.arg(step, c("all", "context", "plan", "run", "result"))
+  if (!identical(step, "all")) {
+    return(.ablation_dispatch_step(
+      step = step,
+      object = object,
+      data = data,
+      metadata = metadata,
+      experiment = experiment,
+      output.dir = output.dir,
+      params = params,
+      seed = seed,
+      verbose = verbose,
+      input = input,
+      cache.root = cache.root
+    ))
+  }
+
   # Embedded smoke fixture -------------------------------------------------
   #
   # This block keeps a self-contained, deterministic test fixture close to
@@ -456,7 +485,8 @@ ablation <- function(
       output.dir = output.dir,
       params = params,
       seed = seed,
-      verbose = verbose
+      verbose = verbose,
+      cache.root = cache.root
     ))
   }
 
@@ -471,7 +501,8 @@ ablation <- function(
     output.dir = output.dir,
     params = params,
     seed = seed,
-    verbose = verbose
+    verbose = verbose,
+    cache.root = cache.root
   )
 }
 
@@ -489,7 +520,8 @@ ablation <- function(
     output.dir = file.path(getwd(), "ccs-ablation"),
     params = list(),
     seed = 20260727,
-    verbose = TRUE
+    verbose = TRUE,
+    cache.root = NULL
 ) {
   context <- .ablation_prepare_layered_context(
     object = object,
@@ -499,7 +531,8 @@ ablation <- function(
     output.dir = output.dir,
     params = params,
     seed = seed,
-    verbose = verbose
+    verbose = verbose,
+    cache.root = cache.root
   )
   execution <- .ablation_execute_layered_experiments(
     context = context,
@@ -511,7 +544,8 @@ ablation <- function(
     execution = execution,
     output.dir = output.dir,
     call = match.call(),
-    verbose = verbose
+    verbose = verbose,
+    cache.root = cache.root
   )
 }
 
@@ -527,7 +561,8 @@ ablation <- function(
     output.dir,
     params,
     seed,
-    verbose
+    verbose,
+    cache.root = NULL
 ) {
   if (!methods::is(object, "CCS")) {
     stop("ablation: object must be a CCS object.", call. = FALSE)
@@ -536,6 +571,7 @@ ablation <- function(
   choices <- c("cohort", "scaling", "tissue_first", "metaccs")
   experiment <- unique(match.arg(experiment, choices, several.ok = TRUE))
   config <- .ablation_resolve_config(seed, params)
+  cache <- .ablation_resolve_cache_layout(cache.root, output.dir)
 
   # Each run is intentionally isolated. Existing products are only
   # replaceable when the caller explicitly opts into `general$cover`.
@@ -565,6 +601,15 @@ ablation <- function(
   manifest <- .ablation_build_manifest(object, prepared, config, seed)
   saveRDS(manifest, file.path(output.dir, "manifest.rds"))
   saveRDS(config, file.path(output.dir, "config.rds"))
+  .ablation_atomic_save_rds(
+    list(
+      schema_version = 1L,
+      status = "complete",
+      key = digest::digest(list(manifest = manifest, config = config), algo = "md5"),
+      cache = cache
+    ),
+    file.path(cache$context_dir, "layered-context.rds")
+  )
 
   list(
     object = object,
@@ -572,7 +617,8 @@ ablation <- function(
     config = config,
     prepared = prepared,
     manifest = manifest,
-    output.dir = output.dir
+    output.dir = output.dir,
+    cache = cache
   )
 }
 
@@ -689,7 +735,8 @@ ablation <- function(
     execution,
     output.dir,
     call,
-    verbose
+    verbose,
+    cache.root = NULL
 ) {
   audit <- .ablation_rbind(execution$audit_parts)
   result <- structure(
@@ -5588,12 +5635,14 @@ ablation <- function(
     output.dir,
     params,
     seed,
-    verbose
+    verbose,
+    cache.root = NULL
 ) {
   if (!methods::is(object, "CCS")) {
     stop("ablation: object must be a CCS object.", call. = FALSE)
   }
   config <- .ablation_resolve_representation_config(seed, params)
+  cache <- .ablation_resolve_cache_layout(cache.root, output.dir)
   if (dir.exists(output.dir) && length(list.files(output.dir)) > 0 &&
       !config$output$cover) {
     stop(
@@ -5608,14 +5657,17 @@ ablation <- function(
     data = data,
     metadata = metadata,
     config = config,
-    output.dir = output.dir,
+    output.dir = cache$preparation_dir,
     seed = seed,
     verbose = verbose
   )
   result <- .ablation_run_prepared_representation(
     analysis = analysis, config = config, output.dir = output.dir,
+    cache.dir = cache$nodes_dir,
     seed = seed, verbose = verbose
   )
+  result$manifest$cache <- cache
+  .ablation_atomic_save_rds(result$manifest, file.path(output.dir, "manifest.rds"))
   result$call <- match.call()
   result
 }
@@ -5624,13 +5676,15 @@ ablation <- function(
 # Run the same representation calculations from explicitly prepared inputs.
 # This boundary lets analysis scripts consume caches without loading raw data.
 .ablation_run_prepared_representation <- function(
-    analysis, config, output.dir, seed, verbose
+    analysis, config, output.dir, cache.dir = output.dir, seed, verbose
 ) {
   # Prepared bundles created before runtime workers were introduced retain the
   # historical single-worker behavior instead of failing on a missing field.
   if (is.null(config$validation$workers)) config$validation$workers <- 1L
   prepared <- analysis$prepared
   anchor <- analysis$anchor
+  dir.create(output.dir, recursive = TRUE, showWarnings = FALSE)
+  dir.create(cache.dir, recursive = TRUE, showWarnings = FALSE)
 
   # Phase 1: put Direct-GSClassifier and Cohort-d1 on their native comparison
   # scales. All later endpoints consume these transformed matrices.
@@ -5654,7 +5708,7 @@ ablation <- function(
     d1 = d1_scaled
   )
   native_geometry_cache_path <- file.path(
-    output.dir,
+    cache.dir,
     "native-geometry-cache.rds"
   )
   native_geometry_cache_key <- .ablation_native_geometry_cache_key(
@@ -5668,7 +5722,7 @@ ablation <- function(
   )
   if (is.null(native_geometry)) {
     native_geometry <- .ablation_promote_legacy_native_geometry(
-      output.dir = output.dir,
+      output.dir = cache.dir,
       prepared = prepared,
       config = config,
       seed = seed,
@@ -5737,7 +5791,7 @@ ablation <- function(
   )
   retrieval_checkpoint <- .ablation_cached_node(
     node = "retrieval",
-    output.dir = output.dir,
+    output.dir = cache.dir,
     key = retrieval_node_key,
     verbose = verbose,
     compute = function() {
@@ -5938,7 +5992,7 @@ ablation <- function(
   )
   readout_checkpoint <- .ablation_cached_node(
     node = "readout",
-    output.dir = output.dir,
+    output.dir = cache.dir,
     key = readout_node_key,
     verbose = verbose,
     compute = function() {
@@ -6048,7 +6102,7 @@ ablation <- function(
   )
   learning_checkpoint <- .ablation_cached_node(
     node = "learning-curve",
-    output.dir = output.dir,
+    output.dir = cache.dir,
     key = learning_node_key,
     verbose = verbose,
     compute = function() {
@@ -6076,7 +6130,7 @@ ablation <- function(
         nrounds = config$validation$nrounds,
         numCores = config$validation$numCores,
         workers = config$validation$workers,
-        checkpoint_output_dir = output.dir,
+        checkpoint_output_dir = cache.dir,
         checkpoint_key = learning_node_key,
         seed = seed + 30000L
       )
@@ -6093,7 +6147,7 @@ ablation <- function(
       label_column = anchor,
       seed = seed + 35000L,
       verbose = verbose,
-      cache_path = file.path(output.dir, "cohort-scaling-fit-cache.rds")
+      cache_path = file.path(cache.dir, "cohort-scaling-fit-cache.rds")
     )
   } else {
     list(status = "not_run", reason = "disabled")
@@ -6118,7 +6172,7 @@ ablation <- function(
   )
   decoder_checkpoint <- .ablation_cached_node(
     node = "decoder",
-    output.dir = output.dir,
+    output.dir = cache.dir,
     key = decoder_node_key,
     verbose = verbose,
     compute = function() {
@@ -8157,142 +8211,211 @@ ablation <- function(
 
 
 # -------------------------------------------------------------------------
-# Targets-facing calculation API
+# -------------------------------------------------------------------------
+# Lifecycle stages and durable cache boundary
+# -------------------------------------------------------------------------
+
+.ablation_resolve_cache_layout <- function(cache.root = NULL, output.dir = NULL) {
+  default_root <- file.path(getwd(), ".ccs-cache", "ablation")
+  if (is.null(cache.root)) cache.root <- default_root
+  if (length(cache.root) != 1L || is.na(cache.root) || !nzchar(cache.root)) {
+    stop("ablation: cache.root must be one non-empty path.", call. = FALSE)
+  }
+  root <- suppressWarnings(normalizePath(as.character(cache.root), winslash = "/", mustWork = FALSE))
+  if (!is.null(output.dir) && length(output.dir) == 1L && !is.na(output.dir)) {
+    output_path <- suppressWarnings(normalizePath(as.character(output.dir), winslash = "/", mustWork = FALSE))
+    if (identical(root, output_path)) {
+      stop("ablation: cache.root and output.dir must be different directories.", call. = FALSE)
+    }
+  }
+  if (file.exists(root) && !dir.exists(root)) {
+    stop("ablation: cache.root points to a file: ", root, call. = FALSE)
+  }
+  dir.create(root, recursive = TRUE, showWarnings = FALSE)
+  if (!dir.exists(root)) stop("ablation: cannot create cache.root: ", root, call. = FALSE)
+  probe <- tempfile("write-probe-", tmpdir = root)
+  if (!isTRUE(file.create(probe))) stop("ablation: cache.root is not writable: ", root, call. = FALSE)
+  unlink(probe, force = TRUE)
+  directories <- list(
+    context_dir = file.path(root, "context"),
+    plan_dir = file.path(root, "plan"),
+    preparation_dir = file.path(root, "context", "preparation"),
+    nodes_dir = file.path(root, "nodes"),
+    jobs_dir = file.path(root, "jobs"),
+    runner_dir = file.path(root, "runner"),
+    state_dir = file.path(root, "state")
+  )
+  for (path in directories) dir.create(path, recursive = TRUE, showWarnings = FALSE)
+  if (!all(vapply(directories, dir.exists, logical(1)))) {
+    stop("ablation: cannot create cache layout below cache.root.", call. = FALSE)
+  }
+  c(list(schema_version = 1L, root = root,
+         default = identical(root, normalizePath(default_root, winslash = "/", mustWork = FALSE))),
+    directories)
+}
+
+.ablation_stage_value <- function(input, class_name, label) {
+  if (!inherits(input, class_name)) {
+    stop("ablation: step input must be a ", label, " created by the preceding step.", call. = FALSE)
+  }
+  input
+}
+
+.ablation_make_representation_context <- function(object, data, metadata, params,
+                                                   seed, output.dir, cache.root, verbose) {
+  if (!methods::is(object, "CCS")) stop("ablation: context step requires a CCS object.", call. = FALSE)
+  cache <- .ablation_resolve_cache_layout(cache.root, output.dir)
+  config <- .ablation_resolve_representation_config(seed, params)
+  analysis <- .ablation_prepare_representation_analysis(
+    object = object, data = data, metadata = metadata, config = config,
+    output.dir = cache$preparation_dir, seed = seed, verbose = verbose
+  )
+  context_key <- digest::digest(
+    list(schema_version = 1L, input_key = analysis$prepared$input_key,
+         config = config, seed = as.integer(seed)), algo = "md5"
+  )
+  context <- structure(
+    list(schema_version = 1L, stage = "context", context_key = context_key,
+         seed = as.integer(seed), config = config, analysis = analysis,
+         cache = cache, runtime = list(R = R.version.string,
+         created = format(Sys.time(), "%Y-%m-%dT%H:%M:%S%z"))),
+    class = c("CCSAblationContext", "CCSAblationStage")
+  )
+  .ablation_atomic_save_rds(
+    list(schema_version = 1L, status = "complete", key = context_key,
+         value_hash = digest::digest(context, algo = "md5"), value = context),
+    file.path(cache$context_dir, paste0(context_key, ".rds"))
+  )
+  context
+}
+
+.ablation_make_representation_plan <- function(context) {
+  context <- .ablation_stage_value(context, "CCSAblationContext", "context")
+  node_names <- c("native_geometry", "retrieval", "readout", "learning_curve", "scaling", "decoder")
+  node_seed_offsets <- c(10000L, 15000L, 20000L, 30000L, 35000L, 40000L)
+  nodes <- data.frame(
+    node_id = node_names, parent_key = context$context_key,
+    seed = as.integer(context$seed) + node_seed_offsets,
+    enabled = c(TRUE, TRUE, context$config$validation$enabled,
+      context$config$validation$enabled, context$config$scaling$enabled,
+      context$config$tradeoffs$decoder), stringsAsFactors = FALSE
+  )
+  jobs <- list(
+    learning_curve = .ablation_make_learning_curve_jobs(context$config),
+    scaling = .ablation_make_scaling_jobs(context$config)
+  )
+  plan_key <- digest::digest(list(schema_version = 1L, context_key = context$context_key,
+    nodes = nodes, jobs = jobs), algo = "md5")
+  plan <- structure(list(schema_version = 1L, stage = "plan", plan_key = plan_key,
+    context_key = context$context_key, context = context, nodes = nodes,
+    jobs = jobs, cache = context$cache), class = c("CCSAblationPlan", "CCSAblationStage"))
+  .ablation_atomic_save_rds(
+    list(schema_version = 1L, status = "complete", key = plan_key,
+      value_hash = digest::digest(plan, algo = "md5"), value = plan),
+    file.path(context$cache$plan_dir, paste0(plan_key, ".rds"))
+  )
+  plan
+}
+
+.ablation_run_representation_plan <- function(plan, verbose = FALSE) {
+  plan <- .ablation_stage_value(plan, "CCSAblationPlan", "plan")
+  context <- plan$context
+  value <- .ablation_run_prepared_representation(
+    analysis = context$analysis, config = context$config,
+    output.dir = context$cache$runner_dir, cache.dir = context$cache$nodes_dir,
+    seed = context$seed, verbose = verbose
+  )
+  run_key <- digest::digest(list(schema_version = 1L, plan_key = plan$plan_key,
+    value_hash = digest::digest(value, algo = "md5")), algo = "md5")
+  run <- structure(list(schema_version = 1L, stage = "run", run_key = run_key,
+    plan_key = plan$plan_key, plan = plan, value = value, status = "complete",
+    cache = context$cache), class = c("CCSAblationRun", "CCSAblationStage"))
+  .ablation_atomic_save_rds(
+    list(schema_version = 1L, status = "complete", key = run_key,
+      value_hash = digest::digest(run, algo = "md5"), value = run),
+    file.path(context$cache$state_dir, paste0(run_key, ".rds"))
+  )
+  run
+}
+
+.ablation_finalize_representation_stage <- function(run, output.dir, params) {
+  run <- .ablation_stage_value(run, "CCSAblationRun", "run result")
+  result <- run$value
+  if (!inherits(result, "CCSAblation")) stop("ablation: run stage did not return a CCSAblation result.", call. = FALSE)
+  if (is.null(output.dir)) return(result)
+  cover <- isTRUE(params$output$cover) || isTRUE(params$general$cover)
+  if (dir.exists(output.dir) && length(list.files(output.dir)) > 0L && !cover) {
+    existing <- file.path(output.dir, "ablation-result.rds")
+    reusable <- if (file.exists(existing)) {
+      old <- tryCatch(readRDS(existing), error = function(e) NULL)
+      is.list(old) && identical(old$manifest$cache$run_key, run$run_key)
+    } else FALSE
+    if (!reusable) {
+      stop("ablation: output.dir is not empty; set the configured cover flag.", call. = FALSE)
+    }
+  }
+  dir.create(output.dir, recursive = TRUE, showWarnings = FALSE)
+  runner_dir <- run$cache$runner_dir
+  if (dir.exists(runner_dir)) {
+    runner_files <- list.files(runner_dir, recursive = TRUE, full.names = TRUE)
+    runner_files <- runner_files[!dir.exists(runner_files)]
+    if (length(runner_files) > 0L) {
+      for (source in runner_files) {
+        relative <- substring(source, nchar(runner_dir) + 2L)
+        destination <- file.path(output.dir, relative)
+        dir.create(dirname(destination), recursive = TRUE, showWarnings = FALSE)
+        file.copy(source, destination, overwrite = TRUE)
+      }
+    }
+  }
+  result$output.dir <- normalizePath(output.dir, winslash = "/", mustWork = TRUE)
+  if (is.null(result$manifest$cache)) result$manifest$cache <- list()
+  result$manifest$cache$run_key <- run$run_key
+  .ablation_atomic_save_rds(result, file.path(output.dir, "ablation-result.rds"))
+  if (is.data.frame(result$audit)) .ablation_atomic_write_csv(result$audit, file.path(output.dir, "audit.csv"))
+  result
+}
+
+.ablation_dispatch_step <- function(step, object, data, metadata, experiment,
+                                    output.dir, params, seed, verbose, input, cache.root) {
+  if (!identical(experiment, "representation") && !identical(experiment, "cohort")) {
+    stop("ablation: staged execution currently supports experiment = 'representation'.", call. = FALSE)
+  }
+  if (identical(step, "context")) {
+    if (!is.null(input)) {
+      if (!is.list(input) || is.null(input$object) || is.null(input$data)) {
+        stop("ablation: context input must contain object and data.", call. = FALSE)
+      }
+      object <- input$object; data <- input$data
+      if (is.null(metadata)) metadata <- input$metadata
+    }
+    return(.ablation_make_representation_context(object, data, metadata, params,
+      seed, output.dir, cache.root, verbose))
+  }
+  if (identical(step, "plan")) {
+    return(.ablation_make_representation_plan(.ablation_stage_value(input,
+      "CCSAblationContext", "context")))
+  }
+  if (identical(step, "run")) {
+    if (inherits(input, "CCSAblationContext")) input <- .ablation_make_representation_plan(input)
+    return(.ablation_run_representation_plan(input, verbose = verbose))
+  }
+  if (identical(step, "result")) return(.ablation_finalize_representation_stage(input, output.dir, params))
+  stop("ablation: unsupported lifecycle step: ", step, call. = FALSE)
+}
+
+# Internal targets planning helpers
 # -------------------------------------------------------------------------
 #
-# The functions below are deliberately small adapters around the existing
-# scientific implementation.  They accept and return ordinary R objects,
-# never create SUCCESS/stage-receipt files, and do not decide where a targets
-# store lives.  The ablation-03 project can therefore use these functions as
-# declared targets while the package remains usable from an ordinary R
-# session.  Persistence and invalidation belong to targets, not this file.
+# The functions below only build deterministic job descriptions for the
+# private `plan` stage.  They do not form a public calculation API, create
+# workflow markers, or decide where a targets store lives.
 
-#' Prepare frozen representation inputs for a targets node
-#'
-#' @param object A `CCS` object containing the frozen d1 representation.
-#' @param data Raw expression data accepted by [ablation()].
-#' @param metadata Optional sample metadata.
-#' @param params Representation parameter overrides.
-#' @param seed Master random seed.
-#' @param cache_dir Optional directory for the Direct feature cache. `NULL`
-#'   keeps this node in-memory and lets targets own persistence.
-#' @param verbose Whether to report progress.
-#' @return A `CCSRepresentationInputs` object containing `config` and
-#'   prepared, auditable matrices.
-#' @export
-ablation_prepare_representation_inputs <- function(
-    object,
-    data,
-    metadata = NULL,
-    params = list(),
-    seed = 20260727,
-    cache_dir = NULL,
-    verbose = FALSE
-) {
-  if (!methods::is(object, "CCS")) {
-    stop("ablation: object must be a CCS object.", call. = FALSE)
+.ablation_make_learning_curve_jobs <- function(config) {
+  if (!is.list(config) || !is.list(config$validation)) {
+    stop("ablation: job planning requires a resolved configuration.", call. = FALSE)
   }
-  config <- .ablation_resolve_representation_config(seed, params)
-  if (is.null(cache_dir)) {
-    config$output$cache_direct <- FALSE
-  } else {
-    dir.create(cache_dir, recursive = TRUE, showWarnings = FALSE)
-    cache_dir <- normalizePath(cache_dir, winslash = "/", mustWork = TRUE)
-  }
-  analysis <- .ablation_prepare_representation_analysis(
-    object = object,
-    data = data,
-    metadata = metadata,
-    config = config,
-    output.dir = cache_dir,
-    seed = seed,
-    verbose = verbose
-  )
-  structure(
-    list(
-      schema_version = 1L,
-      seed = seed,
-      config = config,
-      analysis = analysis,
-      cache_dir = cache_dir,
-      input_hash = digest::digest(analysis$prepared$input_key, algo = "md5")
-    ),
-    class = "CCSRepresentationInputs"
-  )
-}
-
-
-#' Run the representation nodes from prepared inputs
-#'
-#' @param inputs A `CCSRepresentationInputs` object.
-#' @param seed Optional seed override; defaults to the preparation seed.
-#' @param verbose Whether to report progress.
-#' @return A list containing native geometry, retrieval, readout, learning
-#'   curve, scaling, decoder and audit results.
-#' @export
-ablation_run_representation_nodes <- function(inputs, seed = NULL, verbose = FALSE) {
-  if (!inherits(inputs, "CCSRepresentationInputs")) {
-    stop("ablation: inputs must be created by ablation_prepare_representation_inputs().",
-      call. = FALSE
-    )
-  }
-  if (is.null(seed)) seed <- inputs$seed
-  if (length(seed) != 1L || !is.finite(seed)) {
-    stop("ablation: seed must be one finite value.", call. = FALSE)
-  }
-  # The temporary directory is intentionally outside the project and is not a
-  # workflow checkpoint. Targets serializes the returned value and owns its
-  # durable cache; this directory only supports the legacy node implementation
-  # while the calculation adapters are migrated one node at a time.
-  work_dir <- tempfile("ccs-ablation-node-")
-  dir.create(work_dir, recursive = TRUE, showWarnings = FALSE)
-  on.exit(unlink(work_dir, recursive = TRUE, force = TRUE), add = TRUE)
-  .ablation_run_prepared_representation(
-    analysis = inputs$analysis,
-    config = inputs$config,
-    output.dir = work_dir,
-    seed = seed,
-    verbose = verbose
-  )
-}
-
-
-#' Run one representation result node and select its value
-#'
-#' @param inputs A `CCSRepresentationInputs` object.
-#' @param node One of `native_geometry`, `retrieval`, `readout`, `learning_curve`,
-#'   `scaling`, or `decoder`.
-#' @param seed Optional seed override.
-#' @param verbose Whether to report progress.
-#' @return The selected node value.
-#' @export
-ablation_run_representation_node <- function(
-    inputs,
-    node = c("native_geometry", "retrieval", "readout", "learning_curve", "scaling", "decoder"),
-    seed = NULL,
-    verbose = FALSE
-) {
-  node <- match.arg(node)
-  result <- ablation_run_representation_nodes(inputs, seed = seed, verbose = verbose)
-  if (!node %in% names(result)) {
-    stop("ablation: requested representation node is unavailable: ", node, call. = FALSE)
-  }
-  result[[node]]
-}
-
-
-#' Create deterministic learning-curve jobs
-#'
-#' @param inputs A `CCSRepresentationInputs` object.
-#' @return A stable data frame of fraction/repeat/representation jobs.
-#' @export
-ablation_make_learning_curve_jobs <- function(inputs) {
-  if (!inherits(inputs, "CCSRepresentationInputs")) {
-    stop("ablation: inputs must be created by ablation_prepare_representation_inputs().",
-      call. = FALSE
-    )
-  }
-  config <- inputs$config$validation
+  config <- config$validation
   representations <- c("Direct-GSClassifier", "Cohort-d1")
   jobs <- expand.grid(
     fraction_index = seq_along(config$learning_fractions),
@@ -8310,54 +8433,11 @@ ablation_make_learning_curve_jobs <- function(inputs) {
 }
 
 
-#' Combine learning-curve job results in a stable order
-#'
-#' @param jobs A data frame returned by [ablation_make_learning_curve_jobs()].
-#' @param results A list of one-row job results in any order.
-#' @return A list with `metrics` and paired `paired` data frames.
-#' @export
-ablation_combine_learning_curve_jobs <- function(jobs, results) {
-  if (!is.data.frame(jobs) || !is.list(results)) {
-    stop("ablation: jobs must be a data frame and results must be a list.", call. = FALSE)
+.ablation_make_scaling_jobs <- function(config) {
+  if (!is.list(config) || !is.list(config$scaling)) {
+    stop("ablation: job planning requires a resolved configuration.", call. = FALSE)
   }
-  if (length(results) == 0L) {
-    return(list(metrics = data.frame(), paired = data.frame(), status = "empty"))
-  }
-  metrics <- do.call(rbind, results)
-  keys <- intersect(c("fraction_index", "repeat_id", "representation"), names(jobs))
-  if (all(keys %in% names(metrics))) {
-    metric_key <- do.call(paste, c(metrics[keys], sep = "|"))
-    job_key <- do.call(paste, c(jobs[keys], sep = "|"))
-    metrics <- metrics[order(match(metric_key, job_key), na.last = TRUE), , drop = FALSE]
-  }
-  direct <- metrics[metrics$representation == "Direct-GSClassifier", , drop = FALSE]
-  d1 <- metrics[metrics$representation == "Cohort-d1", , drop = FALSE]
-  paired <- merge(direct, d1, by = c("requested_fraction", "repeat_id"),
-    suffixes = c("_direct", "_d1"), all = FALSE
-  )
-  if (nrow(paired) > 0L) {
-    paired$delta_balanced_accuracy <-
-      paired$balanced_accuracy_d1 - paired$balanced_accuracy_direct
-    paired$delta_macro_auroc <-
-      paired$macro_auroc_d1 - paired$macro_auroc_direct
-  }
-  list(status = "complete", metrics = metrics, paired = paired)
-}
-
-
-#' Create deterministic cohort-scaling jobs
-#'
-#' @param inputs A `CCSRepresentationInputs` object.
-#' @return A stable data frame of module-count jobs, or an empty data frame
-#'   when representation scaling is disabled.
-#' @export
-ablation_make_scaling_jobs <- function(inputs) {
-  if (!inherits(inputs, "CCSRepresentationInputs")) {
-    stop("ablation: inputs must be created by ablation_prepare_representation_inputs().",
-      call. = FALSE
-    )
-  }
-  settings <- inputs$config$scaling
+  settings <- config$scaling
   if (!isTRUE(settings$enabled)) {
     return(data.frame(module_count = integer(), repeat_id = integer(), job_key = character()))
   }
@@ -8373,46 +8453,6 @@ ablation_make_scaling_jobs <- function(inputs) {
     digest::digest(jobs[i, , drop = FALSE], algo = "md5")
   }, character(1))
   jobs
-}
-
-
-#' Return runtime identity used by the ablation-03 metadata target
-#'
-#' @param cache_root Formal ablation cache root.
-#' @param store Targets store path.
-#' @param run_id Optional run identifier.
-#' @return A metadata list suitable for a targets runtime-config target.
-#' @export
-ablation_runtime_metadata <- function(
-    cache_root,
-    store = file.path(cache_root, "targets"),
-    run_id = format(Sys.time(), "%Y%m%d-%H%M%S")
-) {
-  if (length(cache_root) != 1L || !nzchar(cache_root)) {
-    stop("ablation: cache_root must be one non-empty path.", call. = FALSE)
-  }
-  package_path <- tryCatch(find.package("CCS"), error = function(e) NA_character_)
-  description <- tryCatch(utils::packageDescription("CCS"), error = function(e) NULL)
-  list(
-    schema_version = 1L,
-    run_id = as.character(run_id),
-    cache_root = normalizePath(cache_root, winslash = "/", mustWork = FALSE),
-    store = normalizePath(store, winslash = "/", mustWork = FALSE),
-    R = R.version.string,
-    package = list(
-      name = "CCS",
-      version = if (is.null(description)) NA_character_ else description$Version,
-      path = package_path,
-      git_commit = Sys.getenv("CCS_GIT_COMMIT", unset = NA_character_),
-      build_id = Sys.getenv("CCS_BUILD_ID", unset = NA_character_)
-    ),
-    api = c(
-      "ablation_prepare_representation_inputs",
-      "ablation_run_representation_nodes",
-      "ablation_make_learning_curve_jobs",
-      "ablation_make_scaling_jobs"
-    )
-  )
 }
 
 

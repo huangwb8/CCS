@@ -51,8 +51,8 @@ Pop-Location
 也不运行本目录原有的编号脚本。待串行结果经审阅并完成科学等价性验证后，
 再引入动态分支和受控并行。
 
-`targets/functions.R` 只负责路径、输入契约和运行元数据；计算全部通过
-`CCS::ablation_*` API 完成。开发期可以在 CCS 包项目中使用 `load_all()` 做
+`targets/functions.R` 只负责路径、输入契约和运行元数据；计算通过
+`CCS::ablation(step = ...)` 的 context → plan → run → result 阶段完成。开发期可以在 CCS 包项目中使用 `load_all()` 做
 包测试，但不得把它作为 ablation-03 的正式运行方式。
 
 以下编号脚本和历史产品暂时保留用于回溯，不属于新的 targets 依赖图：

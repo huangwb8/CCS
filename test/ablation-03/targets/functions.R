@@ -50,10 +50,22 @@
   .ablation03_assert_writable(cache_root)
   .ablation03_assert_writable(store)
   run_id <- Sys.getenv("CCS_ABLATION_RUN_ID", unset = "manual")
-  metadata <- CCS::ablation_runtime_metadata(
-    cache_root = cache_root,
-    store = store,
-    run_id = run_id
+  package_path <- tryCatch(find.package("CCS"), error = function(e) NA_character_)
+  description <- tryCatch(utils::packageDescription("CCS"), error = function(e) NULL)
+  metadata <- list(
+    schema_version = 1L,
+    run_id = as.character(run_id),
+    cache_root = normalizePath(cache_root, winslash = "/", mustWork = FALSE),
+    store = normalizePath(store, winslash = "/", mustWork = FALSE),
+    R = R.version.string,
+    package = list(
+      name = "CCS",
+      version = if (is.null(description)) NA_character_ else description$Version,
+      path = package_path,
+      git_commit = Sys.getenv("CCS_GIT_COMMIT", unset = NA_character_),
+      build_id = Sys.getenv("CCS_BUILD_ID", unset = NA_character_)
+    ),
+    api = "ablation"
   )
   metadata$project_dir <- normalizePath(getwd(), winslash = "/", mustWork = TRUE)
   metadata$seed <- as.integer(Sys.getenv("CCS_ABLATION_SEED", unset = "20260727"))

@@ -9,14 +9,17 @@
 
 脚本约 7,500 行，采用“公共入口 + 共享准备上下文 + 实验分支 + 统一落盘”的结构。本文按执行顺序解释它，而不是逐行罗列实现。
 
-ablation-03 的新 targets 入口使用包导出的
-`ablation_prepare_representation_inputs()`、
-`ablation_run_representation_nodes()`、
-`ablation_make_learning_curve_jobs()` 和
-`ablation_make_scaling_jobs()`。这些接口默认以 `cache_dir = NULL` 在内存中
-准备输入；targets 负责持久化、失效和恢复，包函数不创建 `SUCCESS`、stage
-receipt 或 targets store。正式分析必须加载已安装的 `CCS` 包，不能在
+ablation-03 的新 targets 入口只使用包内 `ablation()` 的阶段调度。这些计算接口
+不创建 `SUCCESS`、stage receipt 或 targets store。正式分析必须加载已安装的
+`CCS` 包，不能在
 `_targets.R`、Rmd 或 helper 中 `source()` 仓库内的 `R/ablation.R`。
+
+生命周期重构后的正式入口仍是 `ablation()`：普通调用使用默认
+`step = "all"`；targets 或其它编排器可以依次使用 `step = "context"`、
+`"plan"`、`"run"` 和 `"result"`，并通过 `input` 传递上一步的可序列化对象。
+`cache.root` 只指定中间缓存总目录，节点状态与 job checkpoint 会写入其下的
+受控子目录；未指定时使用项目根目录下被忽略的 `.ccs-cache/ablation/`；
+`output.dir` 仍只用于审阅者可见的正式产品。
 
 ## 先看整体结构
 
