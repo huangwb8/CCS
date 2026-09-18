@@ -53,7 +53,7 @@ ablation_result$manifest <- manifest
 ablation_result$cohort_scaling <- cohort_scaling
 saveRDS(ablation_result, result_path)
 .ae_write_stage_receipt(output_dir,
-  c(names(previous_receipt$hashes), .wf_path("tools", "recompute-cohort-scaling.R")), character())
+  c(names(previous_receipt$hashes), .wf_path("scripts", "recompute-cohort-scaling.R")), character())
 
 luckyBase::LuckyVerbose(
   "02-ablation-cohort-scaling: complete; output = ",

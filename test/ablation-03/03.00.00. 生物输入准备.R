@@ -16,7 +16,7 @@ ablation_dir <- .wf_root
 out_dir <- .wf_output("01-biology")
 cache_path <- file.path(out_dir, "expression-anchor-cache.rds")
 result_dir <- .wf_output("01-representations")
-config_path <- file.path(ablation_dir, "config", "biological-anchors.yml")
+config_path <- file.path(ablation_dir, "raw", "config", "biological-anchors.yml")
 full_path <- Sys.getenv(
   "CCS_FULL_EXPRESSION_RDS",
   unset = "E:/Sync/@Analysis/PanCan_Data/Level 1/PanCan_CancerSample_DataListForCCS_GEO+cBioPortal+UCXCXenav20240809.rds"

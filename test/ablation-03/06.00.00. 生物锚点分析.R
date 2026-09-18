@@ -40,7 +40,9 @@ if (!identical(cache$sample_key_hash, expected_sample_hash)) {
 if (!identical(normalizePath(sig_path, winslash = "/", mustWork = FALSE), cache$signature$path)) {
   stop("ablation-03 biology: signature source mismatch; rebuild the cache.", call. = FALSE)
 }
-config_path <- file.path(.ablation03_dir, "config", "biological-anchors.yml")
+config_path <- file.path(
+  .ablation03_dir, "raw", "config", "biological-anchors.yml"
+)
 builder_path <- .wf_path("03.00.00. 生物输入准备.R")
 if (!identical(digest::digest(file = sig_path, algo = "md5"), cache$signature$md5) ||
     !identical(digest::digest(file = builder_path, algo = "md5"), cache$builder_md5) ||

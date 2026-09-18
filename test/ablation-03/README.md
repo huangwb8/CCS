@@ -4,9 +4,13 @@
 
 ## 目录边界
 
+- 工作流清单：根目录的 `analysis-plan.yaml` 是编号、依赖、输入与交付物的机器可读事实来源。
+- 外部输入与科学配置：`raw/` 只保存输入边界说明和版本化的只读配置；真实基因组数据仍位于仓库外。
 - 大体积缓存：`D:/cache/ccs/_ablation-03/`，可用 `CCS_ABLATION_CACHE_ROOT` 显式覆盖。
 - 轻量产品清单：`products/main/<分析单元>/`，包含 `main.rds`、`summary.md`、`metadata.yaml` 与 `SUCCESS`。
 - 正式图表与表格：`reports/figures/`、`reports/tables/`。
+- 公共模板与辅助入口：`templates/` 保存工作流/Rmd helper，`scripts/` 保存可单独运行的维护和基准脚本。
+- 质量保障：`tests/` 保存不依赖交互输入的合同测试。
 - Rmd 与同名 HTML：本目录根部。
 - 原有 `tmp/`：仅保留历史结果，不再作为新流程的读写入口。
 
@@ -67,7 +71,7 @@ Remove-Item Env:CCS_ABLATION_WORKERS
 Remove-Item Env:CCS_ABLATION_MEMORY_GB
 ```
 
-可先运行 `tools/benchmark-learning-curve.R` 比较相同持久输入、seed 和 XGBoost 版本下的串行/并行耗时与结果等价性。默认只取第一个 fraction 和一次 repeat；可用 `CCS_ABLATION_BENCHMARK_FRACTIONS`、`CCS_ABLATION_BENCHMARK_REPEATS` 和 `CCS_ABLATION_BENCHMARK_WORKERS` 扩大基准规模。结果写入外部缓存阶段的 `performance/learning-curve-benchmark.csv`，不覆盖正式分析结果；若正式阶段持有 workflow lock，benchmark 会拒绝启动。
+可先运行 `scripts/benchmark-learning-curve.R` 比较相同持久输入、seed 和 XGBoost 版本下的串行/并行耗时与结果等价性。默认只取第一个 fraction 和一次 repeat；可用 `CCS_ABLATION_BENCHMARK_FRACTIONS`、`CCS_ABLATION_BENCHMARK_REPEATS` 和 `CCS_ABLATION_BENCHMARK_WORKERS` 扩大基准规模。结果写入外部缓存阶段的 `performance/learning-curve-benchmark.csv`，不覆盖正式分析结果；若正式阶段持有 workflow lock，benchmark 会拒绝启动。
 
 ## 报告渲染
 

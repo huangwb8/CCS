@@ -37,6 +37,7 @@ units:
     inputs:
       - "products/main/01.00.00. 数据准备/main.rds"
       - "products/main/02.00.00. 表示输入准备/main.rds"
+      - "raw/config/biological-anchors.yml"
     code: ["03.00.00. 生物输入准备.R"]
     products: ["products/main/03.00.00. 生物输入准备/main.rds"]
     cache: true
@@ -90,6 +91,7 @@ units:
     inputs:
       - "products/main/03.00.00. 生物输入准备/main.rds"
       - "products/main/05.00.00. 表示分析/main.rds"
+      - "raw/config/biological-anchors.yml"
     code: ["06.00.00. 生物锚点分析.R", "06.00.00. 生物锚点分析_functions.R", "06.00.00. 生物锚点分析.Rmd"]
     products: ["products/main/06.00.00. 生物锚点分析/main.rds"]
     cache: true
