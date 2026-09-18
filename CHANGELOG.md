@@ -6,6 +6,8 @@
 
 ## [Unreleased]
 
+- 整理 `test/ablation-03` 目录边界：将重复的 `input/` 说明并入 `raw/`，将生物学锚点配置归入 `raw/config/`，将辅助入口从 `tools/` 统一为 `scripts/`，并把既有正式图表归位到 `reports/figures/`；保留根目录 `analysis-plan.yaml` 作为标准工作流清单，不迁移或删除历史 `tmp/` 缓存。
+
 - 优化 ablation 表示分析执行：readout 内层折叠的标准化/模块平衡矩阵按 fold 只计算一次并复用于全部 lambda；learning curve 改为确定性 job table，按 fraction/repeat/representation 保存可恢复 checkpoint，并通过显式 `CCS_ABLATION_WORKERS` 提供有界 PSOCK 并行。大型只读矩阵在 Windows worker 启动时只传输一次，可用 `CCS_ABLATION_MEMORY_GB` 按估计峰值自动下调 worker；默认仍为单 worker，避免隐式改变既有运行语义。
 
 - 按 `bensz-rmd-rules` 重构 `ablation-03` 为七个 `AA.BB.CC` 分析单元；大体积缓存迁移到 `D:/cache/ccs/_ablation-03`，项目内仅保留可审计的轻量产品清单，正式图表迁入 `reports/figures/`。表示分析新增 retrieval、readout、learning curve 与 decoder 的内容键多版本 checkpoint、运行状态和断点恢复契约；节点键只绑定实际递归代码依赖，state/key/file/value hash 任一异常均安全重算，并在 manifest 审计命中状态及失效原因。四份 Rmd/HTML 同步改用新入口。证据门禁现同时核验 reference/query d1 来源，reference 为 in-sample 时降为描述性；biology 和结构推断对 cohort/dyad 不足的结果只保留点估计，不再输出误导性区间或 P 值。
