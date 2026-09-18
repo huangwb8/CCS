@@ -9,6 +9,15 @@
 
 脚本约 7,500 行，采用“公共入口 + 共享准备上下文 + 实验分支 + 统一落盘”的结构。本文按执行顺序解释它，而不是逐行罗列实现。
 
+ablation-03 的新 targets 入口使用包导出的
+`ablation_prepare_representation_inputs()`、
+`ablation_run_representation_nodes()`、
+`ablation_make_learning_curve_jobs()` 和
+`ablation_make_scaling_jobs()`。这些接口默认以 `cache_dir = NULL` 在内存中
+准备输入；targets 负责持久化、失效和恢复，包函数不创建 `SUCCESS`、stage
+receipt 或 targets store。正式分析必须加载已安装的 `CCS` 包，不能在
+`_targets.R`、Rmd 或 helper 中 `source()` 仓库内的 `R/ablation.R`。
+
 ## 先看整体结构
 
 公共函数位于 `R/ablation.R:265`，内部函数均以 `.ablation_` 开头。可以把一次运行理解为下面的管线：
@@ -377,7 +386,7 @@ ablation-03 的运行入口已按业务分层，见 [ablation-03 运行说明](.
 
 `02-ablation03-representation.R`、`03-ablation03-biology.R` 与 `04-ablation03-structural-reproducibility.R` 都是同一个实验的模块入口，读取准备好的输入，不隐式运行准备脚本。每个模块有同名 Rmd，渲染为同名 HTML；数据准备另有 `01-ablation03-data-overview.Rmd`。报告保留原有图表与摘要计算，表示报告不再等待后两个模块。
 
-包内 `.ablation_run_representation()` 保留公共 `ablation()` 的原始输入准备路径，并委托 `.ablation_run_prepared_representation()` 执行抽出的原计算体；新实验入口直接使用后者。提取不调整科学计算、默认参数或随机种子，也不新增导出 API。准备缓存的来源凭据及其上游依赖会递归核验，旧凭据不能直接作为新流程的完成证明。已有 Direct、精确几何和 scaling 缓存仍按原内容键判断复用，本次未运行任何数据准备、实验或报告渲染。
+包内 `.ablation_run_representation()` 保留公共 `ablation()` 的原始输入准备路径，并委托 `.ablation_run_prepared_representation()` 执行抽出的原计算体；targets 入口通过上面的导出适配器消费同一计算体。提取不调整科学计算、默认参数或随机种子。准备缓存的来源凭据及其上游依赖会递归核验，旧凭据不能直接作为新流程的完成证明。已有 Direct、精确几何和 scaling 缓存仍按原内容键判断复用，本次迁移只完成代码与串行依赖骨架，未运行完整数据准备、实验或报告渲染。
 
 ### 抽样与可重复性
 
@@ -497,8 +506,11 @@ result$experiments$metaccs$contrasts
 
 ```powershell
 $env:CCS_ABLATION_RUN_SMOKE = "true"
-Rscript -e "library(CCS); source('R/ablation.R'); ablation(object = NULL, data = NULL)"
+Rscript -e "library(CCS); ablation(object = NULL, data = NULL)"
 ```
+
+上面的调用适用于已安装包。开发 CCS 包本身时可以使用 `pkgload::load_all()`
+做源码测试，但这不属于 ablation-03 的正式运行方式。
 
 它会构造一个小型 CCS 对象，直接调用 layered orchestrator，并断言 `CCSAblation`、四个 group 和 audit 表均存在（`R/ablation.R:275-412`）。这不是生产数据测试，但适合快速检查入口、参数、输出结构是否破坏。
 

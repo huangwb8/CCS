@@ -5130,14 +5130,23 @@ ablation <- function(
   }
   all_ids <- c(reference_ids, query_ids)
   direct_expr <- flattened$expr[, all_ids, drop = FALSE]
-  direct_cache_path <- file.path(output.dir, "direct-feature-cache.rds")
+  # The package API can be used as a pure in-memory calculation layer by
+  # passing `output.dir = NULL`.  In that mode targets owns persistence and
+  # this function must not create package/workflow state on its own.
+  direct_cache_enabled <- isTRUE(config$output$cache_direct) &&
+    !is.null(output.dir)
+  direct_cache_path <- if (direct_cache_enabled) {
+    file.path(output.dir, "direct-feature-cache.rds")
+  } else {
+    NULL
+  }
   direct_cache_key <- .ablation_direct_feature_cache_key(
     object = object,
     expr = direct_expr,
     feature_manifest = feature_manifest,
     sample_ids = all_ids
   )
-  direct <- if (isTRUE(config$output$cache_direct)) {
+  direct <- if (direct_cache_enabled) {
     .ablation_read_direct_feature_cache(
       path = direct_cache_path,
       key = direct_cache_key,
@@ -5159,7 +5168,7 @@ ablation <- function(
       direct_expr,
       feature_manifest
     )
-    if (isTRUE(config$output$cache_direct)) {
+    if (direct_cache_enabled) {
       .ablation_atomic_save_rds(
         list(
           schema_version = 1L,
@@ -5231,7 +5240,7 @@ ablation <- function(
       path = direct_cache_path,
       key = direct_cache_key,
       status = direct_cache_status,
-      enabled = isTRUE(config$output$cache_direct)
+      enabled = direct_cache_enabled
     ),
     cache_key = cache_key,
     input_key = input_key,
@@ -8143,6 +8152,266 @@ ablation <- function(
     ),
     module_counts = sort(unique(design$module_count)),
     test_sample_hash = query_hash
+  )
+}
+
+
+# -------------------------------------------------------------------------
+# Targets-facing calculation API
+# -------------------------------------------------------------------------
+#
+# The functions below are deliberately small adapters around the existing
+# scientific implementation.  They accept and return ordinary R objects,
+# never create SUCCESS/stage-receipt files, and do not decide where a targets
+# store lives.  The ablation-03 project can therefore use these functions as
+# declared targets while the package remains usable from an ordinary R
+# session.  Persistence and invalidation belong to targets, not this file.
+
+#' Prepare frozen representation inputs for a targets node
+#'
+#' @param object A `CCS` object containing the frozen d1 representation.
+#' @param data Raw expression data accepted by [ablation()].
+#' @param metadata Optional sample metadata.
+#' @param params Representation parameter overrides.
+#' @param seed Master random seed.
+#' @param cache_dir Optional directory for the Direct feature cache. `NULL`
+#'   keeps this node in-memory and lets targets own persistence.
+#' @param verbose Whether to report progress.
+#' @return A `CCSRepresentationInputs` object containing `config` and
+#'   prepared, auditable matrices.
+#' @export
+ablation_prepare_representation_inputs <- function(
+    object,
+    data,
+    metadata = NULL,
+    params = list(),
+    seed = 20260727,
+    cache_dir = NULL,
+    verbose = FALSE
+) {
+  if (!methods::is(object, "CCS")) {
+    stop("ablation: object must be a CCS object.", call. = FALSE)
+  }
+  config <- .ablation_resolve_representation_config(seed, params)
+  if (is.null(cache_dir)) {
+    config$output$cache_direct <- FALSE
+  } else {
+    dir.create(cache_dir, recursive = TRUE, showWarnings = FALSE)
+    cache_dir <- normalizePath(cache_dir, winslash = "/", mustWork = TRUE)
+  }
+  analysis <- .ablation_prepare_representation_analysis(
+    object = object,
+    data = data,
+    metadata = metadata,
+    config = config,
+    output.dir = cache_dir,
+    seed = seed,
+    verbose = verbose
+  )
+  structure(
+    list(
+      schema_version = 1L,
+      seed = seed,
+      config = config,
+      analysis = analysis,
+      cache_dir = cache_dir,
+      input_hash = digest::digest(analysis$prepared$input_key, algo = "md5")
+    ),
+    class = "CCSRepresentationInputs"
+  )
+}
+
+
+#' Run the representation nodes from prepared inputs
+#'
+#' @param inputs A `CCSRepresentationInputs` object.
+#' @param seed Optional seed override; defaults to the preparation seed.
+#' @param verbose Whether to report progress.
+#' @return A list containing native geometry, retrieval, readout, learning
+#'   curve, scaling, decoder and audit results.
+#' @export
+ablation_run_representation_nodes <- function(inputs, seed = NULL, verbose = FALSE) {
+  if (!inherits(inputs, "CCSRepresentationInputs")) {
+    stop("ablation: inputs must be created by ablation_prepare_representation_inputs().",
+      call. = FALSE
+    )
+  }
+  if (is.null(seed)) seed <- inputs$seed
+  if (length(seed) != 1L || !is.finite(seed)) {
+    stop("ablation: seed must be one finite value.", call. = FALSE)
+  }
+  # The temporary directory is intentionally outside the project and is not a
+  # workflow checkpoint. Targets serializes the returned value and owns its
+  # durable cache; this directory only supports the legacy node implementation
+  # while the calculation adapters are migrated one node at a time.
+  work_dir <- tempfile("ccs-ablation-node-")
+  dir.create(work_dir, recursive = TRUE, showWarnings = FALSE)
+  on.exit(unlink(work_dir, recursive = TRUE, force = TRUE), add = TRUE)
+  .ablation_run_prepared_representation(
+    analysis = inputs$analysis,
+    config = inputs$config,
+    output.dir = work_dir,
+    seed = seed,
+    verbose = verbose
+  )
+}
+
+
+#' Run one representation result node and select its value
+#'
+#' @param inputs A `CCSRepresentationInputs` object.
+#' @param node One of `native_geometry`, `retrieval`, `readout`, `learning_curve`,
+#'   `scaling`, or `decoder`.
+#' @param seed Optional seed override.
+#' @param verbose Whether to report progress.
+#' @return The selected node value.
+#' @export
+ablation_run_representation_node <- function(
+    inputs,
+    node = c("native_geometry", "retrieval", "readout", "learning_curve", "scaling", "decoder"),
+    seed = NULL,
+    verbose = FALSE
+) {
+  node <- match.arg(node)
+  result <- ablation_run_representation_nodes(inputs, seed = seed, verbose = verbose)
+  if (!node %in% names(result)) {
+    stop("ablation: requested representation node is unavailable: ", node, call. = FALSE)
+  }
+  result[[node]]
+}
+
+
+#' Create deterministic learning-curve jobs
+#'
+#' @param inputs A `CCSRepresentationInputs` object.
+#' @return A stable data frame of fraction/repeat/representation jobs.
+#' @export
+ablation_make_learning_curve_jobs <- function(inputs) {
+  if (!inherits(inputs, "CCSRepresentationInputs")) {
+    stop("ablation: inputs must be created by ablation_prepare_representation_inputs().",
+      call. = FALSE
+    )
+  }
+  config <- inputs$config$validation
+  representations <- c("Direct-GSClassifier", "Cohort-d1")
+  jobs <- expand.grid(
+    fraction_index = seq_along(config$learning_fractions),
+    repeat_id = seq_len(as.integer(config$repeats)),
+    representation = representations,
+    KEEP.OUT.ATTRS = FALSE,
+    stringsAsFactors = FALSE
+  )
+  jobs <- jobs[order(jobs$fraction_index, jobs$repeat_id, jobs$representation), , drop = FALSE]
+  rownames(jobs) <- NULL
+  jobs$job_key <- vapply(seq_len(nrow(jobs)), function(i) {
+    digest::digest(jobs[i, , drop = FALSE], algo = "md5")
+  }, character(1))
+  jobs
+}
+
+
+#' Combine learning-curve job results in a stable order
+#'
+#' @param jobs A data frame returned by [ablation_make_learning_curve_jobs()].
+#' @param results A list of one-row job results in any order.
+#' @return A list with `metrics` and paired `paired` data frames.
+#' @export
+ablation_combine_learning_curve_jobs <- function(jobs, results) {
+  if (!is.data.frame(jobs) || !is.list(results)) {
+    stop("ablation: jobs must be a data frame and results must be a list.", call. = FALSE)
+  }
+  if (length(results) == 0L) {
+    return(list(metrics = data.frame(), paired = data.frame(), status = "empty"))
+  }
+  metrics <- do.call(rbind, results)
+  keys <- intersect(c("fraction_index", "repeat_id", "representation"), names(jobs))
+  if (all(keys %in% names(metrics))) {
+    metric_key <- do.call(paste, c(metrics[keys], sep = "|"))
+    job_key <- do.call(paste, c(jobs[keys], sep = "|"))
+    metrics <- metrics[order(match(metric_key, job_key), na.last = TRUE), , drop = FALSE]
+  }
+  direct <- metrics[metrics$representation == "Direct-GSClassifier", , drop = FALSE]
+  d1 <- metrics[metrics$representation == "Cohort-d1", , drop = FALSE]
+  paired <- merge(direct, d1, by = c("requested_fraction", "repeat_id"),
+    suffixes = c("_direct", "_d1"), all = FALSE
+  )
+  if (nrow(paired) > 0L) {
+    paired$delta_balanced_accuracy <-
+      paired$balanced_accuracy_d1 - paired$balanced_accuracy_direct
+    paired$delta_macro_auroc <-
+      paired$macro_auroc_d1 - paired$macro_auroc_direct
+  }
+  list(status = "complete", metrics = metrics, paired = paired)
+}
+
+
+#' Create deterministic cohort-scaling jobs
+#'
+#' @param inputs A `CCSRepresentationInputs` object.
+#' @return A stable data frame of module-count jobs, or an empty data frame
+#'   when representation scaling is disabled.
+#' @export
+ablation_make_scaling_jobs <- function(inputs) {
+  if (!inherits(inputs, "CCSRepresentationInputs")) {
+    stop("ablation: inputs must be created by ablation_prepare_representation_inputs().",
+      call. = FALSE
+    )
+  }
+  settings <- inputs$config$scaling
+  if (!isTRUE(settings$enabled)) {
+    return(data.frame(module_count = integer(), repeat_id = integer(), job_key = character()))
+  }
+  jobs <- expand.grid(
+    module_count = as.integer(settings$module_counts),
+    repeat_id = seq_len(as.integer(settings$sequences)),
+    KEEP.OUT.ATTRS = FALSE,
+    stringsAsFactors = FALSE
+  )
+  jobs <- jobs[order(jobs$module_count, jobs$repeat_id), , drop = FALSE]
+  rownames(jobs) <- NULL
+  jobs$job_key <- vapply(seq_len(nrow(jobs)), function(i) {
+    digest::digest(jobs[i, , drop = FALSE], algo = "md5")
+  }, character(1))
+  jobs
+}
+
+
+#' Return runtime identity used by the ablation-03 metadata target
+#'
+#' @param cache_root Formal ablation cache root.
+#' @param store Targets store path.
+#' @param run_id Optional run identifier.
+#' @return A metadata list suitable for a targets runtime-config target.
+#' @export
+ablation_runtime_metadata <- function(
+    cache_root,
+    store = file.path(cache_root, "targets"),
+    run_id = format(Sys.time(), "%Y%m%d-%H%M%S")
+) {
+  if (length(cache_root) != 1L || !nzchar(cache_root)) {
+    stop("ablation: cache_root must be one non-empty path.", call. = FALSE)
+  }
+  package_path <- tryCatch(find.package("CCS"), error = function(e) NA_character_)
+  description <- tryCatch(utils::packageDescription("CCS"), error = function(e) NULL)
+  list(
+    schema_version = 1L,
+    run_id = as.character(run_id),
+    cache_root = normalizePath(cache_root, winslash = "/", mustWork = FALSE),
+    store = normalizePath(store, winslash = "/", mustWork = FALSE),
+    R = R.version.string,
+    package = list(
+      name = "CCS",
+      version = if (is.null(description)) NA_character_ else description$Version,
+      path = package_path,
+      git_commit = Sys.getenv("CCS_GIT_COMMIT", unset = NA_character_),
+      build_id = Sys.getenv("CCS_BUILD_ID", unset = NA_character_)
+    ),
+    api = c(
+      "ablation_prepare_representation_inputs",
+      "ablation_run_representation_nodes",
+      "ablation_make_learning_curve_jobs",
+      "ablation_make_scaling_jobs"
+    )
   )
 }
 
