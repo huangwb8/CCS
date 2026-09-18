@@ -617,7 +617,12 @@
   )
 }
 
-.asr_summarize_pairs <- function(pair_data, n_boot, seed) {
+.asr_summarize_pairs <- function(
+    pair_data,
+    n_boot,
+    seed,
+    min_inference_cohorts = 4L,
+    min_inference_pairs = 3L) {
   scopes <- list(
     all_cohort_pairs = pair_data,
     same_cancer_type = pair_data[pair_data$same_cancer_type, , drop = FALSE]
@@ -625,10 +630,19 @@
   rows <- lapply(seq_along(scopes), function(i) {
     part <- scopes[[i]]
     if (!nrow(part)) return(NULL)
-    interval <- .asr_node_bootstrap(part, n_boot, seed + i - 1L)
+    cohort_count <- length(unique(c(part$cohort_a, part$cohort_b)))
+    inference_status <- if (
+      cohort_count >= min_inference_cohorts &&
+        nrow(part) >= min_inference_pairs && n_boot > 0L
+    ) "estimable" else "not_estimable"
+    interval <- if (identical(inference_status, "estimable")) {
+      .asr_node_bootstrap(part, n_boot, seed + i - 1L)
+    } else {
+      c(ci_low = NA_real_, ci_high = NA_real_, valid_bootstrap = 0)
+    }
     data.frame(
       scope = names(scopes)[i],
-      cohort_count = length(unique(c(part$cohort_a, part$cohort_b))),
+      cohort_count = cohort_count,
       cohort_pair_count = nrow(part),
       mean_direct_similarity = mean(part$direct_similarity),
       median_direct_similarity = stats::median(part$direct_similarity),
@@ -640,7 +654,14 @@
       mean_delta_ci_low = interval[["ci_low"]],
       mean_delta_ci_high = interval[["ci_high"]],
       valid_bootstrap = as.integer(interval[["valid_bootstrap"]]),
-      inference_method = "cohort_node_bootstrap",
+      inference_method = ifelse(
+        inference_status == "estimable",
+        "cohort_node_bootstrap",
+        "not_estimable"
+      ),
+      inference_status = inference_status,
+      min_inference_cohorts = as.integer(min_inference_cohorts),
+      min_inference_pairs = as.integer(min_inference_pairs),
       p_value = NA_real_,
       p_value_reason = paste(
         "Cohort-pair rows share cohort nodes; a paired Wilcoxon test would",

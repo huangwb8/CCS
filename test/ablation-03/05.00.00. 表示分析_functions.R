@@ -3,7 +3,61 @@
 # Parameters: Display k and technical columns selected by the Rmd.
 # Output: Tidy tables for figures and evidence-anchored prose.
 
+.ae_apply_runtime_config <- function(config, analysis = NULL) {
+  existing_workers <- config$validation$workers
+  if (is.null(existing_workers)) existing_workers <- 1L
+  existing_total <- max(
+    1L,
+    as.integer(config$validation$numCores) * as.integer(existing_workers)
+  )
+  total_threads <- as.integer(Sys.getenv(
+    "CCS_ABLATION_CORES",
+    unset = as.character(existing_total)
+  ))
+  workers <- as.integer(Sys.getenv(
+    "CCS_ABLATION_WORKERS",
+    unset = as.character(existing_workers)
+  ))
+  if (!is.finite(total_threads) || total_threads < 1L) total_threads <- existing_total
+  if (!is.finite(workers) || workers < 1L) workers <- existing_workers
+  workers <- min(as.integer(workers), as.integer(total_threads))
+  memory_gb <- suppressWarnings(as.numeric(Sys.getenv(
+    "CCS_ABLATION_MEMORY_GB",
+    unset = "Inf"
+  )))
+  if (length(memory_gb) != 1L || is.na(memory_gb) || memory_gb <= 0) {
+    memory_gb <- Inf
+  }
+  worker_bytes <- NA_real_
+  if (!is.null(analysis) && is.list(analysis$prepared)) {
+    prepared <- analysis$prepared
+    matrices <- prepared[c(
+      "reference_direct", "query_direct", "reference_d1", "query_d1"
+    )]
+    worker_bytes <- 3 * sum(vapply(
+      matrices,
+      function(value) as.numeric(object.size(value)),
+      numeric(1L)
+    ))
+    if (is.finite(memory_gb) && is.finite(worker_bytes) && worker_bytes > 0) {
+      memory_workers <- max(1L, floor(memory_gb * 1024^3 / worker_bytes))
+      workers <- min(workers, memory_workers)
+    }
+  }
+  config$validation$workers <- workers
+  config$validation$numCores <- max(1L, floor(total_threads / workers))
+  config$validation$memory_gb <- memory_gb
+  config$validation$worker_memory_estimate_bytes <- worker_bytes
+  config
+}
+
 .ae_ablation_params <- function(filtered_cohorts, n_cores) {
+  total_threads <- max(1L, as.integer(n_cores))
+  workers <- as.integer(Sys.getenv("CCS_ABLATION_WORKERS", unset = "1"))
+  if (!is.finite(workers) || workers < 1L) workers <- 1L
+  workers <- min(workers, total_threads)
+  # Keep the total XGBoost thread budget bounded when workers are enabled.
+  threads <- max(1L, floor(total_threads / workers))
   list(
     comparison = list(
       module_ids = NULL,
@@ -41,7 +95,8 @@
       lambda = c(0.1, 1, 10),
       nrounds = 30L,
       min_class_n = 20L,
-      numCores = n_cores
+      numCores = threads,
+      workers = workers
     ),
     scaling = list(
       enabled = TRUE,
@@ -223,26 +278,6 @@
 }
 
 # Cohort-level inference helpers -------------------------------------------------
-.ae_write_stage_receipt <- function(stage_dir, inputs, outputs) {
-  paths <- unique(normalizePath(c(inputs, outputs), winslash = "/", mustWork = TRUE))
-  receipt <- list(schema_version = 1L, created = format(Sys.time(), tz = "UTC"),
-    hashes = tools::md5sum(paths))
-  saveRDS(receipt, file.path(stage_dir, "stage-receipt.rds"))
-  invisible(receipt)
-}
-
-.ae_validate_stage_receipt <- function(stage_dir) {
-  path <- file.path(stage_dir, "stage-receipt.rds")
-  if (!file.exists(path)) stop("Missing stage receipt; rerun analysis: ", stage_dir, call. = FALSE)
-  receipt <- readRDS(path)
-  current <- tools::md5sum(names(receipt$hashes))
-  if (!identical(receipt$schema_version, 1L) || anyNA(current) ||
-      !identical(current, receipt$hashes)) {
-    stop("Stale or mixed analysis products; rerun stage: ", stage_dir, call. = FALSE)
-  }
-  invisible(TRUE)
-}
-
 # All resampling is performed on complete clusters, then the same sampled
 # clusters are used for both representations through their paired delta.
 .ae_paired_inference <- function(

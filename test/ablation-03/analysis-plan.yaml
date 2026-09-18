@@ -1,0 +1,118 @@
+workflow: "main"
+requirements:
+  - id: "REQ-01"
+    description: "大体积缓存固定写入 D:/cache/ccs/_ablation-03，并支持可靠断点恢复"
+    units: ["01.00.00", "02.00.00", "03.00.00", "05.00.00", "06.00.00", "07.00.00"]
+  - id: "REQ-02"
+    description: "Rmd、HTML 与可发表图表保存在 test/ablation-03 的规范位置"
+    units: ["04.00.00", "05.00.00", "06.00.00", "07.00.00"]
+  - id: "REQ-03"
+    description: "retrieval、readout、learning curve 与 decoder 具备内容键多版本缓存"
+    units: ["05.00.00"]
+units:
+  - id: "01.00.00"
+    name: "数据准备"
+    purpose: "读取外部只读输入，恢复组织标签并固定审计后的 CCS 输入对象"
+    depends_on: []
+    inputs: ["raw/README.md"]
+    code: ["01.00.00. 数据准备.R", "01.00.00. 数据准备_functions.R"]
+    products: ["products/main/01.00.00. 数据准备/main.rds"]
+    cache: true
+    reports: []
+    completion: "外部阶段凭据有效，项目内 metadata.yaml 与 SUCCESS 通过复验"
+  - id: "02.00.00"
+    name: "表示输入准备"
+    purpose: "构造 Direct、既有 d1、样本契约和端点资格输入"
+    depends_on: ["01.00.00"]
+    inputs: ["products/main/01.00.00. 数据准备/main.rds"]
+    code: ["02.00.00. 表示输入准备.R"]
+    products: ["products/main/02.00.00. 表示输入准备/main.rds"]
+    cache: true
+    reports: []
+    completion: "表示输入可重读，样本契约、参数与代码身份一致"
+  - id: "03.00.00"
+    name: "生物输入准备"
+    purpose: "准备连续生物锚点与结构复现所需的表达缓存"
+    depends_on: ["01.00.00", "02.00.00"]
+    inputs:
+      - "products/main/01.00.00. 数据准备/main.rds"
+      - "products/main/02.00.00. 表示输入准备/main.rds"
+    code: ["03.00.00. 生物输入准备.R"]
+    products: ["products/main/03.00.00. 生物输入准备/main.rds"]
+    cache: true
+    reports: []
+    completion: "表达缓存、签名、样本键与组织解析均通过来源核验"
+  - id: "04.00.00"
+    name: "数据概览"
+    purpose: "报告输入数据构成、组织解析、队列尺度和锚点覆盖"
+    depends_on: ["01.00.00", "02.00.00", "03.00.00"]
+    inputs:
+      - "products/main/01.00.00. 数据准备/main.rds"
+      - "products/main/02.00.00. 表示输入准备/main.rds"
+      - "products/main/03.00.00. 生物输入准备/main.rds"
+    code: ["04.00.00. 数据概览.Rmd"]
+    products: []
+    cache: false
+    reports:
+      - "04.00.00. 数据概览.html"
+      - "reports/figures/04.00.00. tissue-composition.pdf"
+      - "reports/figures/04.00.00. cohort-scale.pdf"
+      - "reports/figures/04.00.00. source-composition.pdf"
+      - "reports/figures/04.00.00. biology-anchor-coverage.pdf"
+      - "reports/tables/04.00.00. tissue-summary.csv"
+    completion: "HTML、正式图表、解读覆盖与数字追溯通过"
+  - id: "05.00.00"
+    name: "表示分析"
+    purpose: "比较表示几何、检索、readout、learning curve、scaling 与 decoder"
+    depends_on: ["02.00.00"]
+    inputs: ["products/main/02.00.00. 表示输入准备/main.rds"]
+    code: ["05.00.00. 表示分析.R", "05.00.00. 表示分析_functions.R", "05.00.00. 表示分析.Rmd"]
+    products: ["products/main/05.00.00. 表示分析/main.rds"]
+    cache: true
+    reports:
+      - "05.00.00. 表示分析.html"
+      - "reports/figures/05.00.00. native-geometry.pdf"
+      - "reports/figures/05.00.00. external-retrieval-cohort-delta.pdf"
+      - "reports/figures/05.00.00. external-readout-cohort-delta.pdf"
+      - "reports/figures/05.00.00. paired-learning-curve.pdf"
+      - "reports/figures/05.00.00. inference-summary.pdf"
+      - "reports/figures/05.00.00. cohort-evidence-sequences.pdf"
+      - "reports/figures/05.00.00. cohort-evidence-matched.pdf"
+      - "reports/figures/05.00.00. technical-neighbor-excess.pdf"
+      - "reports/figures/05.00.00. module-variance-concentration.pdf"
+      - "reports/figures/05.00.00. feature-type-reconstruction.pdf"
+      - "reports/tables/05.00.00. retrieval-cohort-delta.csv"
+    completion: "节点缓存状态、最终批次凭据、HTML 和正式图表全部有效"
+  - id: "06.00.00"
+    name: "生物锚点分析"
+    purpose: "评估连续表达锚点邻居效用并进行队列级配对推断"
+    depends_on: ["03.00.00", "05.00.00"]
+    inputs:
+      - "products/main/03.00.00. 生物输入准备/main.rds"
+      - "products/main/05.00.00. 表示分析/main.rds"
+    code: ["06.00.00. 生物锚点分析.R", "06.00.00. 生物锚点分析_functions.R", "06.00.00. 生物锚点分析.Rmd"]
+    products: ["products/main/06.00.00. 生物锚点分析/main.rds"]
+    cache: true
+    reports:
+      - "06.00.00. 生物锚点分析.html"
+      - "reports/tables/06.00.00. anchor-inference.csv"
+    completion: "生物锚点结果、配对推断、来源凭据与 HTML 均有效"
+  - id: "07.00.00"
+    name: "结构复现分析"
+    purpose: "评估双向结构复现与 matched-bank 设计敏感性"
+    depends_on: ["02.00.00", "03.00.00", "05.00.00"]
+    inputs:
+      - "products/main/02.00.00. 表示输入准备/main.rds"
+      - "products/main/03.00.00. 生物输入准备/main.rds"
+      - "products/main/05.00.00. 表示分析/main.rds"
+    code: ["07.00.00. 结构复现分析.R", "07.00.00. 结构复现分析_functions.R", "07.00.00. 结构复现分析.Rmd"]
+    products: ["products/main/07.00.00. 结构复现分析/main.rds"]
+    cache: true
+    reports:
+      - "07.00.00. 结构复现分析.html"
+      - "reports/figures/07.00.00. structural-reproducibility-paired.pdf"
+      - "reports/figures/07.00.00. structural-similarity-direct.pdf"
+      - "reports/figures/07.00.00. structural-similarity-d1.pdf"
+      - "reports/figures/07.00.00. structural-matched-bank-sensitivity.pdf"
+      - "reports/tables/07.00.00. directional-summary.csv"
+    completion: "双向结构结果、审计表、来源凭据与 HTML 均有效"

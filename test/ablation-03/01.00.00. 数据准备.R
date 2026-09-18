@@ -1,11 +1,11 @@
 # Prepare and persist the unchanged audited input objects.
-bootstrap <- c("00-workflow_functions.R",
-  "test/ablation-03/00-workflow_functions.R")
+bootstrap <- c(file.path("templates", "workflow_helpers.R"),
+  file.path("test", "ablation-03", "templates", "workflow_helpers.R"))
 bootstrap <- bootstrap[file.exists(bootstrap)][1L]
 if (is.na(bootstrap)) stop("Run from ablation-03 or the repository root.", call. = FALSE)
 source(bootstrap, local = TRUE)
 luckyBase::Plus.library(c("CCS", "readxl", "digest"))
-source(.ablation03_path("01a-ablation03-prepare-data_functions.R"))
+source(.ablation03_path("01.00.00. 数据准备_functions.R"))
 
 # Step 1: Resolve cross-platform roots without embedding user-specific directories.
 sysname <- Sys.info()[["sysname"]]
@@ -118,6 +118,16 @@ if (length(missing_paths) > 0) {
     call. = FALSE
   )
 }
+stage_parameters <- list(
+  required_paths = normalizePath(required_paths, winslash = "/", mustWork = TRUE),
+  n_cores = n_cores,
+  project_version = project_version,
+  data_version = data_version,
+  model_version = model_version,
+  parameter_md5 = paramMD5
+)
+if (.wf_cache_hit("01-data", stage_parameters)) quit(save = "no", status = 0L)
+.wf_begin("01-data", stage_parameters)
 
 # Step 2: Load the complete expression data and restore audited tissue groups.
 data_all <- readRDS(data_path)
@@ -318,7 +328,7 @@ saveRDS(list(resCCS_ablation = resCCS_ablation, resCCS_full = resCCS_full,
   filtered_cohorts = filtered_cohorts, n_cores = n_cores, full_d1 = full_d1,
   tissue_resolution_audit = tissue_resolution_audit),
   file.path(data_output_dir, "inputs.rds"))
-.wf_receipt("01-data", "01a-ablation03-prepare-data.R",
+.wf_receipt("01-data", "01.00.00. 数据准备",
   inputs = c(data_path, resccs_path, full_resccs_path, batch_workbook_path,
-    tissue_mapping_path, .ablation03_path("01a-ablation03-prepare-data_functions.R")),
+    tissue_mapping_path, .ablation03_path("01.00.00. 数据准备_functions.R")),
   outputs = file.path(data_output_dir, c("inputs.rds", "data-profile.rds")))

@@ -127,11 +127,21 @@
     )
   })
   result <- do.call(rbind, out)
-  result$p_value_adj <- stats::p.adjust(result$p_value, method = "BH")
   result$inference_status <- ifelse(
     result$cohort_count >= min_cohorts,
     "estimable",
     "not_estimable"
+  )
+  result$min_cohorts <- as.integer(min_cohorts)
+  not_estimable <- result$inference_status != "estimable"
+  result$ci_low[not_estimable] <- NA_real_
+  result$ci_high[not_estimable] <- NA_real_
+  result$p_value[not_estimable] <- NA_real_
+  result$p_value_adj <- NA_real_
+  estimable <- !not_estimable & is.finite(result$p_value)
+  result$p_value_adj[estimable] <- stats::p.adjust(
+    result$p_value[estimable],
+    method = "BH"
   )
   result
 }

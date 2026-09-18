@@ -1,7 +1,7 @@
 # TDD RED test: cohort-level paired inference for biological-anchor utility.
 # The helper is intentionally referenced before implementation in RED phase.
 
-helper_path <- file.path("test", "ablation-03", "03-ablation03-biology_functions.R")
+helper_path <- file.path("test", "ablation-03", "06.00.00. 生物锚点分析_functions.R")
 if (!file.exists(helper_path)) {
   stop("Expected biology inference helper is missing.", call. = FALSE)
 }
@@ -32,4 +32,19 @@ stopifnot(is.finite(result$p_value), result$p_value >= 0, result$p_value <= 1)
 stopifnot(is.finite(result$p_value_adj), result$p_value_adj >= 0, result$p_value_adj <= 1)
 stopifnot(result$estimate > 0)
 stopifnot(result$p_method == "exact_paired_sign_flip")
+
+low_information <- .biology_paired_contrast(
+  synthetic[synthetic$query_cohort %in% c("cohort1", "cohort2"), ],
+  n_boot = 200L,
+  seed = 20260903L,
+  min_cohorts = 3L
+)
+stopifnot(
+  low_information$inference_status == "not_estimable",
+  is.finite(low_information$estimate),
+  is.na(low_information$ci_low),
+  is.na(low_information$ci_high),
+  is.na(low_information$p_value),
+  is.na(low_information$p_value_adj)
+)
 cat("biology anchor inference test passed\n")

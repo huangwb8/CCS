@@ -6,6 +6,10 @@
 
 ## [Unreleased]
 
+- 优化 ablation 表示分析执行：readout 内层折叠的标准化/模块平衡矩阵按 fold 只计算一次并复用于全部 lambda；learning curve 改为确定性 job table，按 fraction/repeat/representation 保存可恢复 checkpoint，并通过显式 `CCS_ABLATION_WORKERS` 提供有界 PSOCK 并行。大型只读矩阵在 Windows worker 启动时只传输一次，可用 `CCS_ABLATION_MEMORY_GB` 按估计峰值自动下调 worker；默认仍为单 worker，避免隐式改变既有运行语义。
+
+- 按 `bensz-rmd-rules` 重构 `ablation-03` 为七个 `AA.BB.CC` 分析单元；大体积缓存迁移到 `D:/cache/ccs/_ablation-03`，项目内仅保留可审计的轻量产品清单，正式图表迁入 `reports/figures/`。表示分析新增 retrieval、readout、learning curve 与 decoder 的内容键多版本 checkpoint、运行状态和断点恢复契约；节点键只绑定实际递归代码依赖，state/key/file/value hash 任一异常均安全重算，并在 manifest 审计命中状态及失效原因。四份 Rmd/HTML 同步改用新入口。证据门禁现同时核验 reference/query d1 来源，reference 为 in-sample 时降为描述性；biology 和结构推断对 cohort/dyad 不足的结果只保留点估计，不再输出误导性区间或 P 值。
+
 - 重构 ablation-03 为 `01a/01b/01c` 输入准备与 `02/03/04` 缓存分析；样本契约和结构表达提取前移，原表示计算体抽为可消费已准备输入的内部函数，保留计算方法、参数与 seed。将总报告拆为数据概览、表示性能、生物学锚点和结构可复现性四份 Rmd，移除旧入口与旧 HTML，更新引用及来源核验。本次仅静态修改与检查，实验已按负责人要求停止，新计算和报告渲染留待代码审核后执行。
 
 - ablation-03 biology 阶段收敛为纯 R 工作流，移除无实质计算作用的 Python 入口，避免产生多套分析实现和结果来源歧义。

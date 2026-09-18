@@ -1,8 +1,8 @@
 # Regression cases for the manuscript audit. All inputs are synthetic.
 source("R/ccs.R")
 source("R/ablation.R")
-source("test/ablation-03/03-ablation03-biology_functions.R")
-source("test/ablation-03/04-ablation03-structural-reproducibility_functions.R")
+source("test/ablation-03/06.00.00. 生物锚点分析_functions.R")
+source("test/ablation-03/07.00.00. 结构复现分析_functions.R")
 failures <- character()
 check <- function(name, code) {
   tryCatch({force(code); cat("PASS", name, "\n")}, error = function(e) {
@@ -16,6 +16,7 @@ check("main readout receives raw query in both arms", {
   qry <- matrix(20 + seq_len(8), 4, dimnames = list(paste0("q", 1:4), c("a", "b")))
   rm <- data.frame(sample_id = rownames(ref), cohort = rep(c("r1", "r2"), each = 6), cancer_type = "A")
   qm <- data.frame(sample_id = rownames(qry), cohort = rep(c("q1", "q2"), each = 2), cancer_type = "A")
+  rm$d1_provenance <- "in_sample"
   qm$d1_provenance <- "external_frozen"
   prepared <- list(reference_direct = ref, query_direct = qry, reference_d1 = ref / 100,
     query_d1 = qry / 100, reference_metadata = rm, query_metadata = qm,
@@ -44,9 +45,15 @@ check("main readout receives raw query in both arms", {
     if (called == 2L) stop(structure(list(message = "captured both arms"), class = c("captured", "error", "condition")))
     list()
   }
+  prepared_runner <- .ablation_run_prepared_representation
+  environment(prepared_runner) <- env
+  env$.ablation_run_prepared_representation <- prepared_runner
   runner <- .ablation_run_representation
   environment(runner) <- env
-  tryCatch(runner(methods::new("CCS"), NULL, NULL, tempdir(), list(), 42L, FALSE), captured = function(e) NULL)
+  output_dir <- tempfile("ablation-readout-regression-")
+  dir.create(output_dir)
+  tryCatch(runner(methods::new("CCS"), NULL, NULL, output_dir, list(), 42L, FALSE), captured = function(e) NULL)
+  unlink(output_dir, recursive = TRUE, force = TRUE)
   stopifnot(called == 2L)
   stopifnot(identical(retrieval_query_counts, c(2L, 2L, 4L, 4L)))
 })

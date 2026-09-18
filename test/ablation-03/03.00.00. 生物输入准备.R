@@ -7,8 +7,8 @@ if (.Platform$OS.type == "windows") {
   if (!nzchar(utf8_locale)) stop("biology cache: UTF-8 locale is required for signature names.")
 }
 
-bootstrap <- c("00-workflow_functions.R",
-  "test/ablation-03/00-workflow_functions.R")
+bootstrap <- c(file.path("templates", "workflow_helpers.R"),
+  file.path("test", "ablation-03", "templates", "workflow_helpers.R"))
 bootstrap <- bootstrap[file.exists(bootstrap)][1L]
 if (is.na(bootstrap)) stop("Run from ablation-03 or the repository root.", call. = FALSE)
 source(bootstrap, local = TRUE)
@@ -29,8 +29,14 @@ dir.create(out_dir, recursive = TRUE, showWarnings = FALSE)
 if (!file.exists(full_path)) stop("ablation-03 cache: expression RDS not found: ", full_path, call. = FALSE)
 if (!file.exists(sig_path)) stop("ablation-03 cache: signature RDS not found: ", sig_path, call. = FALSE)
 
-source(file.path(ablation_dir, "02-ablation03-representation_functions.R"))
-source(file.path(ablation_dir, "03-ablation03-biology_functions.R"))
+source(file.path(ablation_dir, "06.00.00. 生物锚点分析_functions.R"))
+stage_parameters <- list(
+  expression_path = normalizePath(full_path, winslash = "/", mustWork = TRUE),
+  signature_path = normalizePath(sig_path, winslash = "/", mustWork = TRUE),
+  config_path = normalizePath(config_path, winslash = "/", mustWork = TRUE)
+)
+if (.wf_cache_hit("01-biology", stage_parameters)) quit(save = "no", status = 0L)
+.wf_begin("01-biology", stage_parameters)
 .wf_validate(result_dir)
 contract <- readRDS(file.path(result_dir, "sample-contract.rds"))
 target_ids <- sort(unique(c(contract$reference$sample_id, contract$query$sample_id)))
@@ -98,7 +104,7 @@ if (!length(cohorts)) stop("ablation-03 cache: no target samples were found in e
 coverage <- do.call(rbind, coverage); missing <- do.call(rbind, missing)
 cache <- list(
   schema_version = 2L, status = "complete", created_at = format(Sys.time(), tz = "UTC"),
-  builder_md5 = digest::digest(file = .wf_path("01c-ablation03-prepare-biology.R"), algo = "md5"),
+  builder_md5 = digest::digest(file = .wf_path("03.00.00. 生物输入准备.R"), algo = "md5"),
   source = list(path = normalizePath(full_path, winslash = "/"), md5 = source_hash),
   signature = list(path = normalizePath(sig_path, winslash = "/"), md5 = signature_hash,
                    config_path = normalizePath(config_path, winslash = "/"),
@@ -114,7 +120,7 @@ cache <- list(
                        id_conversion = "exact_match",
                        compression = "gzip", compression_level = 6L)
 )
-saveRDS(cache, cache_path, compress = "gzip")
+.wf_atomic_save_rds(cache, cache_path)
 rm(list = intersect(c("atlas", "signatures", "raw", "subset_expr", "cache"), ls()))
 invisible(gc())
 cat(sprintf("cache=%s cohorts=%d samples=%d genes=%d source_md5=%s\n",
@@ -127,7 +133,7 @@ prepared <- structural$analysis$prepared
 full_d1 <- structural$structural$full_d1
 ablation_metadata <- structural$structural$ablation_metadata
 biology_cache <- readRDS(cache_path)
-source(.ablation03_path("04-ablation03-structural-reproducibility_functions.R"))
+source(.ablation03_path("07.00.00. 结构复现分析_functions.R"))
 output_dir <- out_dir
 reference_ids <- Reduce(intersect, list(
   rownames(prepared$reference_direct), rownames(full_d1)
@@ -158,11 +164,19 @@ anchor_cache_key <- digest::digest(list(
   cohort_key_lookup = cohort_key_lookup
 ), algo = "md5")
 structural_anchor_path <- file.path(output_dir, "structural-anchor-cache.rds")
-anchor_cache <- NULL
-if (file.exists(structural_anchor_path)) {
-  candidate <- readRDS(structural_anchor_path)
-  if (identical(candidate$cache_key, anchor_cache_key)) anchor_cache <- candidate
-}
+anchor_cache <- .wf_read_rds_safe(
+  structural_anchor_path,
+  validator = function(candidate) {
+    is.list(candidate) && identical(candidate$schema_version, 1L) &&
+      identical(candidate$status, "complete") &&
+      identical(candidate$cache_key, anchor_cache_key) &&
+      is.list(candidate$source) &&
+      identical(candidate$source$md5, biology_cache$source$md5) &&
+      is.list(candidate$anchors) && is.list(candidate$cohorts) &&
+      length(candidate$cohorts) > 0L &&
+      all(anchor_sample_ids %in% candidate$sample_ids)
+  }
+)
 if (is.null(anchor_cache)) {
   if (!file.exists(biology_cache$source$path)) {
     stop("structural reproducibility: complete expression atlas is unavailable.", call. = FALSE)
@@ -178,14 +192,14 @@ if (is.null(anchor_cache)) {
   anchor_cache$status <- "complete"
   anchor_cache$cache_key <- anchor_cache_key
   anchor_cache$source <- biology_cache$source
-  saveRDS(anchor_cache, structural_anchor_path, compress = "gzip")
+  .wf_atomic_save_rds(anchor_cache, structural_anchor_path)
   rm(expression_atlas)
   invisible(gc())
 }
 
-.wf_receipt("01-biology", "01c-ablation03-prepare-biology.R",
+.wf_receipt("01-biology", "03.00.00. 生物输入准备",
   inputs = c(.wf_output("01-data", "stage-receipt.rds"),
     file.path(result_dir, "stage-receipt.rds"), full_path, sig_path, config_path,
-    .ablation03_path("03-ablation03-biology_functions.R"),
-    .ablation03_path("04-ablation03-structural-reproducibility_functions.R")),
+    .ablation03_path("06.00.00. 生物锚点分析_functions.R"),
+    .ablation03_path("07.00.00. 结构复现分析_functions.R")),
   outputs = c(cache_path, structural_anchor_path))

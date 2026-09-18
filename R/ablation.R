@@ -114,6 +114,12 @@
 #'       linear probe. Default: `50L`.}
 #'     \item{`general$numCores`}{Positive thread count passed to the XGBoost probe.
 #'       Default: `1L`.}
+#'     \item{`validation$numCores`}{Positive XGBoost thread count used by each
+#'       representation readout worker. Default: `1L`.}
+#'     \item{`validation$workers`}{Positive PSOCK worker count for independent
+#'       learning-curve jobs. The default `1L` preserves serial execution;
+#'       callers should divide their total CPU budget between workers and
+#'       `validation$numCores` to avoid oversubscription.}
 #'   }
 #'
 #'   Experiment 1 null-control settings:
@@ -1476,7 +1482,7 @@ ablation <- function(
 # valid to the next run.
 .ablation_atomic_save_rds <- function(value, path) {
   dir.create(dirname(path), recursive = TRUE, showWarnings = FALSE)
-  tmp <- paste0(path, ".tmp-", Sys.getpid(), "-", as.integer(stats::runif(1, 1, 1e9)))
+  tmp <- tempfile(paste0(".", basename(path), "-"), tmpdir = dirname(path))
   on.exit(unlink(tmp, force = TRUE), add = TRUE)
   saveRDS(value, tmp, compress = FALSE)
   backup <- paste0(path, ".bak-", Sys.getpid())
@@ -1486,6 +1492,248 @@ ablation <- function(
   if (!file.rename(tmp, path)) {
     if (file.exists(backup)) file.rename(backup, path)
     stop("ablation: cannot finalize cache file: ", path, call. = FALSE)
+  }
+  if (file.exists(backup)) unlink(backup, force = TRUE)
+  invisible(path)
+}
+
+# Persist one recoverable computation node under a content key. Each key gets
+# its own immutable value file and a small state file, so interrupted work is
+# visible as "running" and can never be mistaken for a complete cache hit.
+.ablation_node_code_identity <- function(node) {
+  roots <- switch(
+    node,
+    retrieval = c(
+      ".ablation_scale_train_apply",
+      ".ablation_module_balanced_transform",
+      ".ablation_query_reference_retrieval",
+      ".ablation_validate_neighbor_search",
+      ".ablation_bind_retrieval",
+      ".ablation_evidence_level",
+      ".ablation_null_perm_eligibility",
+      ".ablation_projection_matrix"
+    ),
+    readout = c(".ablation_linear_readout"),
+    `learning-curve` = c(".ablation_learning_curve"),
+    decoder = c(
+      ".ablation_limit_metadata",
+      ".ablation_decode_direct_features"
+    ),
+    `cohort-scaling` = c(".ablation_representation_scaling"),
+    stop("ablation: unknown checkpoint node: ", node, call. = FALSE)
+  )
+  runtime_packages <- switch(
+    node,
+    retrieval = c("RcppAnnoy"),
+    readout = c("xgboost"),
+    `learning-curve` = c("xgboost"),
+    decoder = c("irlba"),
+    `cohort-scaling` = c("xgboost", "RcppAnnoy"),
+    stop("ablation: unknown checkpoint node: ", node, call. = FALSE)
+  )
+  # Bind each node to its own recursive implementation graph. This preserves
+  # transitive invalidation without making an unrelated helper change evict all
+  # recoverable nodes.
+  implementation_environment <- environment(.ablation_node_code_identity)
+  functions <- character()
+  pending <- roots
+  while (length(pending) > 0L) {
+    name <- pending[[1L]]
+    pending <- pending[-1L]
+    if (name %in% functions) next
+    if (!exists(name, envir = implementation_environment, inherits = FALSE) ||
+        !is.function(get(name, envir = implementation_environment, inherits = FALSE))) {
+      stop("ablation: missing checkpoint implementation: ", name, call. = FALSE)
+    }
+    functions <- c(functions, name)
+    fun <- get(name, envir = implementation_environment, inherits = FALSE)
+    referenced <- unique(all.names(body(fun), functions = TRUE))
+    referenced <- referenced[grepl("^\\.ablation_", referenced)]
+    referenced <- referenced[vapply(referenced, function(candidate) {
+      exists(candidate, envir = implementation_environment, inherits = FALSE) &&
+        is.function(get(candidate, envir = implementation_environment, inherits = FALSE))
+    }, logical(1L))]
+    pending <- unique(c(pending, referenced))
+  }
+  functions <- sort(functions)
+  definitions <- lapply(functions, function(name) {
+    fun <- get(name, envir = implementation_environment, inherits = FALSE)
+    list(name = name, formals = formals(fun), body = body(fun))
+  })
+  list(
+    functions = digest::digest(definitions, algo = "md5"),
+    r_version = paste(R.version$major, R.version$minor, sep = "."),
+    digest_version = as.character(utils::packageVersion("digest")),
+    runtime = stats::setNames(
+      vapply(runtime_packages, function(pkg) {
+        as.character(utils::packageVersion(pkg))
+      }, character(1L)),
+      runtime_packages
+    )
+  )
+}
+
+.ablation_node_cache_key <- function(
+    node,
+    prepared,
+    parameters,
+    seed,
+    algorithm_revision,
+    upstream = list()) {
+  digest::digest(
+    list(
+      schema_version = 1L,
+      node = node,
+      input_key = prepared$input_key,
+      representation_key = prepared$cache_key,
+      direct_feature_key = prepared$direct_cache$key,
+      parameters = parameters,
+      seed = as.integer(seed),
+      algorithm_revision = algorithm_revision,
+      code = .ablation_node_code_identity(node),
+      upstream = upstream
+    ),
+    algo = "md5"
+  )
+}
+
+.ablation_inspect_node_cache <- function(path, key, state_path = NULL, node = NULL) {
+  miss <- function(reason) list(value = NULL, reason = reason)
+  if (!file.exists(path)) return(miss("missing-cache"))
+
+  if (!is.null(state_path)) {
+    if (!file.exists(state_path)) return(miss("missing-state"))
+    state <- tryCatch(readRDS(state_path), error = function(error) NULL)
+    if (is.null(state)) return(miss("unreadable-state"))
+    if (!is.list(state) || !identical(state$schema_version, 1L)) {
+      return(miss("state-schema-mismatch"))
+    }
+    if (!identical(state$status, "complete")) return(miss("state-not-complete"))
+    if (!identical(state$key, key)) return(miss("state-key-mismatch"))
+    if (!is.null(node) && !identical(state$node, node)) {
+      return(miss("state-node-mismatch"))
+    }
+    cache_md5 <- unname(tools::md5sum(path))
+    if (!is.character(state$cache_md5) || length(state$cache_md5) != 1L ||
+        is.na(cache_md5) || !identical(state$cache_md5, cache_md5)) {
+      return(miss("cache-file-hash-mismatch"))
+    }
+  }
+
+  cached <- tryCatch(readRDS(path), error = function(error) NULL)
+  if (is.null(cached)) return(miss("unreadable-cache"))
+  if (!is.list(cached) || !identical(cached$schema_version, 1L)) {
+    return(miss("cache-schema-mismatch"))
+  }
+  if (!identical(cached$status, "complete")) return(miss("cache-not-complete"))
+  if (!identical(cached$key, key)) return(miss("cache-key-mismatch"))
+  if (!is.null(node) && !identical(cached$node, node)) {
+    return(miss("cache-node-mismatch"))
+  }
+  if (is.null(cached$value) || !is.character(cached$value_hash) ||
+      length(cached$value_hash) != 1L) {
+    return(miss("cache-value-contract-mismatch"))
+  }
+  if (!identical(digest::digest(cached$value, algo = "md5"), cached$value_hash)) {
+    return(miss("cache-value-hash-mismatch"))
+  }
+  list(value = cached$value, reason = "valid")
+}
+
+.ablation_read_node_cache <- function(path, key, state_path = NULL, node = NULL) {
+  .ablation_inspect_node_cache(path, key, state_path, node)$value
+}
+
+.ablation_read_fit_cache <- function(path, key) {
+  if (!file.exists(path)) return(NULL)
+  cached <- tryCatch(readRDS(path), error = function(error) NULL)
+  fit_is_valid <- function(fit) {
+    is.list(fit) && is.data.frame(fit$overall) && nrow(fit$overall) >= 1L &&
+      is.numeric(fit$selected_lambda) && length(fit$selected_lambda) == 1L &&
+      is.finite(fit$selected_lambda)
+  }
+  entries_are_valid <- function(entries, allow_single = FALSE) {
+    if (is.null(entries)) return(isTRUE(allow_single))
+    if (isTRUE(allow_single) && fit_is_valid(entries)) return(TRUE)
+    is.list(entries) && all(vapply(entries, fit_is_valid, logical(1L)))
+  }
+  if (!is.list(cached) || !identical(cached$schema_version, 1L) ||
+      !identical(cached$status, "complete") || !identical(cached$key, key) ||
+      !is.list(cached$direct) || !is.list(cached$d1)) {
+    return(NULL)
+  }
+  if (!entries_are_valid(cached$direct, allow_single = TRUE) ||
+      !entries_are_valid(cached$d1)) return(NULL)
+  cached
+}
+
+.ablation_cached_node <- function(
+    node,
+    output.dir,
+    key,
+    compute,
+    verbose = TRUE) {
+  if (!grepl("^[a-z][a-z0-9-]*$", node)) {
+    stop("ablation: invalid checkpoint node name: ", node, call. = FALSE)
+  }
+  node_dir <- file.path(output.dir, "checkpoints", node)
+  dir.create(node_dir, recursive = TRUE, showWarnings = FALSE)
+  cache_path <- file.path(node_dir, paste0(key, ".rds"))
+  state_path <- file.path(node_dir, paste0(key, ".state.rds"))
+  inspection <- .ablation_inspect_node_cache(
+    cache_path, key, state_path = state_path, node = node
+  )
+  if (!is.null(inspection$value)) {
+    if (verbose) luckyBase::LuckyVerbose("ablation: checkpoint hit: ", node)
+    return(list(value = inspection$value, status = "hit", lookup_status = "hit",
+      reason = inspection$reason, key = key,
+      path = file.path("checkpoints", node, basename(cache_path))))
+  }
+
+  .ablation_atomic_save_rds(
+    list(schema_version = 1L, status = "running", node = node, key = key),
+    state_path
+  )
+  if (verbose) {
+    luckyBase::LuckyVerbose(
+      "ablation: checkpoint miss: ", node, " (", inspection$reason, ")"
+    )
+  }
+  value <- compute()
+  .ablation_atomic_save_rds(
+    list(
+      schema_version = 1L,
+      status = "complete",
+      node = node,
+      key = key,
+      value_hash = digest::digest(value, algo = "md5"),
+      value = value
+    ),
+    cache_path
+  )
+  .ablation_atomic_save_rds(
+    list(schema_version = 1L, status = "complete", node = node, key = key,
+      cache_md5 = unname(tools::md5sum(cache_path))),
+    state_path
+  )
+  list(value = value, status = "written", lookup_status = "miss",
+    reason = inspection$reason, key = key,
+    path = file.path("checkpoints", node, basename(cache_path)))
+}
+
+.ablation_atomic_write_csv <- function(value, path) {
+  dir.create(dirname(path), recursive = TRUE, showWarnings = FALSE)
+  temporary <- tempfile(paste0(".", basename(path), "-"), tmpdir = dirname(path))
+  on.exit(unlink(temporary), add = TRUE)
+  utils::write.csv(value, temporary, row.names = FALSE)
+  invisible(utils::read.csv(temporary, nrows = 5L, check.names = FALSE))
+  backup <- paste0(path, ".bak-", Sys.getpid())
+  if (file.exists(path) && !file.rename(path, backup)) {
+    stop("ablation: cannot stage CSV output for replacement: ", path, call. = FALSE)
+  }
+  if (!file.rename(temporary, path)) {
+    if (file.exists(backup)) file.rename(backup, path)
+    stop("ablation: cannot finalize CSV output: ", path, call. = FALSE)
   }
   if (file.exists(backup)) unlink(backup, force = TRUE)
   invisible(path)
@@ -4532,28 +4780,39 @@ ablation <- function(
 
 
 # Confirmatory conclusions require both a genuinely independent anchor and d1
-# generated without exposing the query sample to its own frozen cohort model.
+# generated without exposing either evaluation side to its own fitted model.
 .ablation_evidence_level <- function(
     query_metadata,
     anchor_role,
+    reference_metadata = query_metadata,
     provenance_column = "d1_provenance"
 ) {
-  if (!provenance_column %in% colnames(query_metadata)) {
-    stop("ablation: query metadata is missing d1 provenance.", call. = FALSE)
+  if (!provenance_column %in% colnames(query_metadata) ||
+      !provenance_column %in% colnames(reference_metadata)) {
+    stop("ablation: reference/query metadata is missing d1 provenance.", call. = FALSE)
   }
-  provenance <- unique(as.character(query_metadata[[provenance_column]]))
-  qualified <- nrow(query_metadata) > 0L &&
-    all(provenance %in% c("external_frozen", "out_of_fold"))
+  query_provenance <- unique(as.character(query_metadata[[provenance_column]]))
+  reference_provenance <- unique(as.character(reference_metadata[[provenance_column]]))
+  query_qualified <- nrow(query_metadata) > 0L &&
+    all(query_provenance %in% c("external_frozen", "out_of_fold"))
+  reference_qualified <- nrow(reference_metadata) > 0L &&
+    all(reference_provenance %in% c("external_frozen", "out_of_fold"))
+  qualified <- query_qualified && reference_qualified
   independent <- identical(anchor_role, "independent")
   reasons <- c(
     if (!independent) "anchor_is_not_independent",
-    if (!qualified) "query_d1_provenance_is_not_external_or_out_of_fold"
+    if (!query_qualified) "query_d1_provenance_is_not_external_or_out_of_fold",
+    if (!reference_qualified) "reference_d1_provenance_is_not_external_or_out_of_fold"
   )
   list(
     level = if (qualified && independent) "confirmatory" else "descriptive",
     qualified_provenance = qualified,
+    reference_qualified_provenance = reference_qualified,
+    query_qualified_provenance = query_qualified,
     anchor_role = anchor_role,
-    provenance = provenance,
+    provenance = unique(c(reference_provenance, query_provenance)),
+    reference_provenance = reference_provenance,
+    query_provenance = query_provenance,
     reasons = reasons
   )
 }
@@ -4605,7 +4864,8 @@ ablation <- function(
       lambda = c(0.1, 1, 10),
       nrounds = 50L,
       min_class_n = 20L,
-      numCores = 1L
+      numCores = 1L,
+      workers = 1L
     ),
     scaling = list(
       enabled = FALSE,
@@ -4671,6 +4931,12 @@ ablation <- function(
       !is.logical(config$output$cache_direct) ||
       is.na(config$output$cache_direct)) {
     stop("ablation: output$cache_direct must be TRUE or FALSE.", call. = FALSE)
+  }
+  if (length(config$validation$workers) != 1L ||
+      !is.finite(config$validation$workers) ||
+      config$validation$workers < 1L ||
+      config$validation$workers != as.integer(config$validation$workers)) {
+    stop("ablation: validation$workers must be one positive integer.", call. = FALSE)
   }
   if (length(config$scaling$module_counts) < 2 ||
       any(!is.finite(config$scaling$module_counts)) ||
@@ -5351,6 +5617,9 @@ ablation <- function(
 .ablation_run_prepared_representation <- function(
     analysis, config, output.dir, seed, verbose
 ) {
+  # Prepared bundles created before runtime workers were introduced retain the
+  # historical single-worker behavior instead of failing on a missing field.
+  if (is.null(config$validation$workers)) config$validation$workers <- 1L
   prepared <- analysis$prepared
   anchor <- analysis$anchor
 
@@ -5442,6 +5711,27 @@ ablation <- function(
   # transformed query matrices themselves remain complete candidates so that
   # geometry, continuous anchors and structural diagnostics are not silently
   # truncated by a readout-specific cancer support rule.
+  retrieval_node_key <- .ablation_node_cache_key(
+    node = "retrieval",
+    prepared = prepared,
+    parameters = list(
+      geometry = config$geometry,
+      controls = config$controls,
+      anchors = config$anchors,
+      endpoint_eligibility = digest::digest(
+        prepared$endpoint_eligibility,
+        algo = "md5"
+      )
+    ),
+    seed = seed,
+    algorithm_revision = "retrieval-v1"
+  )
+  retrieval_checkpoint <- .ablation_cached_node(
+    node = "retrieval",
+    output.dir = output.dir,
+    key = retrieval_node_key,
+    verbose = verbose,
+    compute = function() {
   retrieval_view <- prepared$query_views[["cancer_retrieval"]]
   retrieval_rows <- match(
     retrieval_view$metadata$sample_id,
@@ -5540,7 +5830,8 @@ ablation <- function(
   anchor_retrieval <- .ablation_bind_retrieval(anchor_results)
   evidence <- .ablation_evidence_level(
     retrieval_metadata,
-    config$anchors$primary_role
+    config$anchors$primary_role,
+    reference_metadata = prepared$reference_metadata
   )
 
   # Phase 3: run paired null controls against the same retrieval contract.
@@ -5595,11 +5886,24 @@ ablation <- function(
     null_rp = null_rp,
     null_perm = null_perm
   )
+  list(
+    retrieval = retrieval,
+    anchor_retrieval = anchor_retrieval,
+    evidence = evidence,
+    controls = controls
+  )
+    }
+  )
+  retrieval <- retrieval_checkpoint$value$retrieval
+  anchor_retrieval <- retrieval_checkpoint$value$anchor_retrieval
+  evidence <- retrieval_checkpoint$value$evidence
+  controls <- retrieval_checkpoint$value$controls
 
   # Phase 4: evaluate the supervised cancer readout and learning curves only
   # on the pre-declared estimable query view.
   readout_view <- prepared$query_views[["cancer_readout"]]
-  if (config$validation$enabled && nrow(readout_view$metadata) > 0L) {
+  readout_estimable <- config$validation$enabled && nrow(readout_view$metadata) > 0L
+  if (readout_estimable) {
     readout_rows <- match(
       readout_view$metadata$sample_id,
       prepared$query_metadata$sample_id
@@ -5607,6 +5911,38 @@ ablation <- function(
     readout_metadata <- readout_view$metadata
     readout_direct <- prepared$query_direct[readout_rows, , drop = FALSE]
     readout_d1 <- prepared$query_d1[readout_rows, , drop = FALSE]
+  }
+  readout_node_key <- .ablation_node_cache_key(
+    node = "readout",
+    prepared = prepared,
+    parameters = list(
+      enabled = config$validation$enabled,
+      lambda = config$validation$lambda,
+      inner_folds = config$validation$inner_folds,
+      nrounds = config$validation$nrounds,
+      numCores = config$validation$numCores,
+      anchor = anchor,
+      query_view = digest::digest(readout_view$metadata, algo = "md5")
+    ),
+    seed = seed + 20000L,
+    algorithm_revision = "readout-v1"
+  )
+  readout_checkpoint <- .ablation_cached_node(
+    node = "readout",
+    output.dir = output.dir,
+    key = readout_node_key,
+    verbose = verbose,
+    compute = function() {
+      if (!readout_estimable) {
+        return(list(
+          status = if (config$validation$enabled) "not_estimable" else "not_run",
+          reason = if (config$validation$enabled) {
+            "no_estimable_query_cohorts"
+          } else {
+            "disabled"
+          }
+        ))
+      }
     readout_results <- list(
       `Direct-GSClassifier` = .ablation_linear_readout(
         train = prepared$reference_direct,
@@ -5672,7 +6008,7 @@ ablation <- function(
         paired_by_cohort[[paste0(metric, "_d1")]] -
         paired_by_cohort[[paste0(metric, "_direct")]]
     }
-    readout <- list(
+    list(
       status = "complete",
       results = readout_results,
       overall = overall,
@@ -5680,41 +6016,64 @@ ablation <- function(
       paired_by_cohort = paired_by_cohort,
       predictions = predictions
     )
-    learning_curve <- .ablation_learning_curve(
-      representations = list(
-        `Direct-GSClassifier` = list(
-          train = prepared$reference_direct,
-          test = readout_direct,
-          blocks = NULL
-        ),
-        `Cohort-d1` = list(
-          train = prepared$reference_d1,
-          test = readout_d1,
-          blocks = prepared$selected_blocks
-        )
-      ),
-      train_metadata = prepared$reference_metadata,
-      test_metadata = readout_metadata,
-      label_column = anchor,
+    }
+  )
+  readout <- readout_checkpoint$value
+
+  learning_node_key <- .ablation_node_cache_key(
+    node = "learning-curve",
+    prepared = prepared,
+    parameters = list(
+      enabled = config$validation$enabled,
       fractions = config$validation$learning_fractions,
       repeats = config$validation$repeats,
       lambda = config$validation$lambda,
       inner_folds = config$validation$inner_folds,
       nrounds = config$validation$nrounds,
       numCores = config$validation$numCores,
-      seed = seed + 30000L
-    )
-  } else {
-    readout <- list(
-      status = if (config$validation$enabled) "not_estimable" else "not_run",
-      reason = if (config$validation$enabled) {
-        "no_estimable_query_cohorts"
-      } else {
-        "disabled"
-      }
-    )
-    learning_curve <- readout
-  }
+      anchor = anchor,
+      query_view = digest::digest(readout_view$metadata, algo = "md5")
+    ),
+    seed = seed + 30000L,
+    algorithm_revision = "learning-curve-v1"
+  )
+  learning_checkpoint <- .ablation_cached_node(
+    node = "learning-curve",
+    output.dir = output.dir,
+    key = learning_node_key,
+    verbose = verbose,
+    compute = function() {
+      if (!readout_estimable) return(readout)
+      .ablation_learning_curve(
+        representations = list(
+          `Direct-GSClassifier` = list(
+            train = prepared$reference_direct,
+            test = readout_direct,
+            blocks = NULL
+          ),
+          `Cohort-d1` = list(
+            train = prepared$reference_d1,
+            test = readout_d1,
+            blocks = prepared$selected_blocks
+          )
+        ),
+        train_metadata = prepared$reference_metadata,
+        test_metadata = readout_metadata,
+        label_column = anchor,
+        fractions = config$validation$learning_fractions,
+        repeats = config$validation$repeats,
+        lambda = config$validation$lambda,
+        inner_folds = config$validation$inner_folds,
+        nrounds = config$validation$nrounds,
+        numCores = config$validation$numCores,
+        workers = config$validation$workers,
+        checkpoint_output_dir = output.dir,
+        checkpoint_key = learning_node_key,
+        seed = seed + 30000L
+      )
+    }
+  )
+  learning_curve <- learning_checkpoint$value
 
   # Phase 5: optional scaling and decoder diagnostics. These are auxiliary
   # analyses and do not redefine the primary retrieval result.
@@ -5735,7 +6094,28 @@ ablation <- function(
     prepared$feature_manifest$feature_manifest$feature_type,
     levels = c("single_bin", "gene_pair", "set_pair")
   ))
-  decoder <- if (config$tradeoffs$decoder) {
+  decoder_node_key <- .ablation_node_cache_key(
+    node = "decoder",
+    prepared = prepared,
+    parameters = list(
+      enabled = config$tradeoffs$decoder,
+      rank = config$tradeoffs$decoder_rank,
+      lambda = config$tradeoffs$decoder_lambda,
+      max_reference_samples = config$tradeoffs$decoder_max_reference_samples,
+      max_query_samples = config$tradeoffs$decoder_max_query_samples
+    ),
+    seed = seed + 40000L,
+    algorithm_revision = "decoder-v1"
+  )
+  decoder_checkpoint <- .ablation_cached_node(
+    node = "decoder",
+    output.dir = output.dir,
+    key = decoder_node_key,
+    verbose = verbose,
+    compute = function() {
+      if (!config$tradeoffs$decoder) {
+        return(list(status = "not_run", reason = "disabled"))
+      }
     decoder_reference_metadata <- .ablation_limit_metadata(
       prepared$reference_metadata,
       config$tradeoffs$decoder_max_reference_samples,
@@ -5767,9 +6147,9 @@ ablation <- function(
     decoded$reference_sample_count <- length(reference_rows)
     decoded$query_sample_count <- length(query_rows)
     decoded
-  } else {
-    list(status = "not_run", reason = "disabled")
-  }
+    }
+  )
+  decoder <- decoder_checkpoint$value
   tradeoffs <- list(
     status = "complete",
     feature_type_count = feature_counts,
@@ -5792,7 +6172,7 @@ ablation <- function(
   )
   readout_view_for_manifest <- prepared$query_views[["cancer_readout"]]
   manifest <- list(
-    version = 6L,
+    version = 7L,
     created = format(Sys.time(), "%Y-%m-%dT%H:%M:%S%z"),
     seed = seed,
     experiment = "representation",
@@ -5819,6 +6199,20 @@ ablation <- function(
     d1_feature_count = ncol(prepared$reference_d1),
     module_count = length(prepared$selected_blocks),
     direct_feature_cache = prepared$direct_cache,
+    node_cache = list(
+      retrieval = retrieval_checkpoint[
+        c("status", "lookup_status", "reason", "key", "path")
+      ],
+      readout = readout_checkpoint[
+        c("status", "lookup_status", "reason", "key", "path")
+      ],
+      learning_curve = learning_checkpoint[
+        c("status", "lookup_status", "reason", "key", "path")
+      ],
+      decoder = decoder_checkpoint[
+        c("status", "lookup_status", "reason", "key", "path")
+      ]
+    ),
     gene_signature_count = unname(as.integer(feature_counts["single_bin"])),
     scaling_direct_feature_count = if (config$scaling$enabled) {
       cohort_scaling$diagnostics$direct_contracts$feature_count[
@@ -5861,32 +6255,35 @@ ablation <- function(
 
   # Phase 7: persist reviewer-facing products separately, then return the
   # stable CCSAblation object expected by callers of the public API.
-  saveRDS(manifest, file.path(output.dir, "manifest.rds"))
-  saveRDS(native_geometry, file.path(output.dir, "native_geometry.rds"))
-  saveRDS(retrieval, file.path(output.dir, "retrieval.rds"))
-  saveRDS(anchor_retrieval, file.path(output.dir, "anchor_retrieval.rds"))
-  saveRDS(list(reference = prepared$reference_metadata, query = prepared$query_metadata),
-    file.path(output.dir, "sample-contract.rds"))
-  saveRDS(readout, file.path(output.dir, "readout.rds"))
-  saveRDS(learning_curve, file.path(output.dir, "learning_curve.rds"))
-  saveRDS(cohort_scaling, file.path(output.dir, "cohort_scaling.rds"))
-  saveRDS(tradeoffs, file.path(output.dir, "tradeoffs.rds"))
-  saveRDS(prepared$endpoint_eligibility, file.path(output.dir, "endpoint_eligibility.rds"))
-  utils::write.csv(
-    prepared$endpoint_eligibility,
-    file.path(output.dir, "endpoint_eligibility.csv"),
-    row.names = FALSE
+  .ablation_atomic_save_rds(manifest, file.path(output.dir, "manifest.rds"))
+  .ablation_atomic_save_rds(native_geometry, file.path(output.dir, "native_geometry.rds"))
+  .ablation_atomic_save_rds(retrieval, file.path(output.dir, "retrieval.rds"))
+  .ablation_atomic_save_rds(anchor_retrieval, file.path(output.dir, "anchor_retrieval.rds"))
+  .ablation_atomic_save_rds(
+    list(reference = prepared$reference_metadata, query = prepared$query_metadata),
+    file.path(output.dir, "sample-contract.rds")
   )
-  utils::write.csv(
+  .ablation_atomic_save_rds(readout, file.path(output.dir, "readout.rds"))
+  .ablation_atomic_save_rds(learning_curve, file.path(output.dir, "learning_curve.rds"))
+  .ablation_atomic_save_rds(cohort_scaling, file.path(output.dir, "cohort_scaling.rds"))
+  .ablation_atomic_save_rds(tradeoffs, file.path(output.dir, "tradeoffs.rds"))
+  .ablation_atomic_save_rds(
+    prepared$endpoint_eligibility,
+    file.path(output.dir, "endpoint_eligibility.rds")
+  )
+  .ablation_atomic_write_csv(
+    prepared$endpoint_eligibility,
+    file.path(output.dir, "endpoint_eligibility.csv")
+  )
+  .ablation_atomic_write_csv(
     data.frame(
       sample_id = prepared$excluded_query_d1_ids,
       reason = rep("missing_precomputed_d1", length(prepared$excluded_query_d1_ids)),
       stringsAsFactors = FALSE
     ),
-    file.path(output.dir, "excluded-query-d1.csv"),
-    row.names = FALSE
+    file.path(output.dir, "excluded-query-d1.csv")
   )
-  utils::write.csv(audit, file.path(output.dir, "audit.csv"), row.names = FALSE)
+  .ablation_atomic_write_csv(audit, file.path(output.dir, "audit.csv"))
 
   structure(
     list(
@@ -6065,35 +6462,47 @@ ablation <- function(
       stringsAsFactors = FALSE
     )
   } else {
-    cv_rows <- lapply(seq_along(lambda), function(lambda_index) {
-      fold_score <- vapply(sort(unique(fold)), function(fold_id) {
-        inner_train <- fold != fold_id
-        inner_test <- fold == fold_id
-        fold_classes <- sort(unique(train_label[inner_train]))
-        eligible_test <- inner_test & train_label %in% fold_classes
-        if (length(fold_classes) < 2 || sum(eligible_test) < 2) {
-          return(NA_real_)
-        }
-        transformed <- .ablation_readout_transform(
+    # Scaling/module balancing depends on the fold, not on lambda. Prepare
+    # each fold once and reuse those matrices for all lambda candidates.
+    fold_inputs <- lapply(sort(unique(fold)), function(fold_id) {
+      inner_train <- fold != fold_id
+      inner_test <- fold == fold_id
+      fold_classes <- sort(unique(train_label[inner_train]))
+      eligible_test <- inner_test & train_label %in% fold_classes
+      if (length(fold_classes) < 2 || sum(eligible_test) < 2) {
+        return(list(fold_id = fold_id, estimable = FALSE))
+      }
+      list(
+        fold_id = fold_id,
+        estimable = TRUE,
+        train_label = train_label[inner_train],
+        test_label = train_label[eligible_test],
+        classes = fold_classes,
+        transformed = .ablation_readout_transform(
           train[inner_train, , drop = FALSE],
           train[eligible_test, , drop = FALSE],
           blocks
         )
+      )
+    })
+    cv_rows <- lapply(seq_along(lambda), function(lambda_index) {
+      fold_score <- vapply(fold_inputs, function(input) {
+        if (!isTRUE(input$estimable)) return(NA_real_)
         prediction <- .ablation_xgb_linear_predict(
-          transformed$train,
-          transformed$test,
-          train_label[inner_train],
-          fold_classes,
+          input$transformed$train,
+          input$transformed$test,
+          input$train_label,
+          input$classes,
           lambda[lambda_index],
           nrounds,
           numCores,
-          seed + lambda_index * 100L + fold_id
+          seed + lambda_index * 100L + input$fold_id
         )
         metrics <- .ablation_classification_metrics(
-          train_label[eligible_test],
+          input$test_label,
           prediction$prediction,
           prediction$probability,
-          fold_classes
+          input$classes
         )
         metrics$balanced_accuracy
       }, numeric(1))
@@ -6191,6 +6600,111 @@ ablation <- function(
 
 # Build paired curves over shared cohort subsets. Each representation is tuned
 # independently inside the same subset, preserving equal search budgets.
+.ablation_learning_curve_job <- function(
+    job,
+    representations,
+    train_metadata,
+    test_metadata,
+    label_column,
+    fractions,
+    lambda,
+    inner_folds,
+    nrounds,
+    numCores,
+    seed,
+    test_hash
+) {
+  fraction <- fractions[[job$fraction_index]]
+  subset_seed <- seed + job$fraction_index * 1000L + job$repeat_id
+  cohorts <- .ablation_sample_training_cohorts(
+    train_metadata, label_column, fraction, subset_seed
+  )
+  train_rows <- train_metadata$cohort %in% cohorts
+  input <- representations[[job$representation]]
+  fit <- .ablation_linear_readout(
+    train = input$train[train_rows, , drop = FALSE],
+    test = input$test,
+    train_metadata = train_metadata[train_rows, , drop = FALSE],
+    test_metadata = test_metadata,
+    label_column = label_column,
+    lambda = lambda,
+    inner_folds = inner_folds,
+    nrounds = nrounds,
+    numCores = numCores,
+    seed = subset_seed,
+    blocks = input$blocks
+  )
+  data.frame(
+    representation = job$representation,
+    requested_fraction = fraction,
+    realized_cohort_fraction = length(cohorts) /
+      length(unique(train_metadata$cohort)),
+    repeat_id = job$repeat_id,
+    train_cohort_count = length(cohorts),
+    train_sample_count = sum(train_rows),
+    selected_lambda = fit$selected_lambda,
+    accuracy = fit$overall$accuracy,
+    balanced_accuracy = fit$overall$balanced_accuracy,
+    macro_auroc = fit$overall$macro_auroc,
+    cohort_subset_hash = digest::digest(cohorts, algo = "md5"),
+    test_sample_hash = test_hash,
+    stringsAsFactors = FALSE
+  )
+}
+
+# PSOCK workers receive the large immutable matrices once through clusterExport.
+# This wrapper avoids serializing a closure containing them for every job.
+.ablation_learning_curve_worker <- function(job) {
+  context <- base::get(
+    ".ablation_learning_curve_worker_context",
+    envir = .GlobalEnv,
+    inherits = FALSE
+  )
+  do.call(
+    .ablation_learning_curve_execute_job,
+    c(list(job = job), context)
+  )
+}
+
+.ablation_learning_curve_execute_job <- function(
+    job,
+    representations,
+    train_metadata,
+    test_metadata,
+    label_column,
+    fractions,
+    lambda,
+    inner_folds,
+    nrounds,
+    numCores,
+    seed,
+    test_hash,
+    checkpoint_output_dir = NULL,
+    checkpoint_key = NULL
+) {
+  compute <- function() .ablation_learning_curve_job(
+    job, representations, train_metadata, test_metadata, label_column,
+    fractions, lambda, inner_folds, nrounds, numCores, seed, test_hash
+  )
+  if (is.null(checkpoint_output_dir) || is.null(checkpoint_key)) return(compute())
+  job_key <- digest::digest(
+    list(
+      parent = checkpoint_key,
+      fraction_index = job$fraction_index,
+      repeat_id = job$repeat_id,
+      representation = job$representation
+    ),
+    algo = "md5"
+  )
+  .ablation_cached_node(
+    node = "learning-curve-job",
+    output.dir = checkpoint_output_dir,
+    key = job_key,
+    compute = compute,
+    verbose = FALSE
+  )$value
+}
+
 .ablation_learning_curve <- function(
     representations,
     train_metadata,
@@ -6202,57 +6716,74 @@ ablation <- function(
     inner_folds,
     nrounds,
     numCores,
+    workers = 1L,
+    checkpoint_output_dir = NULL,
+    checkpoint_key = NULL,
     seed
 ) {
-  rows <- list()
-  index <- 1L
   test_hash <- digest::digest(sort(test_metadata$sample_id), algo = "md5")
-  for (fraction_index in seq_along(fractions)) {
-    fraction <- fractions[fraction_index]
-    for (repeat_id in seq_len(as.integer(repeats))) {
-      subset_seed <- seed + fraction_index * 1000L + repeat_id
-      cohorts <- .ablation_sample_training_cohorts(
-        train_metadata,
-        label_column,
-        fraction,
-        subset_seed
+  workers <- max(1L, as.integer(workers))
+  job_table <- do.call(rbind, lapply(seq_along(fractions), function(fraction_index) {
+    do.call(rbind, lapply(seq_len(as.integer(repeats)), function(repeat_id) {
+      data.frame(
+        fraction_index = fraction_index,
+        repeat_id = repeat_id,
+        representation = names(representations),
+        stringsAsFactors = FALSE
       )
-      train_rows <- train_metadata$cohort %in% cohorts
-      subset_hash <- digest::digest(cohorts, algo = "md5")
-      for (representation in names(representations)) {
-        input <- representations[[representation]]
-        fit <- .ablation_linear_readout(
-          train = input$train[train_rows, , drop = FALSE],
-          test = input$test,
-          train_metadata = train_metadata[train_rows, , drop = FALSE],
-          test_metadata = test_metadata,
-          label_column = label_column,
-          lambda = lambda,
-          inner_folds = inner_folds,
-          nrounds = nrounds,
-          numCores = numCores,
-          seed = subset_seed,
-          blocks = input$blocks
-        )
-        rows[[index]] <- data.frame(
-          representation = representation,
-          requested_fraction = fraction,
-          realized_cohort_fraction = length(cohorts) /
-            length(unique(train_metadata$cohort)),
-          repeat_id = repeat_id,
-          train_cohort_count = length(cohorts),
-          train_sample_count = sum(train_rows),
-          selected_lambda = fit$selected_lambda,
-          accuracy = fit$overall$accuracy,
-          balanced_accuracy = fit$overall$balanced_accuracy,
-          macro_auroc = fit$overall$macro_auroc,
-          cohort_subset_hash = subset_hash,
-          test_sample_hash = test_hash,
-          stringsAsFactors = FALSE
-        )
-        index <- index + 1L
-      }
-    }
+    }))
+  }))
+  jobs <- lapply(seq_len(nrow(job_table)), function(i) job_table[i, , drop = FALSE])
+  run_job <- function(job) .ablation_learning_curve_execute_job(
+    job, representations, train_metadata, test_metadata, label_column,
+    fractions, lambda, inner_folds, nrounds, numCores, seed, test_hash,
+    checkpoint_output_dir, checkpoint_key
+  )
+  if (workers > 1L && length(jobs) > 1L) {
+    workers <- min(workers, length(jobs))
+    cl <- parallel::makeCluster(workers)
+    on.exit(parallel::stopCluster(cl), add = TRUE)
+    worker_context <- list(
+      representations = representations,
+      train_metadata = train_metadata,
+      test_metadata = test_metadata,
+      label_column = label_column,
+      fractions = fractions,
+      lambda = lambda,
+      inner_folds = inner_folds,
+      nrounds = nrounds,
+      numCores = numCores,
+      seed = seed,
+      test_hash = test_hash,
+      checkpoint_output_dir = checkpoint_output_dir,
+      checkpoint_key = checkpoint_key
+    )
+    implementation_env <- environment(.ablation_learning_curve)
+    function_names <- ls(implementation_env, pattern = "^\\.ablation_", all.names = TRUE)
+    function_names <- function_names[vapply(function_names, function(name) {
+      is.function(get(name, envir = implementation_env, inherits = FALSE))
+    }, logical(1L))]
+    parallel::clusterExport(
+      cl,
+      varlist = function_names,
+      envir = implementation_env
+    )
+    parallel::clusterCall(cl, function(context) {
+      assign(
+        ".ablation_learning_curve_worker_context",
+        context,
+        envir = .GlobalEnv
+      )
+      NULL
+    }, worker_context)
+    parallel::clusterEvalQ(cl, {
+      suppressPackageStartupMessages(library(digest))
+      suppressPackageStartupMessages(library(xgboost))
+      NULL
+    })
+    rows <- parallel::parLapplyLB(cl, jobs, .ablation_learning_curve_worker)
+  } else {
+    rows <- lapply(jobs, run_job)
   }
   metrics <- do.call(rbind, rows)
   direct <- metrics[metrics$representation == "Direct-GSClassifier", , drop = FALSE]
@@ -6451,19 +6982,23 @@ ablation <- function(
     ),
     algo = "md5"
   )
-  fit_cache <- list(key = fit_cache_key, direct = NULL, d1 = list())
+  fit_cache <- list(
+    schema_version = 1L,
+    status = "complete",
+    key = fit_cache_key,
+    direct = list(),
+    d1 = list()
+  )
   if (!is.null(cache_path) && file.exists(cache_path)) {
-    cached <- readRDS(cache_path)
-    if (identical(cached$key, fit_cache_key)) {
-      fit_cache <- cached
-    }
+    cached <- .ablation_read_fit_cache(cache_path, fit_cache_key)
+    if (!is.null(cached)) fit_cache <- cached
   }
   save_fit_cache <- function() {
     if (!is.null(cache_path)) {
-      saveRDS(fit_cache, cache_path)
+      .ablation_atomic_save_rds(fit_cache, cache_path)
     }
   }
-  direct_fit <- fit_cache$direct
+  direct_fit <- fit_cache$direct$fit
   if (is.null(direct_fit)) {
     direct_result <- .ablation_linear_readout(
       train = reference_direct,
@@ -6482,7 +7017,7 @@ ablation <- function(
       overall = direct_result$overall,
       selected_lambda = direct_result$selected_lambda
     )
-    fit_cache$direct <- direct_fit
+    fit_cache$direct$fit <- direct_fit
     save_fit_cache()
   }
 
@@ -7313,15 +7848,25 @@ ablation <- function(
     geometry = config$geometry,
     scaling = config$scaling,
     validation = config$validation,
-    seed = seed
+    seed = seed,
+    code = .ablation_node_code_identity("cohort-scaling")
   ), algo = "md5")
-  fit_cache <- list(key = cache_key, direct = list(), d1 = list())
-  if (!is.null(cache_path) && file.exists(cache_path)) {
-    cached <- readRDS(cache_path)
-    if (identical(cached$key, cache_key)) fit_cache <- cached
+  fit_cache <- list(
+    schema_version = 1L,
+    status = "complete",
+    key = cache_key,
+    direct = list(),
+    d1 = list()
+  )
+  cache_file <- NULL
+  if (!is.null(cache_path)) {
+    cache_dir <- sub("\\.rds$", "", cache_path)
+    cache_file <- file.path(cache_dir, paste0(cache_key, ".rds"))
+    cached <- .ablation_read_fit_cache(cache_file, cache_key)
+    if (!is.null(cached)) fit_cache <- cached
   }
   save_fit_cache <- function() {
-    if (!is.null(cache_path)) saveRDS(fit_cache, cache_path)
+    if (!is.null(cache_file)) .ablation_atomic_save_rds(fit_cache, cache_file)
   }
 
   readout_seed <- seed + 50000L

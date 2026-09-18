@@ -1,27 +1,32 @@
 # Evaluate biological anchors using prepared caches and stage-02 neighbours.
-bootstrap <- c("00-workflow_functions.R",
-  "test/ablation-03/00-workflow_functions.R")
+bootstrap <- c(file.path("templates", "workflow_helpers.R"),
+  file.path("test", "ablation-03", "templates", "workflow_helpers.R"))
 bootstrap <- bootstrap[file.exists(bootstrap)][1L]
 if (is.na(bootstrap)) stop("Run from ablation-03 or the repository root.", call. = FALSE)
 source(bootstrap, local = TRUE)
 out_dir <- .wf_output("ablation-biology")
-fig_dir <- .ablation03_path("figures")
+fig_dir <- .ablation03_report_path("figures")
 dir.create(out_dir, recursive = TRUE, showWarnings = FALSE)
 dir.create(fig_dir, recursive = TRUE, showWarnings = FALSE)
 
 result_dir <- .wf_output("ablation-experiment")
-manifest <- readRDS(file.path(result_dir, "manifest.rds"))
-retrieval <- readRDS(file.path(result_dir, "anchor_retrieval.rds"))
-neighbours <- retrieval$neighbors[retrieval$neighbors$neighbor_rank <= 15, , drop = FALSE]
-source(file.path(.ablation03_dir, "02-ablation03-representation_functions.R"))
 .wf_validate(result_dir)
-contract <- readRDS(file.path(result_dir, "sample-contract.rds"))
-target_ids <- sort(unique(c(contract$reference$sample_id, contract$query$sample_id)))
 full_path <- Sys.getenv("CCS_FULL_EXPRESSION_RDS", unset = "E:/Sync/@Analysis/PanCan_Data/Level 1/PanCan_CancerSample_DataListForCCS_GEO+cBioPortal+UCXCXenav20240809.rds")
 sig_path <- Sys.getenv("CCS_GENE_SIGNATURE_RDS", unset = "E:/RCloud/database/Signature/report/GeneSignature-HWB.rds")
 cache_path <- Sys.getenv("CCS_BIOLOGY_CACHE_RDS", unset = .wf_output("01-biology", "expression-anchor-cache.rds"))
+stage_parameters <- list(
+  expression_path = normalizePath(full_path, winslash = "/", mustWork = FALSE),
+  signature_path = normalizePath(sig_path, winslash = "/", mustWork = FALSE),
+  biology_cache_path = normalizePath(cache_path, winslash = "/", mustWork = FALSE)
+)
+if (.wf_cache_hit("ablation-biology", stage_parameters)) quit(save = "no", status = 0L)
+manifest <- readRDS(file.path(result_dir, "manifest.rds"))
+retrieval <- readRDS(file.path(result_dir, "anchor_retrieval.rds"))
+neighbours <- retrieval$neighbors[retrieval$neighbors$neighbor_rank <= 15, , drop = FALSE]
+contract <- readRDS(file.path(result_dir, "sample-contract.rds"))
+target_ids <- sort(unique(c(contract$reference$sample_id, contract$query$sample_id)))
 if (!file.exists(cache_path)) {
-  stop("ablation-03 biology: expression-anchor-cache.rds is missing; run 01c-ablation03-prepare-biology.R first.", call. = FALSE)
+  stop("ablation-03 biology: expression-anchor-cache.rds is missing; run 03.00.00. 生物输入准备.R first.", call. = FALSE)
 }
 .wf_validate(.wf_output("01-biology"))
 cache <- readRDS(cache_path)
@@ -36,7 +41,7 @@ if (!identical(normalizePath(sig_path, winslash = "/", mustWork = FALSE), cache$
   stop("ablation-03 biology: signature source mismatch; rebuild the cache.", call. = FALSE)
 }
 config_path <- file.path(.ablation03_dir, "config", "biological-anchors.yml")
-builder_path <- .wf_path("01c-ablation03-prepare-biology.R")
+builder_path <- .wf_path("03.00.00. 生物输入准备.R")
 if (!identical(digest::digest(file = sig_path, algo = "md5"), cache$signature$md5) ||
     !identical(digest::digest(file = builder_path, algo = "md5"), cache$builder_md5) ||
     !identical(digest::digest(file = config_path, algo = "md5"), cache$signature$config_md5) ||
@@ -50,7 +55,8 @@ if (file.exists(full_path)) {
     stop("ablation-03 biology: expression source hash mismatch; rebuild the cache.", call. = FALSE)
   }
 }
-source(file.path(.ablation03_dir, "03-ablation03-biology_functions.R"))
+source(file.path(.ablation03_dir, "06.00.00. 生物锚点分析_functions.R"))
+.wf_begin("ablation-biology", stage_parameters)
 prepared_contract <- readRDS(.wf_output("01-representations", "sample-contract.rds"))
 if (!identical(contract, prepared_contract)) stop("Analysis and prepared sample contracts differ; rerun from 01b.")
 anchors <- cache$anchors
@@ -187,13 +193,14 @@ saveRDS(list(anchors = anchors, coverage = coverage, utility = utility, contrast
                             genes_with_finite_scale = nrow(global_stats))),
         file.path(out_dir, "ablation03-biology.rds"))
 
-# Figures and tables are rendered by 03-ablation03-biology.Rmd.
+# Figures and tables are rendered by 06.00.00. 生物锚点分析.Rmd.
 cat(sprintf("anchors=%d coverage_rows=%d utility_rows=%d output=%s\n", length(anchors), nrow(coverage), nrow(utility), out_dir))
 
-.ae_write_stage_receipt(out_dir,
+.wf_receipt("ablation-biology", "06.00.00. 生物锚点分析",
   inputs = c(file.path(result_dir, "stage-receipt.rds"), cache_path, builder_path,
-    config_path, .wf_path("03-ablation03-biology.R"), .wf_path("00-workflow_functions.R"),
+    config_path, .wf_path("06.00.00. 生物锚点分析.R"),
+    .wf_path("templates", "workflow_helpers.R"),
     .wf_output("01-biology", "stage-receipt.rds"),
-    file.path(.ablation03_dir, "03-ablation03-biology_functions.R")),
+    file.path(.ablation03_dir, "06.00.00. 生物锚点分析_functions.R")),
   outputs = file.path(out_dir, c("anchor_coverage.csv", "anchor_utility.csv",
     "anchor_contrasts.csv", "anchor_inference.csv", "anchor_missing_pairs.csv", "ablation03-biology.rds")))

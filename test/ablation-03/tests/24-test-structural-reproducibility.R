@@ -2,7 +2,7 @@
 
 source(file.path(
   "test", "ablation-03",
-  "04-ablation03-structural-reproducibility_functions.R"
+  "07.00.00. 结构复现分析_functions.R"
 ))
 source(file.path("R", "ablation.R"))
 
@@ -133,7 +133,10 @@ summary <- .asr_summarize_pairs(pair_data, n_boot = 200L, seed = 20260912L)
 stopifnot(
   setequal(summary$scope, c("all_cohort_pairs", "same_cancer_type")),
   all(abs(summary$mean_delta) < 1e-12),
-  all(is.na(summary$p_value))
+  all(is.na(summary$p_value)),
+  all(summary$inference_status == "not_estimable"),
+  all(is.na(summary$mean_delta_ci_low)),
+  all(is.na(summary$mean_delta_ci_high))
 )
 
 summary_no_boot <- .asr_summarize_pairs(

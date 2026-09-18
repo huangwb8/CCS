@@ -1,0 +1,22 @@
+unit_id: 03.00.00
+cache_identity: bbcb82d5f616a61c18062576c50bfd63
+product_identity: d8a5dadbcc2ae156afa5b0e3d042afba
+output_contract_version: 1
+elapsed_seconds: .na.real
+output_structure:
+  class: list
+  dimensions: ~
+  length: 4
+  names:
+  - stage
+  - cache_root_env
+  - output_files
+  - receipt_md5
+  column_types: ~
+  missing_by_column: ~
+outputs:
+- path: main.rds
+  md5: eb7bcbe19c9c294ec9511b0fb39fb072
+- path: summary.md
+  md5: d10f1b547849380095f855c1067b983a
+external_cache_stage: 01-biology

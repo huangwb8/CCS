@@ -162,7 +162,7 @@ representation 使用独立的 `.ablation_representation_default_params()`（`R/
 | `provenance` | `external_cohorts`, `max_reference_samples`, `require_external` | 定义 reference/query 来源与样本上限 |
 | `anchors` | `primary`, `primary_role`, `technical` | 主标签、独立性声明、技术 anchor |
 | `geometry` | `k`, `search`, `n_trees`, `search_k` | exact/Annoy 检索与近似搜索验证 |
-| `validation` | `learning_fractions`, `repeats`, `lambda`, `inner_folds` | grouped readout 与 learning curve |
+| `validation` | `learning_fractions`, `repeats`, `lambda`, `inner_folds`, `numCores`, `workers` | grouped readout 与确定性 learning-curve job 调度；总线程预算约为 `numCores × workers` |
 | `scaling` | `enabled`, `module_counts`, `biology_anchors` | 可选 cohort bank 扩展 |
 | `controls` | `null_rp`, `null_perm`, `null_rp_seeds` | paired null 对照 |
 | `tradeoffs` | `decoder`, `decoder_rank`, `decoder_lambda` | 从 d1 解码 Direct feature 的辅助诊断 |
@@ -360,6 +360,8 @@ representation 内的 `scaling$enabled` 与 layered 的 scaling 不同：它固�
 `.ablation_gsclassifier_matrix()`（`R/ablation.R:1351`）依据 frozen feature manifest 从输入表达矩阵重建 Direct-GSClassifier 特征，并严格保持 manifest 中的列顺序。该矩阵是 representation 路径的主要一次性限速步骤：默认写入 `output.dir/direct-feature-cache.rds`，缓存键同时绑定表达矩阵、样本顺序、冻结模型元数据和 feature manifest；后续运行只有在全部校验一致时才复用，失配或缓存损坏则安全重建并原子替换。representation 路径不会用这些特征补算 d1；d1 始终来自 `object@Data$Probability$d1`。
 
 原生几何中的精确高维 kNN 与有效秩另行写入 `output.dir/native-geometry-cache.rds`。缓存键绑定 Direct/d1 输入、样本顺序、完整 geometry 参数与 seed；旧版 `native_geometry.rds` 不再自动提升为新缓存，因为旧 manifest 不能证明完整输入内容一致。缓存命中只跳过完全相同的精确计算，不会切换为近似近邻算法。
+
+representation 的 retrieval（含 anchor retrieval 与 controls）、readout、learning curve 和 decoder 使用彼此独立的多版本节点 checkpoint。内容键绑定实际输入指纹、节点相关参数、seed、schema、算法修订、递归代码依赖和运行库版本；只修改 learning curve 设计不会牵连 retrieval/readout。缓存值与 state 分离并原子提交，只有 state、key、文件 MD5 与 value hash 全部一致的 `complete` 条目才可命中；`running`、截断或契约不匹配均安全重算。正式 manifest 的 `node_cache` 保留命中/未命中、写入状态和失效原因，恢复缓存仍与面向报告的正式 RDS 分离。
 
 ### ablation-03 审核修复后的输入与结果契约
 

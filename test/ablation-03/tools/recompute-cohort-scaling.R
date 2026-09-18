@@ -1,6 +1,6 @@
 # Optional scaling-only rerun; other calculations are unchanged.
-bootstrap <- c("00-workflow_functions.R",
-  "test/ablation-03/00-workflow_functions.R")
+bootstrap <- c(file.path("..", "templates", "workflow_helpers.R"),
+  file.path("test", "ablation-03", "templates", "workflow_helpers.R"))
 bootstrap <- bootstrap[file.exists(bootstrap)][1L]
 if (is.na(bootstrap)) stop("Run from ablation-03 or the repository root.", call. = FALSE)
 source(bootstrap, local = TRUE)
@@ -53,7 +53,7 @@ ablation_result$manifest <- manifest
 ablation_result$cohort_scaling <- cohort_scaling
 saveRDS(ablation_result, result_path)
 .ae_write_stage_receipt(output_dir,
-  c(names(previous_receipt$hashes), .wf_path("02-ablation03-cohort-scaling.R")), character())
+  c(names(previous_receipt$hashes), .wf_path("tools", "recompute-cohort-scaling.R")), character())
 
 luckyBase::LuckyVerbose(
   "02-ablation-cohort-scaling: complete; output = ",

@@ -8,7 +8,7 @@ params:
   min_cohort_n: 20
   interpret_top_n: 3
   plot_language: "en"
-  plot_run_dir: "tmp/plot-previews"
+  plot_run_dir: ~
   plot_preview_dpi: 200
   inference_bootstrap: 2000
   inference_seed: 20260829
@@ -17,7 +17,7 @@ output:
     toc: true
     toc_float: true
     toc_depth: 3
-    number_sections: false
+    number_sections: true
     theme: default
     highlight: tango
     code_folding: show
@@ -38,8 +38,8 @@ knitr::opts_chunk$set(
   message = FALSE,
   fig.align = "center"
 )
-bootstrap <- c("00-workflow_functions.R",
-  "test/ablation-03/00-workflow_functions.R")
+bootstrap <- c(file.path("templates", "workflow_helpers.R"),
+  file.path("test", "ablation-03", "templates", "workflow_helpers.R"))
 bootstrap <- bootstrap[file.exists(bootstrap)][1L]
 if (is.na(bootstrap)) stop("Run from ablation-03 or the repository root.", call. = FALSE)
 source(bootstrap, local = TRUE)
@@ -52,13 +52,14 @@ fmt <- function(x, digits = 3L) formatC(x, digits = digits, format = "f")
 fmt_pct <- function(x, digits = 1L) paste0(fmt(100 * x, digits), "%")
 fmt_p <- function(x) ifelse(is.finite(x), format.pval(x, digits = 3, eps = 1e-3), "NA")
 fmt_ci <- function(x) paste0("[", fmt(x$ci_low), ", ", fmt(x$ci_high), "]")
+analysis_name <- basename(.ablation03_path())
+biology_input_script_name <- "03.00.00. 生物输入准备.R"
+structural_script_name <- "07.00.00. 结构复现分析.R"
 result_dir <- .wf_output("ablation-experiment")
 .wf_validate(result_dir)
 manifest <- readRDS(file.path(result_dir, "manifest.rds"))
 .wf_validate(.wf_output("ablation-structural-reproducibility"))
-structural_dir <- .ablation03_path(
-  "tmp", "ablation-structural-reproducibility"
-)
+structural_dir <- .wf_output("ablation-structural-reproducibility")
 structural_paths <- file.path(
   structural_dir,
   c(
@@ -71,7 +72,7 @@ structural_paths <- file.path(
 )
 if (!all(file.exists(structural_paths))) {
   stop(
-    "The structural reproducibility results are unavailable; run stage 04.",
+    "The structural reproducibility results are unavailable; run stage 07.",
     call. = FALSE
   )
 }
@@ -92,7 +93,7 @@ directional_paths <- file.path(
 )
 if (!all(file.exists(directional_paths))) {
   stop(
-    "The reciprocal structural results are unavailable; rerun stage 04.",
+    "The reciprocal structural results are unavailable; rerun stage 07.",
     call. = FALSE
   )
 }
@@ -103,8 +104,15 @@ structural_sample_audit <- read.csv(directional_paths[2L], check.names = FALSE)
 structural_module_banks <- read.csv(directional_paths[3L], check.names = FALSE)
 structural_matched_repeats <- read.csv(directional_paths[4L], check.names = FALSE)
 structural_matched_summary <- read.csv(directional_paths[5L], check.names = FALSE)
+table_dir <- .ablation03_report_path("tables")
+dir.create(table_dir, recursive = TRUE, showWarnings = FALSE)
+utils::write.csv(
+  structural_directional_summary,
+  file.path(table_dir, "07.00.00. directional-summary.csv"),
+  row.names = FALSE
+)
 structural_functions_name <-
-  "04-ablation03-structural-reproducibility_functions.R"
+  "07.00.00. 结构复现分析_functions.R"
 structural_all <- structural_summary[
   structural_summary$scope == "all_cohort_pairs",
   ,
@@ -115,6 +123,31 @@ structural_same_cancer <- structural_summary[
   ,
   drop = FALSE
 ]
+structural_same_cancer_pair_count <- if (nrow(structural_same_cancer) == 1L) {
+  structural_same_cancer$cohort_pair_count
+} else {
+  0L
+}
+structural_same_cancer_summary <- if (
+  nrow(structural_same_cancer) == 1L &&
+    identical(structural_same_cancer$inference_status, "estimable")
+) {
+  paste0(
+    "达到预设推断门槛，平均差为 ",
+    fmt(structural_same_cancer$mean_delta, 4L),
+    "，节点 bootstrap 区间为 [",
+    fmt(structural_same_cancer$mean_delta_ci_low, 4L), ", ",
+    fmt(structural_same_cancer$mean_delta_ci_high, 4L), "]"
+  )
+} else if (nrow(structural_same_cancer) == 1L) {
+  paste0(
+    "未达到至少 4 个 cohort 且 3 个队列对的预设推断门槛；",
+    "平均差 ", fmt(structural_same_cancer$mean_delta, 4L),
+    " 仅作描述"
+  )
+} else {
+  "没有形成可比较的同癌种队列对"
+}
 structural_forward_all <- structural_directional_summary[
   structural_directional_summary$direction ==
     "reference_bank_to_external_targets" &
@@ -165,6 +198,15 @@ structural_matched_reverse_all <- structural_matched_summary[
   structural_matched_summary$direction ==
     "external_bank_to_reference_targets" &
     structural_matched_summary$scope == "all_cohort_pairs",
+  ,
+  drop = FALSE
+]
+structural_direction_rank <- rbind(
+  transform(structural_forward_all, direction_label = "reference→external"),
+  transform(structural_reverse_all, direction_label = "external→reference")
+)
+structural_direction_top <- structural_direction_rank[
+  which.max(abs(structural_direction_rank$mean_delta)),
   ,
   drop = FALSE
 ]
@@ -223,13 +265,13 @@ structural_d1_heatmap <- structural_matrix_long(
   "Cohort-d1"
 )
 
-figure_dir <- .ablation03_path("figures")
+figure_dir <- .ablation03_report_path("figures")
 dir.create(figure_dir, recursive = TRUE, showWarnings = FALSE)
-preview_dir <- bensz_run_dir(.ablation03_path(params$plot_run_dir),
-  prefix = "04-ablation03-structural-reproducibility")
+preview_dir <- bensz_run_dir(bensz_preview_root(params$plot_run_dir),
+  prefix = "07.00.00-structural-reproducibility")
 ```
 
-本报告是 ablation-03 实验的结构可复现性模块；读取双向投影与 matched-bank 分析结果，不运行模型计算。
+本报告是 `r analysis_name` 实验的结构可复现性模块；读取双向投影与 matched-bank 分析结果，不运行模型计算。
 
 ## 数据概览
 
@@ -239,10 +281,10 @@ reference 与 external bank 分别包含 `r structural_reference_modules` 和 `r
 
 | 过程 | 函数与参数 | 约定 | 源代码 |
 |---|---|---|---|
-| 结构表达输入 | `.asr_extract_anchor_cache()` | 准备阶段固定完整样本范围和 signature | `01c-ablation03-prepare-biology.R` |
-| 生物状态 | `.asr_assign_anchor_states()`；两端各三分之一 | 每实体至少 `r structural_result$method$min_entity_n` 个样本；并列边界不强制分组 | `04-ablation03-structural-reproducibility_functions.R` |
-| 双向推断 | `.asr_evaluate_direction()`；cohort-node bootstrap | 保留 reference→external 与 external→reference 的原设计 | `04-ablation03-structural-reproducibility.R` |
-| 匹配敏感性 | `.asr_matched_bank_design()`；20 次重复 | 同 tissue、同模块预算；范围不作为置信区间 | `04-ablation03-structural-reproducibility_functions.R` |
+| 结构表达输入 | `.asr_extract_anchor_cache()` | 准备阶段固定完整样本范围和 signature | `r biology_input_script_name` |
+| 生物状态 | `.asr_assign_anchor_states()`；两端各三分之一 | 每实体至少 `r structural_result$method$min_entity_n` 个样本；并列边界不强制分组 | `r structural_functions_name` |
+| 双向推断 | `.asr_evaluate_direction()`；cohort-node bootstrap | 保留 reference→external 与 external→reference 的原设计 | `r structural_script_name` |
+| 匹配敏感性 | `.asr_matched_bank_design()`；`r unique(structural_matched_forward_all$repeat_count)` 次重复 | 同 tissue、同模块预算；范围不作为置信区间 | `r structural_functions_name` |
 
 ## 指标导读
 
@@ -250,7 +292,7 @@ reference 与 external bank 分别包含 `r structural_reference_modules` 和 `r
 |---|---|
 | 结构相似度 | 同一组高低状态的质心距离在跨队列之间的 Spearman；越高表示距离排序越可复现 |
 | d1−Direct | 同一个队列对的结构相似度差；不能独自证明无信息损失 |
-| 95% CI | cohort 节点 bootstrap，保留队列对共享节点的依赖 |
+| `r "95%"` CI | 至少 `r 4L` 个 cohort 且 `r 3L` 个队列对时使用 cohort 节点 bootstrap；否则仅保留描述性点估计 |
 | Matched-bank 范围 | 固定目标数据下改变 bank 组成的敏感性；不是抽样置信区间 |
 
 ## 独立队列间的生物结构可复现性
@@ -266,7 +308,8 @@ render_dt(
     "bank_module_count", "bank_feature_count", "fit_sample_count",
     "target_sample_count", "cohort_count", "cohort_pair_count",
     "mean_direct_similarity", "mean_d1_similarity", "mean_delta",
-    "fraction_d1_ge_direct", "mean_delta_ci_low", "mean_delta_ci_high"
+    "fraction_d1_ge_direct", "mean_delta_ci_low", "mean_delta_ci_high",
+    "inference_status"
   )],
   pageLength = 4L
 )
@@ -371,7 +414,7 @@ p11 <- ggplot2::ggplot(
 # another, median diamonds expose the central shift, and the full correlation
 # range retains negative estimates without clipping values.
 fig11_jpg <- .ae_save_plot(
-  p11, "figure-11-structural-reproducibility-paired", figure_dir,
+  p11, "07.00.00. structural-reproducibility-paired", figure_dir,
   preview_dir, fig11, params$plot_preview_dpi
 )
 knitr::include_graphics(fig11_jpg)
@@ -428,7 +471,7 @@ p12 <- ggplot2::ggplot(
 # onto two lines; a square grid, external legend, and fixed color scale avoid
 # clipping and make this panel directly comparable with Figure 13.
 fig12_jpg <- .ae_save_plot(
-  p12, "figure-12-structural-similarity-direct", figure_dir,
+  p12, "07.00.00. structural-similarity-direct", figure_dir,
   preview_dir, fig12, params$plot_preview_dpi
 )
 knitr::include_graphics(fig12_jpg)
@@ -473,7 +516,7 @@ p13 <- ggplot2::ggplot(
 # square aspect, external legend, and common -1 to 1 scale, enabling cellwise visual
 # comparison without rescaling artifacts.
 fig13_jpg <- .ae_save_plot(
-  p13, "figure-13-structural-similarity-d1", figure_dir,
+  p13, "07.00.00. structural-similarity-d1", figure_dir,
   preview_dir, fig13, params$plot_preview_dpi
 )
 knitr::include_graphics(fig13_jpg)
@@ -488,13 +531,14 @@ render_dt(
     "mean_direct_similarity", "median_direct_similarity",
     "mean_d1_similarity", "median_d1_similarity", "mean_delta",
     "median_delta", "fraction_d1_ge_direct", "mean_delta_ci_low",
-    "mean_delta_ci_high", "inference_method", "p_value_reason"
+    "mean_delta_ci_high", "inference_method", "inference_status",
+    "min_inference_cohorts", "min_inference_pairs", "p_value_reason"
   )],
   pageLength = 5
 )
 ```
 
-解读：当前结果显示，同癌种的有效队列对有 `r structural_same_cancer$cohort_pair_count` 对，平均差为 `r fmt(structural_same_cancer$mean_delta, 4L)`。该子集用于限制癌种构成的影响，节点 bootstrap 仍需保留共享 cohort 的依赖关系。表格展示全体与同癌种子集的差异，提示组织背景可能影响整体地图的一致性。同癌种检查减少了一种组成差异，但没有消除平台、采样和疾病阶段的影响；样本范围较窄时也不能外推到全部癌种。
+解读：当前结果显示，同癌种的有效队列对有 `r structural_same_cancer_pair_count` 对；`r structural_same_cancer_summary`。该子集用于限制癌种构成的影响；只有达到门槛时，节点 bootstrap 才用于保留共享 cohort 的依赖关系。表格展示全体与同癌种子集的差异，提示组织背景可能影响整体地图的一致性。同癌种检查减少了一种组成差异，但没有消除平台、采样和疾病阶段的影响；样本范围较窄时也不能外推到全部癌种。
 
 ```{r figure-structural-matched-bank, interp_check=TRUE}
 # ==== Figure 14: Reciprocal matched-bank sensitivity (user-adjustable parameters) ====
@@ -591,7 +635,7 @@ p14 <- ggplot2::ggplot(
 # all repeats visible, the zero line fixes direction, and outlined diamonds
 # distinguish complete-bank estimates from matched design sensitivity.
 fig14_jpg <- .ae_save_plot(
-  p14, "figure-14-structural-matched-bank-sensitivity", figure_dir,
+  p14, "07.00.00. structural-matched-bank-sensitivity", figure_dir,
   preview_dir, fig14, params$plot_preview_dpi
 )
 knitr::include_graphics(fig14_jpg)
@@ -615,9 +659,11 @@ render_dt(
 
 ## 讨论与分析
 
-正向与反向的平均结构差分别为 `r fmt(structural_forward_all$mean_delta, 4L)` 和 `r fmt(structural_reverse_all$mean_delta, 4L)`。两方向同时改变 bank 与 target，且共享冻结 Direct 合同，因此不能把方向差直接解释为互换全部学习步骤后的对称验证。
+当前结果显示，正向与反向的平均结构差分别为 `r fmt(structural_forward_all$mean_delta, 4L)` 和 `r fmt(structural_reverse_all$mean_delta, 4L)`。两方向同时改变 bank 与 target，且共享冻结 Direct 合同，因此不能把方向差直接解释为互换全部学习步骤后的对称验证。
 
-每侧 `r structural_matched_modules` 个模块的重复匹配揭示 bank 组成敏感性。若要主张结构基本保留，应预先定义可接受的损失界值，再在独立 cohort 上检验；当前 CI 跨零和有限设计范围都不能证明等价或非劣效。
+当前结果显示，最强信号来自 `r structural_direction_top$direction_label`，其平均 d1−Direct 差为 `r fmt(structural_direction_top$mean_delta, 4L)`；这里的“最强”只按当前两方向的绝对差排序，不代表确认性优势。
+
+当前结果显示，每侧 `r structural_matched_modules` 个模块的重复匹配中，正向与反向效应中位数分别为 `r fmt(structural_matched_forward_all$mean_delta_median, 4L)` 和 `r fmt(structural_matched_reverse_all$mean_delta_median, 4L)`，用于描述 bank 组成敏感性。若要主张结构基本保留，应预先定义可接受的损失界值，再在独立 cohort 上检验；当前正向 CI 为 `r paste0("[", fmt(structural_forward_all$mean_delta_ci_low, 4L), ", ", fmt(structural_forward_all$mean_delta_ci_high, 4L), "]")`，反向 CI 为 `r paste0("[", fmt(structural_reverse_all$mean_delta_ci_low, 4L), ", ", fmt(structural_reverse_all$mean_delta_ci_high, 4L), "]")`，这些区间和有限设计范围都不能证明等价或非劣效。
 
 ## 数字准确性验证
 

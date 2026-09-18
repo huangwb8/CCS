@@ -2,8 +2,20 @@
 
 source(file.path("R", "ablation.R"))
 source(file.path(
-  "test", "ablation-03", "02-ablation03-representation_functions.R"
+  "test", "ablation-03", "05.00.00. 表示分析_functions.R"
 ))
+
+# External query predictions do not make the design confirmatory when the
+# reference representation was generated in-sample.
+evidence <- .ablation_evidence_level(
+  query_metadata = data.frame(d1_provenance = "external_frozen"),
+  anchor_role = "independent",
+  reference_metadata = data.frame(d1_provenance = "in_sample")
+)
+stopifnot(
+  identical(evidence$level, "descriptive"),
+  "reference_d1_provenance_is_not_external_or_out_of_fold" %in% evidence$reasons
+)
 
 # Exact paired sign-flip tests use the exact tail proportion, without the
 # Monte Carlo +1 correction. Four same-direction clusters have p = 2 / 16.

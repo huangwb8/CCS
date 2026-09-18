@@ -1,0 +1,22 @@
+unit_id: 01.00.00
+cache_identity: d53c4f84ff1b0481adf08ebce1b03b96
+product_identity: f4ec21800b758500b9f0aa68b1c4dc31
+output_contract_version: 1
+elapsed_seconds: .na.real
+output_structure:
+  class: list
+  dimensions: ~
+  length: 4
+  names:
+  - stage
+  - cache_root_env
+  - output_files
+  - receipt_md5
+  column_types: ~
+  missing_by_column: ~
+outputs:
+- path: main.rds
+  md5: ed0bf0e577ffa34c8e831c93cf9f90e7
+- path: summary.md
+  md5: 6ff4c0a9b66f42c5f2749ed5abe7315c
+external_cache_stage: 01-data

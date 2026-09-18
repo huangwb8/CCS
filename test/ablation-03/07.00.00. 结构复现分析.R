@@ -1,11 +1,11 @@
 # Evaluate the original reciprocal structural design using prepared inputs only.
 options(stringsAsFactors = FALSE, device = function(...) grDevices::pdf(file = NULL))
-bootstrap <- c("00-workflow_functions.R",
-  "test/ablation-03/00-workflow_functions.R")
+bootstrap <- c(file.path("templates", "workflow_helpers.R"),
+  file.path("test", "ablation-03", "templates", "workflow_helpers.R"))
 bootstrap <- bootstrap[file.exists(bootstrap)][1L]
 if (is.na(bootstrap)) stop("Run from ablation-03 or the repository root.", call. = FALSE)
 source(bootstrap, local = TRUE)
-source(.ablation03_path("04-ablation03-structural-reproducibility_functions.R"))
+source(.ablation03_path("07.00.00. 结构复现分析_functions.R"))
 # Step 1: Freeze the reciprocal validation contract before inspecting results.
 seed <- 20260912L
 tail_fraction <- 1 / 3
@@ -13,6 +13,18 @@ min_entity_n <- 8L
 min_shared_entities <- 8L
 n_boot <- 2000L
 matched_repeats <- 20L
+stage_parameters <- list(
+  seed = seed,
+  tail_fraction = tail_fraction,
+  min_entity_n = min_entity_n,
+  min_shared_entities = min_shared_entities,
+  n_boot = n_boot,
+  matched_repeats = matched_repeats
+)
+if (.wf_cache_hit("ablation-structural-reproducibility", stage_parameters)) {
+  quit(save = "no", status = 0L)
+}
+.wf_begin("ablation-structural-reproducibility", stage_parameters)
 output_dir <- .wf_output("ablation-structural-reproducibility")
 dir.create(output_dir, recursive = TRUE, showWarnings = FALSE)
 
@@ -352,12 +364,14 @@ saveRDS(
 forward_all <- forward_result$summary[
   forward_result$summary$scope == "all_cohort_pairs", , drop = FALSE
 ]
-.ae_write_stage_receipt(output_dir,
+.wf_receipt("ablation-structural-reproducibility", "07.00.00. 结构复现分析",
   inputs = c(.wf_output("ablation-experiment", "stage-receipt.rds"),
     .wf_output("01-biology", "stage-receipt.rds"),
-    .wf_output("01-representations", "stage-receipt.rds"), .wf_path("00-workflow_functions.R"),
-    .wf_path("04-ablation03-structural-reproducibility.R"),
-    .ablation03_path("04-ablation03-structural-reproducibility_functions.R")),
+    .wf_output("01-representations", "stage-receipt.rds"),
+    .wf_path("templates", "workflow_helpers.R"),
+    .wf_path("07.00.00. 结构复现分析.R"),
+    .ablation03_path("07.00.00. 结构复现分析_functions.R"),
+    .ablation03_repo_path("R", "ablation.R")),
   outputs = list.files(output_dir, pattern = "^(structural_|ablation03-structural).*\\.(csv|rds)$", full.names = TRUE))
 reverse_all <- reverse_result$summary[
   reverse_result$summary$scope == "all_cohort_pairs", , drop = FALSE

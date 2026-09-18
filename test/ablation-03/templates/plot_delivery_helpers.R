@@ -16,6 +16,15 @@ bensz_run_dir <- function(root_dir, prefix = "ablation-experiment") {
   normalizePath(run_dir, winslash = "/", mustWork = TRUE)
 }
 
+bensz_preview_root <- function(configured = NULL) {
+  if (!is.null(configured) && length(configured) == 1L && nzchar(configured)) {
+    return(configured)
+  }
+  task_root <- Sys.getenv("BENSZ_TASK_ROOT", unset = "")
+  if (nzchar(task_root)) return(file.path(task_root, "bensz-rmd-rules", "output", "plot-previews"))
+  .wf_output("plot-previews")
+}
+
 bensz_pdf_to_jpg <- function(pdf_path, jpg_path, dpi = 200L) {
   dir.create(dirname(jpg_path), recursive = TRUE, showWarnings = FALSE)
   if (file.exists(jpg_path)) {

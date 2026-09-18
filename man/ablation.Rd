@@ -25,10 +25,10 @@ each leaf can be an expression matrix or a list containing \code{expr}.}
 biological-label columns. Common CCS column names are recognized.}
 
 \item{experiment}{\code{"representation"} by default. The deprecated single value
-\code{"cohort"} maps to \code{"representation"} with a warning. Explicit legacy
-requests may contain one or more of \code{"cohort"}, \code{"scaling"},
-\code{"tissue_first"}, and \code{"metaccs"}; \code{"representation"} cannot be mixed with
-legacy experiments.}
+\code{"cohort"} maps to \code{"representation"} with a warning. Layered requests may
+contain one or more of \code{"scaling"}, \code{"tissue_first"},
+and \code{"metaccs"}; \code{"representation"} cannot be mixed with layered
+experiments.}
 
 \item{output.dir}{Independent output directory. Existing CCS products are
 never overwritten.}
@@ -36,9 +36,9 @@ never overwritten.}
 \item{params}{Named nested list. For \code{"representation"}, values are merged
 onto \code{.ablation_representation_default_params(seed)} under \code{comparison},
 \code{provenance}, \code{anchors}, \code{geometry}, \code{validation}, \code{controls}, \code{tradeoffs},
-and \code{output}. For explicit legacy experiments, values are merged onto
+and \code{output}. For layered experiments, values are merged onto
 \code{.ablation_default_params(seed)} under \code{general}, \code{cohort}, \code{scaling},
-\code{tissue_first}, and \code{metaccs}; existing flat legacy names remain accepted.
+\code{tissue_first}, and \code{metaccs}; existing flat parameter names remain accepted.
 Unknown fields are rejected before computation.
 
 Representation-specific cohort-bank scaling settings:
@@ -123,6 +123,12 @@ represented in at least two cohorts are excluded. Default: \code{"tissue"}.}
 linear probe. Default: \code{50L}.}
 \item{\code{general$numCores}}{Positive thread count passed to the XGBoost probe.
 Default: \code{1L}.}
+\item{\code{validation$numCores}}{Positive XGBoost thread count used by each
+representation readout worker. Default: \code{1L}.}
+\item{\code{validation$workers}}{Positive PSOCK worker count for independent
+learning-curve jobs. The default \code{1L} preserves serial execution;
+callers should divide their total CPU budget between workers and
+\code{validation$numCores} to avoid oversubscription.}
 }
 
 Experiment 1 null-control settings:
@@ -263,8 +269,8 @@ Output handling:
 \describe{
 \item{\code{output$cache_direct}}{Logical; persist the reconstructed
 Direct-GSClassifier matrix in \code{direct-feature-cache.rds} and reuse it
-only when expression, sample, model, and feature-contract hashes match.
-Default: \code{TRUE}.}
+only when the expression, sample, model, and feature-contract hashes
+all match. Default: \code{TRUE}.}
 \item{\code{general$cover}}{Logical; allow writing into a non-empty \code{output.dir} and
 replacing same-named ablation result files. Default: \code{FALSE}.}
 }}
@@ -279,13 +285,13 @@ An object of class \code{CCSAblation}.
 \description{
 Evaluate the frozen CCS representation without retraining cohort submodels.
 The default \code{"representation"} experiment reconstructs the complete native
-GSClassifier input, reuses matching frozen d1 rows, and excludes filtered query
-samples without precomputed d1,
+GSClassifier input and reuses only matching precomputed d1 rows. Filtered
+query samples absent from the object are reported and excluded,
 and compares Direct-GSClassifier with Cohort-d1 on independent
 query-to-reference retrieval, grouped linear readout, paired learning curves,
-null controls, and feature-type reconstruction. Explicit requests for the
-legacy scaling, tissue-first, and metaCCS experiments remain available during
-the API transition. All stochastic operations are paired across comparison
+null controls, and feature-type reconstruction. The layered \code{"scaling"},
+\code{"tissue_first"}, and \code{"metaccs"} experiments are available through the
+same entry point. All stochastic operations are paired across comparison
 groups and recorded in an audit table.
 }
 \author{

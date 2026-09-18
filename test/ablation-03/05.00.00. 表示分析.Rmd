@@ -8,7 +8,7 @@ params:
   min_cohort_n: 20
   interpret_top_n: 3
   plot_language: "en"
-  plot_run_dir: "tmp/plot-previews"
+  plot_run_dir: ~
   plot_preview_dpi: 200
   inference_bootstrap: 2000
   inference_seed: 20260829
@@ -17,7 +17,7 @@ output:
     toc: true
     toc_float: true
     toc_depth: 3
-    number_sections: false
+    number_sections: true
     theme: default
     highlight: tango
     code_folding: show
@@ -38,8 +38,8 @@ knitr::opts_chunk$set(
   message = FALSE,
   fig.align = "center"
 )
-bootstrap <- c("00-workflow_functions.R",
-  "test/ablation-03/00-workflow_functions.R")
+bootstrap <- c(file.path("templates", "workflow_helpers.R"),
+  file.path("test", "ablation-03", "templates", "workflow_helpers.R"))
 bootstrap <- bootstrap[file.exists(bootstrap)][1L]
 if (is.na(bootstrap)) stop("Run from ablation-03 or the repository root.", call. = FALSE)
 source(bootstrap, local = TRUE)
@@ -52,10 +52,14 @@ fmt <- function(x, digits = 3L) formatC(x, digits = digits, format = "f")
 fmt_pct <- function(x, digits = 1L) paste0(fmt(100 * x, digits), "%")
 fmt_p <- function(x) ifelse(is.finite(x), format.pval(x, digits = 3, eps = 1e-3), "NA")
 fmt_ci <- function(x) paste0("[", fmt(x$ci_low), ", ", fmt(x$ci_high), "]")
-result_dir <- .ablation03_path("tmp", "ablation-experiment")
+result_dir <- .wf_output("ablation-experiment")
 data_profile_path <- file.path(result_dir, "data-profile.rds")
-data_report_name <- "01-ablation03-data-overview.Rmd"
-data_report_html_name <- "01-ablation03-data-overview.html"
+data_report_name <- "04.00.00. 数据概览.Rmd"
+data_report_html_name <- "04.00.00. 数据概览.html"
+representation_input_script_name <- "02.00.00. 表示输入准备.R"
+representation_functions_name <- "05.00.00. 表示分析_functions.R"
+biology_report_name <- "06.00.00. 生物锚点分析"
+structure_report_name <- "07.00.00. 结构复现分析"
 required_results <- c(
   data_profile_path,
   file.path(
@@ -110,6 +114,13 @@ geometry_metrics$metric_label <- c(
 geometry_inference <- .ae_geometry_inference(native_geometry)
 
 retrieval_cohort_delta <- .ae_retrieval_cohort_delta(retrieval, params$display_k)
+table_dir <- .ablation03_report_path("tables")
+dir.create(table_dir, recursive = TRUE, showWarnings = FALSE)
+utils::write.csv(
+  retrieval_cohort_delta,
+  file.path(table_dir, "05.00.00. retrieval-cohort-delta.csv"),
+  row.names = FALSE
+)
 retrieval_delta_main <- retrieval_cohort_delta[
   retrieval_cohort_delta$metric == "delta_top_k_label_rate" &
     retrieval_cohort_delta$sample_count >= params$min_cohort_n,
@@ -630,14 +641,39 @@ direct_top_k_rate <- retrieval$summary$top_k_label_rate[
   retrieval$summary$k == params$display_k &
     retrieval$summary$representation == "Direct-GSClassifier"
 ]
+primary_signal_table <- data.frame(
+  endpoint = c("retrieval top-k label rate", "readout cohort accuracy"),
+  estimate = c(retrieval_cohort_mean_delta, readout_inference_delta),
+  stringsAsFactors = FALSE
+)
+primary_top_signal <- primary_signal_table[
+  which.max(abs(primary_signal_table$estimate)),
+  ,
+  drop = FALSE
+]
+readout_cohort_row <- readout_inference[
+  readout_inference$endpoint == "cohort_accuracy",
+  ,
+  drop = FALSE
+]
+technical_top_signal <- technical_inference[
+  which.max(abs(technical_inference$estimate)),
+  ,
+  drop = FALSE
+]
+decoder_gene_pair_accuracy <- decoder_summary$balanced_accuracy[
+  decoder_summary$feature_type == "gene_pair"
+]
 if (cohort_scaling$status != "complete") stop("Incomplete representation scaling result.")
-figure_dir <- .ablation03_path("figures")
+figure_dir <- .ablation03_report_path("figures")
 dir.create(figure_dir, recursive = TRUE, showWarnings = FALSE)
-preview_dir <- bensz_run_dir(.ablation03_path(params$plot_run_dir),
-  prefix = "02-ablation03-representation")
+preview_dir <- bensz_run_dir(bensz_preview_root(params$plot_run_dir),
+  prefix = "05.00.00-representation")
 ```
 
 本报告比较同一批样本的 Direct-GSClassifier 特征与 CCS 对象中**已经计算好的 d1 概率表示**。本次修订统一了 readout 的训练/测试尺度，扩展连续 anchor 到全部候选 query，并核验本模块的输入与结果指纹。报告没有重新训练 cohort 模型，也没有重新预测原始 d1。
+
+当前证据等级为 `r manifest$evidence_level`。reference d1 来源为 `r paste(ablation_result$evidence$reference_provenance, collapse = ", ")`，query d1 来源为 `r paste(ablation_result$evidence$query_provenance, collapse = ", ")`。由于 reference 表示包含 in-sample 生成路径，而 query 使用冻结外部预测，两侧来源不对称；因此本报告只作描述性外部评价，不把检索库或 readout 结果标为确认性证据。
 
 ## 数据概览
 
@@ -646,11 +682,12 @@ preview_dir <- bensz_run_dir(.ablation03_path(params$plot_run_dir),
 ```{r data-overview-table}
 # Purpose: Expose the exact data and representation contract used by all analyses.
 # Input: manifest.rds.
-# Parameters: Eleven visible rows; horizontal scrolling retained for audit fields.
+# Parameters: Twelve visible rows; horizontal scrolling retained for audit fields.
 # Output: Interactive data overview table.
 overview_table <- data.frame(
   item = c(
     "Evidence level",
+    "Evidence limitation",
     "Reference samples",
     "External query samples",
     "Reference cohorts",
@@ -664,6 +701,7 @@ overview_table <- data.frame(
   ),
   value = c(
     manifest$evidence_level,
+    paste(manifest$evidence_reasons, collapse = "; "),
     manifest$reference_sample_count,
     manifest$query_sample_count,
     manifest$reference_cohort_count,
@@ -677,7 +715,7 @@ overview_table <- data.frame(
   ),
   stringsAsFactors = FALSE
 )
-render_dt(overview_table, pageLength = 11)
+render_dt(overview_table, pageLength = 12)
 ```
 
 解读：当前结果显示，表中 Direct 的 `r manifest$direct_feature_count` 个特征与 d1 的 `r manifest$d1_feature_count` 个输出列代表不同表示维度；维度多不等于性能更好。癌种可估计队列数 `r manifest$query_cohort_count` 与全部候选队列数 `r manifest$external_candidate_cohort_count` 分别对应不同分析总体，不能互换。这里展示的是两种表示在相同样本身份下的输入规模差异，提示后续比较必须保持样本对齐。癌种支持不足的队列仍可用于连续表达评价，所以不能根据分类子集的规模推断全部候选样本的分析覆盖。
@@ -686,10 +724,10 @@ render_dt(overview_table, pageLength = 11)
 
 | 过程 | 函数与关键参数 | 本次约定 | 源代码 |
 |---|---|---|---|
-| Direct 与 d1 输入 | `.ablation_prepare_representation_input()` | 由 01b 准备冻结 Direct 特征和已有 d1；分析只读取缓存 | `R/ablation.R` |
+| Direct 与 d1 输入 | `.ablation_prepare_representation_input()` | 由 `r representation_input_script_name` 准备冻结 Direct 特征和已有 d1；分析只读取缓存 | `R/ablation.R` |
 | 癌种检索 | `.ablation_query_reference_retrieval()`；k=`r params$display_k` | 仅使用癌种可估计 query，排除同队列邻居 | `R/ablation.R` |
 | 癌种 readout | `.ablation_linear_readout()`；`r manifest$config$validation$inner_folds` 折 grouped CV | 两臂均传入原始表示；每个训练折与最终模型各自拟合一次尺度 | `R/ablation.R` |
-| 来源一致性 | `.ae_validate_stage_receipt()` | 渲染前验证表示分析及其准备阶段的源代码与产物指纹，变化时停止 | `02-ablation03-representation_functions.R` |
+| 来源一致性 | `.ae_validate_stage_receipt()` | 渲染前验证表示分析及其准备阶段的源代码与产物指纹，变化时停止 | `r representation_functions_name` |
 
 ## 指标导读
 
@@ -700,11 +738,11 @@ render_dt(overview_table, pageLength = 11)
 | Cohort accuracy 与 pooled balanced accuracy | 前者对外部队列等权，后者对合并样本中的癌种召回率等权；权重不同可能产生不同方向 |
 | Technical excess | 同技术来源邻居比例减同癌种 reference 的基准比例；两臂相减时共同基准抵消，不能独立证明去技术噪声 |
 | d1−Direct | 正值表示该指标 d1 较大，负值表示 Direct 较大；好坏还取决于指标定义 |
-| 95% CI 与校正 P 值 | 表达效应不确定性与多重比较；CI 跨零不等于等价、非劣效或没有信息损失 |
+| `r "95%"` CI 与校正 P 值 | 表达效应不确定性与多重比较；CI 跨零不等于等价、非劣效或没有信息损失 |
 
 癌种 readout、retrieval、technical excess 的主要效应均以外部 query cohort 为单位，先算每队列的 d1−Direct 差，再对队列等权平均。区间采用 `r params$inference_bootstrap` 次 cohort bootstrap 的百分位区间。双侧 sign-flip 检验在队列数不超过 `r 18L` 时枚举全部符号组合，P 值直接取尾部比例；更多队列时使用 Monte Carlo，并按“尾部次数加一／模拟次数加一”校正。该检验依赖零假设下差值符号可交换的假设，不能替代随机实验。癌种指标和技术字段在各自检验族内使用 Holm 校正，具体采用的方法见表中 `p_method`。
 
-学习曲线和 bank scaling 的重复单位是训练或模块设计，固定了当前 query 人群；它们的区间描述设计敏感性。生物学与结构结果分别见同目录的 03、04 报告。
+学习曲线和 bank scaling 的重复单位是训练或模块设计，固定了当前 query 人群；它们的区间描述设计敏感性。生物学与结构结果分别见同目录的 `r biology_report_name`、`r structure_report_name` 报告。
 
 ## d1 对原生空间的改写
 
@@ -756,7 +794,7 @@ p1 <- ggplot2::ggplot(
 # above bars, and the non-estimable inference note is moved to the caption so it
 # does not cover the data bars in PDF/JPG rendering.
 fig1_jpg <- .ae_save_plot(
-  p1, "figure-01-native-geometry", figure_dir, preview_dir, fig1,
+  p1, "05.00.00. native-geometry", figure_dir, preview_dir, fig1,
   params$plot_preview_dpi
 )
 knitr::include_graphics(fig1_jpg)
@@ -908,7 +946,7 @@ p2 <- ggplot2::ggplot(
 # Readability check: cohort labels use a tall canvas, the zero line makes gain/loss
 # direction explicit, and the bottom legend does not cover data.
 fig2_jpg <- .ae_save_plot(
-  p2, "figure-02-external-retrieval-cohort-delta", figure_dir,
+  p2, "05.00.00. external-retrieval-cohort-delta", figure_dir,
   preview_dir, fig2, params$plot_preview_dpi
 )
 knitr::include_graphics(fig2_jpg)
@@ -1020,7 +1058,7 @@ p3 <- ggplot2::ggplot(
 # Readability check: one metric avoids a redundant legend; a tall canvas keeps
 # cohort names readable and the zero line exposes the sign of every paired effect.
 fig3_jpg <- .ae_save_plot(
-  p3, "figure-03-external-readout-cohort-delta", figure_dir,
+  p3, "05.00.00. external-readout-cohort-delta", figure_dir,
   preview_dir, fig3, params$plot_preview_dpi
 )
 knitr::include_graphics(fig3_jpg)
@@ -1106,7 +1144,7 @@ p4 <- ggplot2::ggplot(
 # Readability check: four x ticks remain sparse, ribbons carry cohort/design-repeat
 # bootstrap uncertainty, and the external legend avoids covering either curve.
 fig4_jpg <- .ae_save_plot(
-  p4, "figure-04-paired-learning-curve", figure_dir,
+  p4, "05.00.00. paired-learning-curve", figure_dir,
   preview_dir, fig4, params$plot_preview_dpi
 )
 knitr::include_graphics(fig4_jpg)
@@ -1165,7 +1203,7 @@ p10 <- ggplot2::ggplot(
 # Readability check: endpoints are short and ordered by analysis module; the
 # horizontal intervals expose zero-crossing directly without overlapping labels.
 fig10_jpg <- .ae_save_plot(
-  p10, "figure-10-inference-summary", figure_dir, preview_dir, fig10,
+  p10, "05.00.00. inference-summary", figure_dir, preview_dir, fig10,
   params$plot_preview_dpi
 )
 knitr::include_graphics(fig10_jpg)
@@ -1244,7 +1282,7 @@ p8 <- ggplot2::ggplot(
 # x scale is shared across breadth/depth panels; panel heights are not interpreted
 # as cross-metric effect sizes.
 fig8_jpg <- .ae_save_plot(
-  p8, "figure-08-cohort-evidence-sequences", figure_dir,
+  p8, "05.00.00. cohort-evidence-sequences", figure_dir,
   preview_dir, fig8, params$plot_preview_dpi
 )
 knitr::include_graphics(fig8_jpg)
@@ -1321,7 +1359,7 @@ p9 <- ggplot2::ggplot(
 # scales prevent small stability differences being flattened, and 45-degree x
 # labels separate the dense 75/100/125-module ticks without hiding grid cells.
 fig9_jpg <- .ae_save_plot(
-  p9, "figure-09-cohort-evidence-matched", figure_dir,
+  p9, "05.00.00. cohort-evidence-matched", figure_dir,
   preview_dir, fig9, params$plot_preview_dpi
 )
 knitr::include_graphics(fig9_jpg)
@@ -1419,7 +1457,7 @@ p5 <- ggplot2::ggplot(
 # and a horizontal zero line separates reduced from increased technical clustering;
 # the redundant color legend is removed because the x-axis already names each factor.
 fig5_jpg <- .ae_save_plot(
-  p5, "figure-05-technical-neighbor-excess", figure_dir,
+  p5, "05.00.00. technical-neighbor-excess", figure_dir,
   preview_dir, fig5, params$plot_preview_dpi
 )
 knitr::include_graphics(fig5_jpg)
@@ -1490,7 +1528,7 @@ p6 <- ggplot2::ggplot(
 # Readability check: only the top 20 modules are labeled, horizontal bars protect
 # tissue|cohort names from clipping, and the vector PDF preserves small text.
 fig6_jpg <- .ae_save_plot(
-  p6, "figure-06-module-variance-concentration", figure_dir,
+  p6, "05.00.00. module-variance-concentration", figure_dir,
   preview_dir, fig6, params$plot_preview_dpi
 )
 knitr::include_graphics(fig6_jpg)
@@ -1585,7 +1623,7 @@ p7 <- ggplot2::ggplot(
 # Readability check: facets isolate the three feature contracts, direct metric
 # labels replace a five-item legend, and values remain readable at print size.
 fig7_jpg <- .ae_save_plot(
-  p7, "figure-07-feature-type-reconstruction", figure_dir,
+  p7, "05.00.00. feature-type-reconstruction", figure_dir,
   preview_dir, fig7, params$plot_preview_dpi
 )
 knitr::include_graphics(fig7_jpg)
@@ -1595,13 +1633,15 @@ knitr::include_graphics(fig7_jpg)
 
 ## 讨论与分析
 
-**当前结果回答的是表示改变了什么，以及这些改变在不同评估任务中的代价或收益。** 本次结果显示，在癌种检索上，top-k 的 cohort 等权差为 `r fmt(retrieval_cohort_mean_delta)`。本次结果显示，在分类上，cohort accuracy 差为 `r fmt(readout_inference_delta)`，其 95% CI 为 `r fmt_ci(readout_inference[readout_inference$endpoint == "cohort_accuracy", ])`。这两类结果均围绕已有癌种标签，不能直接评价新的个性化亚型。
+**当前结果回答的是表示改变了什么，以及这些改变在不同评估任务中的代价或收益。** 本次结果显示，在癌种检索上，top-k 的 cohort 等权差为 `r fmt(retrieval_cohort_mean_delta)`。本次结果显示，在分类上，cohort accuracy 差为 `r fmt(readout_inference_delta)`，其 `r "95%"` CI 为 `r fmt_ci(readout_cohort_row)`。这两类结果均围绕已有癌种标签，不能直接评价新的个性化亚型。
+
+本次结果显示，两个主要癌种端点中的最强信号是 `r primary_top_signal$endpoint`，d1−Direct 差为 `r fmt(primary_top_signal$estimate)`；这里的“最强”仅按当前两个预设端点的绝对差排序，不扩展为确认性结论。
 
 本次修复消除了 query 重复标准化、癌种资格向连续 anchor 的传递、非配对缺失导致的组成差、历史组织名用于 bank 设计及不同结果批次混用等路径。原始 d1 仍直接来自冻结 CCS 对象。修复后的结果取代旧 readout、learning curve 和 anchor 数值；旧报告的方向性结论不应继续引用。
 
-**局限主要是外部 cohort 数量、表达 anchor 与表示输入的共同来源，以及固定 atlas 下的设计敏感性。** Technical excess 不是去技术噪声的因果证据；反向结构检查也不是所有特征确定环节均外部化的对称验证。CI 跨零不证明等价或非劣效，decoder 误差不证明信息不可逆。
+**局限主要是 reference d1 的 in-sample 来源与 query 冻结外部预测之间的不对称、`r manifest$query_cohort_count` 个外部可估计 cohort、表达 anchor 与表示输入的共同来源，以及固定 atlas 下的设计敏感性。** 在获得 reference out-of-fold 或 leave-own-cohort-model-out d1 前，所有比较均维持描述性等级。Technical excess 中绝对差最大的字段为 `r technical_top_signal$technical_factor`，效应为 `r fmt(technical_top_signal$estimate)`，但这不是去技术噪声的因果证据；反向结构检查也不是所有特征选择环节均外部化的对称验证。当前 readout cohort accuracy CI 为 `r fmt_ci(readout_cohort_row)`，其稳定性边界不能证明等价或非劣效；gene-pair decoder 的 balanced accuracy 为 `r fmt(decoder_gene_pair_accuracy)`，且尚未进行更强 decoder 的敏感性分析，因此该误差不能证明信息不可逆。
 
-下一步适合在预先选定的独立 pathway、治疗反应或 outcome 目标上验证效用，固定癌种与技术构成后检查共享结构能否迁移。若要证明生物结构基本保留，应先给出科学上可接受的损失界值，再以独立 cohort 的区间作非劣效判断，避免事后按当前结果选择标准。
+下一步适合在预先选定的独立 pathway、治疗反应或 outcome 目标上验证效用，固定癌种与技术构成后检查共享结构能否迁移。若要评价生物结构是否基本保留，应先给出科学上可接受的损失界值，再以独立 cohort 的区间作非劣效判断，避免事后按当前结果选择标准。
 
 ## 数字准确性验证
 

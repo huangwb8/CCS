@@ -5,14 +5,14 @@ date: "`r Sys.Date()`"
 params:
   interpret_top_n: 3
   plot_language: "en"
-  plot_run_dir: "tmp/plot-previews"
+  plot_run_dir: ~
   plot_preview_dpi: 200
 output:
   html_document:
     toc: true
     toc_float: true
     toc_depth: 3
-    number_sections: false
+    number_sections: true
     theme: default
     highlight: tango
     code_folding: show
@@ -33,13 +33,13 @@ knitr::opts_chunk$set(
   fig.align = "center"
 )
 if (.Platform$OS.type == "windows") Sys.setlocale("LC_CTYPE", "Chinese_China.utf8")
-bootstrap <- c("00-workflow_functions.R",
-  "test/ablation-03/00-workflow_functions.R")
+bootstrap <- c(file.path("templates", "workflow_helpers.R"),
+  file.path("test", "ablation-03", "templates", "workflow_helpers.R"))
 bootstrap <- bootstrap[file.exists(bootstrap)][1L]
 if (is.na(bootstrap)) stop("Run from ablation-03 or the repository root.", call. = FALSE)
 source(bootstrap, local = TRUE)
-source(.ablation03_path("01a-ablation03-prepare-data_functions.R"))
-source(.ablation03_path("02-ablation03-representation_functions.R"))
+source(.ablation03_path("01.00.00. 数据准备_functions.R"))
+source(.ablation03_path("05.00.00. 表示分析_functions.R"))
 source(.ablation03_path("templates", "nature_colors.R"))
 source(.ablation03_path("templates", "nature_theme.R"))
 source(.ablation03_path("templates", "plot_delivery_helpers.R"))
@@ -49,33 +49,38 @@ result_dir <- .wf_output("01-data")
 .wf_validate(result_dir)
 .wf_validate(.wf_output("01-biology"))
 profile_path <- file.path(result_dir, "data-profile.rds")
-data_script_name <- "01a-ablation03-prepare-data.R"
-data_functions_name <- "01a-ablation03-prepare-data_functions.R"
-experiment_report_name <- "02-ablation03-representation.Rmd"
+data_script_name <- "01.00.00. 数据准备.R"
+data_functions_name <- "01.00.00. 数据准备_functions.R"
+experiment_report_name <- "05.00.00. 表示分析.Rmd"
 data_profile <- readRDS(profile_path)
 
-biology_cache_path <- .ablation03_path(
-  "tmp", "01-biology", "expression-anchor-cache.rds"
-)
+biology_cache_path <- .wf_output("01-biology", "expression-anchor-cache.rds")
 if (!file.exists(biology_cache_path)) {
   stop(
-    "ablation-03: biology cache is missing; run 01c-ablation03-prepare-biology.R first.",
+    "ablation-03: biology cache is missing; run 03.00.00. 生物输入准备.R first.",
     call. = FALSE
   )
 }
 biology_cache <- readRDS(biology_cache_path)
 biology_profile <- .atd_biology_profile(biology_cache)
 
-figure_dir <- .ablation03_path("figures")
+figure_dir <- .ablation03_report_path("figures")
+table_dir <- .ablation03_report_path("tables")
 dir.create(figure_dir, recursive = TRUE, showWarnings = FALSE)
+dir.create(table_dir, recursive = TRUE, showWarnings = FALSE)
+utils::write.csv(
+  data_profile$tissue_totals,
+  file.path(table_dir, "04.00.00. tissue-summary.csv"),
+  row.names = FALSE
+)
 preview_dir <- bensz_run_dir(
-  .ablation03_path(params$plot_run_dir),
-  prefix = "01-ablation-test-data"
+  bensz_preview_root(params$plot_run_dir),
+  prefix = "04.00.00-data-overview"
 )
 
 profile_value <- function(item) .atd_profile_value(data_profile, item)
 find_source_line <- function(pattern) .atd_find_source_line(
-  "01a-ablation03-prepare-data_functions.R",
+  "01.00.00. 数据准备_functions.R",
   pattern
 )
 
@@ -133,6 +138,23 @@ external_sample_count <- sum(
   data_profile$tissue_profile$sample_count[
     data_profile$tissue_profile$analysis_set == "external_query"
   ]
+)
+biology_anchor_rank <- biology_profile$anchor_summary[
+  order(
+    biology_profile$anchor_summary$median_coverage,
+    biology_profile$anchor_summary$min_coverage,
+    decreasing = TRUE
+  ),
+  ,
+  drop = FALSE
+]
+biology_top_anchor_signal <- paste(
+  utils::head(biology_anchor_rank$anchor, params$interpret_top_n),
+  scales::label_percent(accuracy = 0.1)(
+    utils::head(biology_anchor_rank$median_coverage, params$interpret_top_n)
+  ),
+  sep = " = ",
+  collapse = "；"
 )
 ```
 
@@ -232,7 +254,7 @@ p_data1 <- ggplot2::ggplot(
 # Readability check: horizontal bars protect tissue labels from overlap; the
 # tall canvas and external legend keep small and large strata visible.
 fig_data1_jpg <- .atd_save_plot(
-  p_data1, "figure-data-01-tissue-composition", figure_dir,
+  p_data1, "04.00.00. tissue-composition", figure_dir,
   preview_dir, fig_data1, params$plot_preview_dpi
 )
 knitr::include_graphics(fig_data1_jpg)
@@ -301,7 +323,7 @@ p_data2 <- ggplot2::ggplot(
 # Readability check: the log scale preserves rare tissues, while labels are
 # restricted to the largest tissues to prevent collisions.
 fig_data2_jpg <- .atd_save_plot(
-  p_data2, "figure-data-02-cohort-scale", figure_dir,
+  p_data2, "04.00.00. cohort-scale", figure_dir,
   preview_dir, fig_data2, params$plot_preview_dpi
 )
 knitr::include_graphics(fig_data2_jpg)
@@ -309,7 +331,7 @@ knitr::include_graphics(fig_data2_jpg)
 
 #### 结果解读
 
-当前数据结果显示，各 tissue 的 cohort 数与样本数存在跨量级差异；最大单一 cohort 为 `r largest_cohort$tissue` / `r largest_cohort$cohort`，含 `r largest_cohort$sample_count` 个样本。该差异表明样本多不等于独立外部证据更充分，一个大 cohort 可能在样本级汇总中压过多个较小 cohort。稳健性分析采用 cohort-level bootstrap 和 leave-one-cohort-out；若移除最大 cohort 后效应方向翻转，则总体均值不作为跨队列结论。
+当前数据结果显示，各 tissue 的 cohort 数与样本数存在跨量级差异；最大单一 cohort 为 `r largest_cohort$tissue` / `r largest_cohort$cohort`，含 `r largest_cohort$sample_count` 个样本。该差异表明样本多不等于独立外部证据更充分，一个大 cohort 可能在样本级汇总中压过多个较小 cohort。当前画像包含 `r raw_cohort_count` 个 cohort，主分析采用 cohort 等权汇总与 cohort-level bootstrap；尚未实施 leave-one-cohort-out，因此不能声称已验证移除最大 cohort 后的方向稳定性，该检查应作为后续独立敏感性分析。
 
 还需要查看数据来源，因为同一平台或数据库的样本可能共享测量偏差。下面的热图按 tissue 内部归一化，帮助识别是否存在单一 source 主导；这类 tissue 的差异可能同时包含生物差异和来源差异，不能直接视为多次独立重复。
 
@@ -355,7 +377,7 @@ p_data3 <- ggplot2::ggplot(
 # Readability check: a tall canvas preserves tissue labels, white borders
 # separate cells, and the source legend remains outside the heatmap.
 fig_data3_jpg <- .atd_save_plot(
-  p_data3, "figure-data-03-source-composition", figure_dir,
+  p_data3, "04.00.00. source-composition", figure_dir,
   preview_dir, fig_data3, params$plot_preview_dpi
 )
 knitr::include_graphics(fig_data3_jpg)
@@ -363,11 +385,11 @@ knitr::include_graphics(fig_data3_jpg)
 
 #### 结果解读
 
-当前数据结果显示，在 `r nrow(tissue_totals)` 个 tissue 中，GEO、cBioPortal 与 UCSC Xena 的支撑比例存在明显差异；图中按 tissue 内部归一化，避免大样本组织遮蔽小组织。**该差异提示，单一 source 占主导的 tissue 不能被当作生物学重复。** 跨来源验证以 `r tissue_totals$tissue[1]`、`r tissue_totals$tissue[2]` 和 `r tissue_totals$tissue[3]` 的 source 分层数据为输入，方法为 leave-one-source-out，判据为移除主要来源后效应方向仍一致。
+当前数据结果显示，在 `r nrow(tissue_totals)` 个 tissue 中，GEO、cBioPortal 与 UCSC Xena 的支撑比例存在明显差异；图中按 tissue 内部归一化，避免大样本组织遮蔽小组织。**该差异提示，单一 source 占主导的 tissue 不能被当作生物学重复。** 当前结果只完成 source 构成审计，leave-one-source-out 敏感性分析的已完成轮数为 `r 0L`；后续跨来源验证应以 source 分层数据为输入，并预设“移除主要来源后效应方向仍一致”的判据。
 
 ## Biology anchor 数据审计
 
-上面的主数据画像来自 `r main_feature_count` 特征表达数据；本节单独核对 biology anchor 所依赖的完整表达矩阵入口。完整矩阵由 `01c-ablation03-prepare-biology.R` 一次性读取，再按冻结的四类 gene signature 提取所需基因；因此这里读取的是可追溯的派生缓存，不会在 Rmd 中重复载入大矩阵。
+上面的主数据画像来自 `r main_feature_count` 特征表达数据；本节单独核对 biology anchor 所依赖的完整表达矩阵入口。完整矩阵由 `03.00.00. 生物输入准备.R` 一次性读取，再按冻结的四类 gene signature 提取所需基因；因此这里读取的是可追溯的派生缓存，不会在 Rmd 中重复载入大矩阵。
 
 当前缓存状态为 `r biology_cache$status`，来源文件为 `r biology_profile$source_file`，包含 `r biology_profile$required_gene_count` 个唯一 anchor 基因、`r biology_profile$anchor_count` 类 anchor、`r biology_profile$cohort_count` 个 cohort 和 `r biology_profile$sample_count` 个目标样本，覆盖 `r biology_profile$tissue_count` 个 tissue。这个范围由主实验的完整 reference 与候选 query 合同确定，不再只缓存被选中的邻居；经过输入对齐后，它不等同于上面的全量 `r raw_sample_count` 个原始样本。
 
@@ -390,7 +412,7 @@ render_dt(biology_anchor_summary_display, pageLength = 10)
 
 ### Anchor 覆盖率分布图
 
-每个点代表一个 cohort 的 signature 基因覆盖率，箱线表示中位数与四分位范围；各 cohort 等权，不按样本量加权。纵轴固定为 0–100%，顶部标注每类 anchor 所需的基因数和可计算 cohort 数。点的横向偏移仅用于减少重叠，不代表额外指标；同一 cohort 在四类 anchor 中重复出现，因此这些点不是独立生物学重复。
+每个点代表一个 cohort 的 signature 基因覆盖率，箱线表示中位数与四分位范围；各 cohort 等权，不按样本量加权。纵轴固定为 `r paste(scales::label_percent(accuracy = 1)(c(0, 1)), collapse = "–")`，顶部标注每类 anchor 所需的基因数和可计算 cohort 数。点的横向偏移仅用于减少重叠，不代表额外指标；同一 cohort 在四类 anchor 中重复出现，因此这些点不是独立生物学重复。
 
 ```{r figure-data-biology-anchor-coverage, interp_check=TRUE}
 # Purpose: Audit the full cohort-level signature coverage distribution.
@@ -443,7 +465,7 @@ p_data4 <- ggplot2::ggplot(
     legend_position = "bottom"
   )
 fig_data4_jpg <- .atd_save_plot(
-  p_data4, "figure-data-04-biology-anchor-coverage", figure_dir,
+  p_data4, "04.00.00. biology-anchor-coverage", figure_dir,
   preview_dir, fig_data4, params$plot_preview_dpi
 )
 knitr::include_graphics(fig_data4_jpg)
@@ -455,7 +477,7 @@ knitr::include_graphics(fig_data4_jpg)
 
 #### 结果解读
 
-观察：四类 anchor 在当前缓存中共有 `r nrow(biology_profile$coverage)` 条 cohort-anchor 审计记录，其中 `r sum(biology_profile$coverage$status == "estimable")` 条达到可计算条件。The table displays coverage differences across anchors and indicates which cohorts are estimable. 结论：这里的基因覆盖率审计回答的是“完整表达矩阵中是否找得到 signature 基因”，不是模型效果评价；即使覆盖率较高，也不能单独证明 anchor 在不同来源或不同组织中的生物学解释完全一致。
+观察：四类 anchor 在当前缓存中共有 `r nrow(biology_profile$coverage)` 条 cohort-anchor 审计记录，其中 `r sum(biology_profile$coverage$status == "estimable")` 条达到可计算条件。最强信号按覆盖率中位数排序，前3类为 `r biology_top_anchor_signal`。The table displays coverage differences across anchors and indicates which cohorts are estimable. 结论：这里的基因覆盖率审计回答的是“完整表达矩阵中是否找得到 signature 基因”，不是模型效果评价；跨来源敏感性分析当前完成 `r 0L` 轮，因此较高覆盖率不能单独证明 anchor 在不同来源或不同组织中的生物学解释完全一致。
 
 ### Cohort 级覆盖明细
 
@@ -476,7 +498,7 @@ render_dt(biology_coverage_display, pageLength = 15)
 
 第一阶段确认了 tissue 恢复没有改变样本总数或 cohort 总数，`r remapped_cohort_count` 个历史 `Undefined` cohort 均可追溯到已核验组织，剩余未解析样本为 `r unresolved_sample_count`。同时，reference-query 构成与 source system 明显不均衡，因此第二阶段不能把样本级重复当作独立 cohort 证据，也不能把 filtered cohort 直接等同于最终确认性 query。
 
-该审计不评价 d1 的优劣。消融实验的输入边界是保留历史 bank key 以复现冻结模型、使用恢复后的 tissue key 做分层，并对来源占主导和 cohort 规模失衡进行显式敏感性分析。biology anchor 另以完整表达矩阵派生的 `r biology_profile$required_gene_count` 个基因作为输入，当前缓存覆盖 `r biology_profile$sample_count` 个目标样本；`r experiment_report_name` 将在相同数据画像上报告真正进入外部比较的样本、cohort 和表示合同。
+该审计不评价 d1 的优劣。消融实验的输入边界覆盖 `r raw_cohort_count` 个原始 cohort：保留历史 bank key 以复现冻结模型、使用恢复后的 tissue key 做分层，并对来源占主导和 cohort 规模失衡进行显式敏感性分析。biology anchor 另以完整表达矩阵派生的 `r biology_profile$required_gene_count` 个基因作为输入，当前缓存覆盖 `r biology_profile$sample_count` 个目标样本；`r experiment_report_name` 将在相同数据画像上报告真正进入外部比较的样本、cohort 和表示合同。
 
 ## 数字准确性验证
 
