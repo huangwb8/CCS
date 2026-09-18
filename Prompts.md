@@ -14,6 +14,18 @@
 
 # 日常
 
+如果：
+
+```
+targets      管理分析依赖、缓存和断点恢复
+renv         固定 R 包环境
+Git          固定代码版本
+Quarto/Rmd   生成报告
+crew/future  并行执行
+```
+
+
+
 ---
 
 ablation-03 分析重构和优化

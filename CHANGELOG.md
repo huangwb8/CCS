@@ -6,6 +6,8 @@
 
 ## [Unreleased]
 
+- 更新项目指令：明确 ablation 重构通过包、科学等价性和 `ablation-03` 串行验收后，才递增 CCS patch 版本，并使用 `C:\R\R-4.3.1` 对应环境完成构建、检查和安装；本门禁不适用于验证前的开发迭代。
+
 - 新增 `test/ablation-03/scripts/run-fresh-analysis.ps1`，为 Windows R 4.3.1 提供隔离的全新分析缓存根目录、UTF-8 locale、受限 CPU/内存预算、可选 benchmark 与七阶段顺序入口；不覆盖既有 ablation-03 缓存。
 
 - 整理 `test/ablation-03` 目录边界：将重复的 `input/` 说明并入 `raw/`，将生物学锚点配置归入 `raw/config/`，将辅助入口从 `tools/` 统一为 `scripts/`，并把既有正式图表归位到 `reports/figures/`；保留根目录 `analysis-plan.yaml` 作为标准工作流清单，不迁移或删除历史 `tmp/` 缓存。
