@@ -5,14 +5,17 @@
 \title{Run layered ablation experiments for a CCS model}
 \usage{
 ablation(
-  object,
-  data,
+  object = NULL,
+  data = NULL,
   metadata = NULL,
   experiment = "representation",
   output.dir = file.path(getwd(), "ccs-ablation"),
   params = list(),
   seed = 20260727,
-  verbose = TRUE
+  verbose = TRUE,
+  step = "all",
+  input = NULL,
+  cache.root = NULL
 )
 }
 \arguments{
@@ -278,6 +281,15 @@ replacing same-named ablation result files. Default: \code{FALSE}.}
 \item{seed}{Master random seed.}
 
 \item{verbose}{Whether to report progress.}
+
+\item{step}{Lifecycle stage: \code{"all"} (default), \code{"context"},
+\code{"plan"}, \code{"run"}, or \code{"result"}.}
+
+\item{input}{Optional serializable input produced by a preceding lifecycle
+stage.}
+
+\item{cache.root}{Optional root directory for reusable intermediate cache;
+kept separate from \code{output.dir}.}
 }
 \value{
 An object of class \code{CCSAblation}.

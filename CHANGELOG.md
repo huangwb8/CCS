@@ -6,12 +6,19 @@
 
 ## [Unreleased]
 
-- 新增 `ablation-03` 的 targets 串行迁移骨架：`R/ablation.R` 暴露不依赖
-  workflow/SUCCESS/stage receipt 的输入、表示节点、job 表和运行身份 API；
+- 为 `ablation()` 增加可序列化的 `context`、`plan`、`run`、`result` 阶段调度，
+  并通过 `cache.root` 将中间节点缓存与正式 `output.dir` 分离；保留默认
+  `step = "all"` 的普通调用语义；默认 `.ccs-cache/` 已加入忽略规则，未修改版本号。
+
+- 新增 `ablation-03` 的 targets 串行迁移骨架：`R/ablation.R` 提供不依赖
+  workflow/SUCCESS/stage receipt 的阶段化 `ablation()` API；
   `test/ablation-03/_targets.R` 将正式 store 固定到
   `D:\cache\ccs\_ablation-03\targets`，并要求通过已安装的 `CCS::`
   API 运行。本轮只完成代码与接口改造，未运行完整 `ablation-03`，待审阅后
   再进行小规模 smoke 与串行验收；未修改版本号。
+
+- 移除未被正式 targets 流程消费的 `ablation_*` 公共导出和独立 targets API 文档；
+  job 规划保留为内部实现，运行身份元数据移回 `ablation-03` wiring，公共入口收敛为 `ablation()`。
 
 - 更新项目指令：明确 ablation 重构通过包、科学等价性和 `ablation-03` 串行验收后，才递增 CCS patch 版本，并使用 `C:\R\R-4.3.1` 对应环境完成构建、检查和安装；本门禁不适用于验证前的开发迭代。
 - 明确 ablation-03 的正式运行必须消费已安装的 CCS 包 API；不得直接 source `R/ablation.R`，开发期 `load_all()` 仅用于包测试，不作为正式分析入口。
