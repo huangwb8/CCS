@@ -21,6 +21,7 @@
 
 - 旧编号入口、旧产品、旧缓存和旧 workflow 不再作为运行时兼容目标；它们由 Git 和历史文件承担回退作用。
 - 新流程使用新的目录和新的 targets store，不读取旧 workflow 的完成标记，也不把旧缓存提升为新缓存。
+- ablation-03 的正式缓存根目录固定为 `D:\cache\ccs\_ablation-03`：targets store、dynamic branch 对象、分析中间结果和运行状态写入该目录；源码、配置、Rmd、正式报告和审计说明仍位于 `test/ablation-03` 及其约定的 `reports/`。
 - CCS 包本身不嵌入 `renv`；包开发与质量门禁继续由 `DESCRIPTION`、`NAMESPACE`、`R CMD check` 和项目既有 R 版本约定负责。
 - `renv` 只服务 `test/ablation-03` 的分析运行环境，且不是第一阶段 targets 串行骨架的硬前置；正式复现、跨机器运行或交付前再生成/提交 `renv.lock` 并执行 clean-library restore。
 - `ablation-03` 的正式分析边界是“已安装的 CCS 包”：targets、Rmd 和分析辅助脚本只能通过 `CCS::` 导出的 API 调用消融计算，不得直接 `source()` 仓库中的 `R/ablation.R`。`R/ablation.R` 是包源码，修改后必须先构建、检查并安装 CCS，分析才使用该安装版本。
@@ -91,7 +92,7 @@ targets 接管后，以下责任从 `R/ablation.R` 移出：
 
 ### 建立新的项目布局
 
-在 `test/ablation-03` 建立全新的运行入口和目录，不复用旧产品与旧外部缓存：
+在 `test/ablation-03` 建立全新的运行入口，并把正式 targets store 放到固定的外部缓存根目录，不复用旧产品与旧外部缓存：
 
 ```text
 test/ablation-03/
@@ -103,10 +104,22 @@ test/ablation-03/
 │   └── report_helpers.R
 ├── Rmd/ 或根目录现有 Rmd
 ├── reports/
-└── _targets/              # targets store；正式运行可通过配置放到外部磁盘
+└── _targets/              # 仅可作为开发/测试占位；正式运行不写入这里
 ```
 
-具体文件位置可遵循现有目录习惯，但必须只有一个 `_targets.R` 和一个 targets store 入口。旧 `products/`、旧 workflow helper 和旧 stage receipt 不进入新依赖图。
+正式运行的外部缓存布局为：
+
+```text
+D:\cache\ccs\_ablation-03/
+├── targets/               # targets store 元数据、对象和 dynamic branch 状态
+├── workspace/             # targets 生成的可恢复中间对象（若采用文件 target）
+├── logs/                  # 运行日志、资源摘要和失败边界
+└── run-metadata/          # CCS/R/renv/参数/输入身份快照
+```
+
+具体文件位置可遵循现有目录习惯，但必须只有一个 `_targets.R` 和一个 targets store 入口。正式 launcher/config 必须将 targets store 指向 `D:\cache\ccs\_ablation-03\targets`，不能因当前工作目录变化而退回项目内 `_targets/`。旧 `products/`、旧 workflow helper 和旧 stage receipt 不进入新依赖图。
+
+固定缓存根目录的运行契约：首次运行前创建并检查目录可写、剩余空间和路径身份；每次运行记录 cache root、store 路径、运行 ID、锁状态和输入/代码/CCS 包身份。正式运行使用单一 workflow lock，禁止两个进程同时写同一 targets store；并行只发生在 targets/crew 或 future 的受控 worker 内。单元测试和小规模 benchmark 可以使用 `tempdir()`，不得污染正式缓存根目录。
 
 ### 用 `_targets.R` 声明主依赖图
 
@@ -146,6 +159,8 @@ representation_inputs + biology_inputs + native_geometry
 
 每次正式运行的配置/metadata 至少记录 CCS 的包版本、安装路径、R 版本、包 DESCRIPTION 摘要和 Git/build 身份；这些信息必须作为 runtime config target 的一部分，使 CCS 包更新能够让相关下游 targets 正确失效。更新 `R/ablation.R` 后的顺序固定为：包源码修改 → `R CMD check`/科学验证 → patch 版本递增 → 用 `C:\R\R-4.3.1` 构建并安装 → 在 ablation-03 项目中验证 `packageVersion("CCS")` 和导出 API → 才运行正式 targets。
 
+cache root 也属于 runtime config：`D:\cache\ccs\_ablation-03`、其 `targets` 子目录、运行命名空间和锁状态必须进入运行记录。改变 cache root 或 targets store 子目录时，应视为新的运行边界，不把另一缓存根目录中的对象直接当作命中结果。
+
 ### 保留并改造现有 Rmd
 
 04、05、06、07 Rmd 不迁移为 Quarto。每份报告变成一个 file target：
@@ -183,7 +198,7 @@ biology 和 structural 分析作为独立 target 子图，直接消费声明的 
 4. **决定是否启用项目级 renv**：在 targets 串行骨架验证依赖稳定后生成/更新 `renv.lock`；若只是当前机器的开发迭代，可暂缓，不阻塞接口改造。
 5. **报告接入**：验证 Rmd 局部失效和报告产物契约。
 6. **引入并行**：先串行 dynamic branch，再启用 crew 或 future 之一，完成结果等价和资源 benchmark。
-7. **全流程验收**：新 store 从空目录运行完整 ablation-03，检查结果、恢复、报告、资源和日志；正式复现/交付场景还需通过 `renv::restore()` 后的同一验收。
+7. **全流程验收**：清空或新建 `D:\cache\ccs\_ablation-03` 下的 targets store 后运行完整 ablation-03，检查结果、恢复、报告、资源和日志；正式复现/交付场景还需通过 `renv::restore()` 后的同一验收。项目目录不得偷偷生成第二份正式 targets store。
 8. **版本与安装门禁**：仅在新版 `R/ablation.R` 通过包检查、科学等价性验证、targets 串行全流程和必要的 renv restore 后，将 `DESCRIPTION` 的 patch 位递增 1；随后用 `C:\R\R-4.3.1` 对应 R 环境构建、检查并安装该版本 CCS 包，再记录安装库和版本证据。安装完成后先验证 ablation-03 只能加载该已安装 CCS 包并通过 API smoke test，之后才允许正式运行。版本门禁前不得升版或安装“新版本”包。
 
 ## 如何确认完成
@@ -199,11 +214,13 @@ biology 和 structural 分析作为独立 target 子图，直接消费声明的 
 
 - `targets::tar_manifest()` 能显示完整目标图，`tar_outdated()` 的失效范围符合预期。
 - ablation-03 的 `_targets.R`、Rmd 和 helper 中没有直接 source `R/ablation.R` 的路径依赖；干净 R 会话中加载的是目标库内的 `CCS`，且 `packageVersion("CCS")`、安装路径和导出 API 检查均符合运行记录。
+- 正式运行的 targets store 实际位于 `D:\cache\ccs\_ablation-03\targets`，项目内 `_targets/` 不承担正式缓存；运行 metadata 能回溯 cache root、store、锁和运行身份。
 - 首次运行、相同输入重跑、单节点修改、报告修改、branch 中断和 branch 恢复均有可重复测试。
 - 若本次启用了项目级环境锁定，`renv::restore()` 后可以执行 targets、分析节点和所有 Rmd 报告；未启用时，必须记录使用的 R 版本、CCS Git commit 和依赖版本快照。
 - 只有所有前置验收通过后，`DESCRIPTION` 的 patch 位才从当前值递增 1；用 `C:\R\R-4.3.1` 对应 R 环境安装后，`packageVersion("CCS")` 与 `DESCRIPTION` 一致。
 - crew/future 串行与并行结果一致；不会出现未预算的嵌套 worker、XGBoost 线程或内存复制。
 - 新 store 可从空目录完成全流程，不读取旧产品和旧缓存。
+- 从空的 `D:\cache\ccs\_ablation-03` targets store 启动时可以完成全流程；中断后只从该 store 恢复，删除或更换 cache root 会明确表现为新运行而不是误命中旧结果。
 - 现有 20–34 号科学/回归测试迁移到新入口或明确替换，不以旧 workflow 的通过结果代替新流程验收。
 
 ## 风险与待确认事项
@@ -214,5 +231,6 @@ biology 和 structural 分析作为独立 target 子图，直接消费声明的 
 - `renv` 可能需要安装或编译包；初始化和 restore 需要明确的环境变更授权。
 - patch 升级和安装属于发布门禁，不是开发循环；若任一科学等价性、包检查、targets 串行验收或 restore 验证失败，保持原版本并停止安装新版本。
 - 若 ablation-03 误加载工作区中的旧 CCS、`load_all()` 状态或直接 source 的源码，视为运行边界失败；停止正式分析，清理会话后重新验证安装库和包版本。
+- 若 targets 写入项目内 `_targets/`、旧 `products/` 或其他未声明缓存目录，视为缓存边界失败；停止正式分析并检查 launcher/config 的 store 参数。
 - 新架构首次完整运行不应覆盖任何旧目录；只有新流程独立产物通过验收后，才可清理旧缓存。
 - 计划重点是运行基础设施重建；科学结果若在双跑中出现差异，必须先停止迁移并定位差异来源。
