@@ -23,12 +23,14 @@
 - 新流程使用新的目录和新的 targets store，不读取旧 workflow 的完成标记，也不把旧缓存提升为新缓存。
 - CCS 包本身不嵌入 `renv`；包开发与质量门禁继续由 `DESCRIPTION`、`NAMESPACE`、`R CMD check` 和项目既有 R 版本约定负责。
 - `renv` 只服务 `test/ablation-03` 的分析运行环境，且不是第一阶段 targets 串行骨架的硬前置；正式复现、跨机器运行或交付前再生成/提交 `renv.lock` 并执行 clean-library restore。
+- `ablation-03` 的正式分析边界是“已安装的 CCS 包”：targets、Rmd 和分析辅助脚本只能通过 `CCS::` 导出的 API 调用消融计算，不得直接 `source()` 仓库中的 `R/ablation.R`。`R/ablation.R` 是包源码，修改后必须先构建、检查并安装 CCS，分析才使用该安装版本。
 - 改造目标是“重用科学计算逻辑，重建运行边界”，不是重写统计方法。
 
 ## 要达到什么目标
 
 - `R/ablation.R` 提供纯计算、可组合、可测试的分析节点和单任务函数。
 - `test/ablation-03` 由 `_targets.R` 声明完整依赖图；不再依赖自定义编号 runner 执行主流程。
+- `test/ablation-03` 不把 `R/ablation.R` 当作脚本依赖；它依赖 CCS 包的已安装版本，并在运行元数据中记录 `packageVersion("CCS")`、R 版本、包库位置和对应 Git/build 身份。
 - ablation-03 在需要正式复现或跨机器交付时由项目级 `renv.lock` 固定 R 包环境；开发早期可以先不启用 renv。
 - 现有 Rmd 保留为报告层，由 targets 的 `format = "file"` target 调用 `rmarkdown::render()`。
 - learning curve 先保证串行恢复，再使用 crew dynamic branching；若环境或任务结构更适合函数内并行，使用 future，二者不默认嵌套。
@@ -136,7 +138,13 @@ representation_inputs + biology_inputs + native_geometry
 
 `renv` 只在 `test/ablation-03` 项目初始化，不在 CCS 包源码或 `R/ablation.R` 内调用。第一阶段先让 targets 串行骨架和包接口通过小规模验证；确认依赖集合稳定后，再按实际调用锁定 targets、rmarkdown、knitr、xgboost、RcppAnnoy、irlba、CCS、GSClassifier、luckyBase、图表和报告依赖，提交 `renv.lock`，并在正式运行前用 clean library 做一次 restore 验证。
 
-`renv` 只负责分析项目的包环境，不负责 target 失效；Git commit、参数文件、随机种子和（启用后）`renv.lock` 共同记录一次正式运行边界。CCS 包仍以固定 Git commit 或本地构建版本安装到分析环境中。
+`renv` 只负责分析项目的包环境，不负责 target 失效；Git commit、参数文件、随机种子和（启用后）`renv.lock` 共同记录一次正式运行边界。CCS 包仍以固定 Git commit 或本地构建版本安装到分析环境中。开发期可以用 `pkgload::load_all()` 验证包源码，但这只属于 CCS 包开发/测试，不得成为正式 ablation-03 targets 运行方式；正式运行必须在目标 R 库中加载 `CCS`。
+
+### 让 ablation-03 只消费已安装 CCS 包
+
+`_targets.R` 的初始化阶段应显式检查并加载 `CCS`，然后通过包命名空间调用已导出的分析接口。不得在 `_targets.R`、`targets/`、Rmd 或报告 helper 中写入 `source("../../R/ablation.R")`、按路径 source 包源码，或把源码目录临时加入 `.libPaths()`。若包版本、R 版本或必需导出函数不符合运行契约，应在 targets 计算前立即失败。
+
+每次正式运行的配置/metadata 至少记录 CCS 的包版本、安装路径、R 版本、包 DESCRIPTION 摘要和 Git/build 身份；这些信息必须作为 runtime config target 的一部分，使 CCS 包更新能够让相关下游 targets 正确失效。更新 `R/ablation.R` 后的顺序固定为：包源码修改 → `R CMD check`/科学验证 → patch 版本递增 → 用 `C:\R\R-4.3.1` 构建并安装 → 在 ablation-03 项目中验证 `packageVersion("CCS")` 和导出 API → 才运行正式 targets。
 
 ### 保留并改造现有 Rmd
 
@@ -170,13 +178,13 @@ biology 和 structural 分析作为独立 target 子图，直接消费声明的 
 ## 共同实施顺序
 
 1. **基线冻结**：保存当前测试、关键结果摘要、固定输入/seed、输出字段和允许数值容差；Git 作为唯一旧版本回退。
-2. **改造 `R/ablation.R`**：先完成纯计算节点和单 job 接口；在 targets 之外用合成数据和小输入验证。
-3. **建立 targets 串行骨架**：先接入 data、representation、native geometry、retrieval、readout、learning curve、scaling、decoder、biology、structural 和报告 target，不启用并行。
+2. **改造 `R/ablation.R`**：先完成纯计算节点和单 job 接口；在 targets 之外用合成数据和小输入验证，并确认需要由 CCS 包导出的正式 API。
+3. **建立 targets 串行骨架**：先接入已安装 CCS 包的 data、representation、native geometry、retrieval、readout、learning curve、scaling、decoder、biology、structural 和报告 target，不启用并行；禁止直接 source 包源码。
 4. **决定是否启用项目级 renv**：在 targets 串行骨架验证依赖稳定后生成/更新 `renv.lock`；若只是当前机器的开发迭代，可暂缓，不阻塞接口改造。
 5. **报告接入**：验证 Rmd 局部失效和报告产物契约。
 6. **引入并行**：先串行 dynamic branch，再启用 crew 或 future 之一，完成结果等价和资源 benchmark。
 7. **全流程验收**：新 store 从空目录运行完整 ablation-03，检查结果、恢复、报告、资源和日志；正式复现/交付场景还需通过 `renv::restore()` 后的同一验收。
-8. **版本与安装门禁**：仅在新版 `R/ablation.R` 通过包检查、科学等价性验证、targets 串行全流程和必要的 renv restore 后，将 `DESCRIPTION` 的 patch 位递增 1；随后用 `C:\R\R-4.3.1` 对应 R 环境构建、检查并安装该版本 CCS 包，再记录安装库和版本证据。版本门禁前不得升版或安装“新版本”包。
+8. **版本与安装门禁**：仅在新版 `R/ablation.R` 通过包检查、科学等价性验证、targets 串行全流程和必要的 renv restore 后，将 `DESCRIPTION` 的 patch 位递增 1；随后用 `C:\R\R-4.3.1` 对应 R 环境构建、检查并安装该版本 CCS 包，再记录安装库和版本证据。安装完成后先验证 ablation-03 只能加载该已安装 CCS 包并通过 API smoke test，之后才允许正式运行。版本门禁前不得升版或安装“新版本”包。
 
 ## 如何确认完成
 
@@ -190,6 +198,7 @@ biology 和 structural 分析作为独立 target 子图，直接消费声明的 
 ### `test/ablation-03`
 
 - `targets::tar_manifest()` 能显示完整目标图，`tar_outdated()` 的失效范围符合预期。
+- ablation-03 的 `_targets.R`、Rmd 和 helper 中没有直接 source `R/ablation.R` 的路径依赖；干净 R 会话中加载的是目标库内的 `CCS`，且 `packageVersion("CCS")`、安装路径和导出 API 检查均符合运行记录。
 - 首次运行、相同输入重跑、单节点修改、报告修改、branch 中断和 branch 恢复均有可重复测试。
 - 若本次启用了项目级环境锁定，`renv::restore()` 后可以执行 targets、分析节点和所有 Rmd 报告；未启用时，必须记录使用的 R 版本、CCS Git commit 和依赖版本快照。
 - 只有所有前置验收通过后，`DESCRIPTION` 的 patch 位才从当前值递增 1；用 `C:\R\R-4.3.1` 对应 R 环境安装后，`packageVersion("CCS")` 与 `DESCRIPTION` 一致。
@@ -204,5 +213,6 @@ biology 和 structural 分析作为独立 target 子图，直接消费声明的 
 - crew 与当前 R/xgboost/Windows 环境的安装和兼容性需要实施前确认；如果不可用，先用串行 targets 或 future 过渡。
 - `renv` 可能需要安装或编译包；初始化和 restore 需要明确的环境变更授权。
 - patch 升级和安装属于发布门禁，不是开发循环；若任一科学等价性、包检查、targets 串行验收或 restore 验证失败，保持原版本并停止安装新版本。
+- 若 ablation-03 误加载工作区中的旧 CCS、`load_all()` 状态或直接 source 的源码，视为运行边界失败；停止正式分析，清理会话后重新验证安装库和包版本。
 - 新架构首次完整运行不应覆盖任何旧目录；只有新流程独立产物通过验收后，才可清理旧缓存。
 - 计划重点是运行基础设施重建；科学结果若在双跑中出现差异，必须先停止迁移并定位差异来源。
