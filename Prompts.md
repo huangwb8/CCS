@@ -14,17 +14,18 @@
 
 # 日常
 
+基于 docs\plans\2026-09-18-ablation-03-targets-renv-rmd-parallel-migration.md 优化 R\ablation.R 和 test\ablation-03 。 ablation-03 的代码只是写好，先不要跑，到时让我先审一下。 
+
+---
+
 如果：
 
 ```
 targets      管理分析依赖、缓存和断点恢复
 renv         固定 R 包环境
-Git          固定代码版本
-Quarto/Rmd   生成报告
+Rmd          生成报告
 crew/future  并行执行
 ```
-
-
 
 ---
 
