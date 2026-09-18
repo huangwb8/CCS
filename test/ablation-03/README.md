@@ -28,6 +28,35 @@
 
 ## 运行
 
+### targets 迁移入口（当前串行骨架）
+
+新的运行入口是根目录的 `_targets.R`。它只加载目标 R 库中的 `CCS`，不
+`source()` 仓库 `R/ablation.R`，正式 targets store 固定在
+`D:/cache/ccs/_ablation-03/targets`（可用 `CCS_ABLATION_CACHE_ROOT`
+覆盖）。首次运行需要准备一个 RDS 输入清单，并通过环境变量提供路径：
+
+```powershell
+$env:CCS_ABLATION_INPUT_RDS = 'D:/cache/ccs/inputs/ablation-03-inputs.rds'
+$env:CCS_ABLATION_RUN_ID = 'review-01'
+$r = 'C:/R/R-4.3.1/bin/Rscript.exe'
+Push-Location 'test/ablation-03'
+& $r -e "targets::tar_manifest(script = '_targets.R')"
+& $r -e "targets::tar_make(script = '_targets.R')"
+Pop-Location
+```
+
+输入 RDS 至少包含 `object`（已安装版本 CCS 生成的 `CCS` 对象）、`data`
+和 `metadata`；`biology_inputs` 与 `structural_inputs` 在相应 target 启用
+前也必须显式提供。当前迁移阶段只建立串行依赖图，不启用 crew/future，
+也不运行本目录原有的编号脚本。待串行结果经审阅并完成科学等价性验证后，
+再引入动态分支和受控并行。
+
+`targets/functions.R` 只负责路径、输入契约和运行元数据；计算全部通过
+`CCS::ablation_*` API 完成。开发期可以在 CCS 包项目中使用 `load_all()` 做
+包测试，但不得把它作为 ablation-03 的正式运行方式。
+
+以下编号脚本和历史产品暂时保留用于回溯，不属于新的 targets 依赖图：
+
 在仓库根目录使用 Windows R 4.3.1：
 
 ```powershell
