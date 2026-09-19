@@ -3,8 +3,8 @@ env_path <- c("00.Environment.R", "test/ablation-03/00.Environment.R")
 env_path <- env_path[file.exists(env_path)][1L]
 if (is.na(env_path)) stop("Run from ablation-03 or the repository root.", call. = FALSE)
 source(env_path, local = TRUE)
-source(.ablation03_path("templates", "checkpoint_helpers.R"), local = TRUE)
-source(.ablation03_path("templates", "stage_receipt_helpers.R"), local = TRUE)
+source(.ablation03_path("scripts", "helpers", "checkpoint_helpers.R"), local = TRUE)
+source(.ablation03_path("scripts", "helpers", "stage_receipt_helpers.R"), local = TRUE)
 .wf_root <- .ablation03_dir
 .wf_path <- function(...) .ablation03_path(...)
 .wf_output <- function(...) file.path(.ablation03_cache_root, ...)
@@ -178,9 +178,9 @@ source(.ablation03_path("templates", "stage_receipt_helpers.R"), local = TRUE)
   .ae_write_stage_receipt(.wf_output(stage),
     inputs = c(
       .wf_path(script),
-      .wf_path("templates", "workflow_helpers.R"),
-      .wf_path("templates", "checkpoint_helpers.R"),
-      .wf_path("templates", "stage_receipt_helpers.R"),
+      .wf_path("scripts", "helpers", "workflow_helpers.R"),
+      .wf_path("scripts", "helpers", "checkpoint_helpers.R"),
+      .wf_path("scripts", "helpers", "stage_receipt_helpers.R"),
       inputs
     ),
     outputs = outputs)

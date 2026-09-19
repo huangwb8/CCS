@@ -1,5 +1,5 @@
 # Verify force/resume routing and corrupted-RDS fallback without real analysis data.
-source("test/ablation-03/templates/workflow_helpers.R", local = TRUE)
+source("test/ablation-03/scripts/helpers/workflow_helpers.R", local = TRUE)
 
 Sys.unsetenv(c("BENSZ_FORCE_STEP", "BENSZ_RESUME_FROM"))
 stopifnot(identical(

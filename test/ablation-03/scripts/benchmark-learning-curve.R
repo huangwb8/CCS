@@ -1,8 +1,8 @@
 # Benchmark serial versus bounded-PSOCK learning-curve execution on persisted
 # ablation-03 inputs. This tool does not alter scientific result products.
 bootstrap <- c(
-  file.path("templates", "workflow_helpers.R"),
-  file.path("test", "ablation-03", "templates", "workflow_helpers.R")
+  file.path("scripts", "helpers", "workflow_helpers.R"),
+  file.path("test", "ablation-03", "scripts", "helpers", "workflow_helpers.R")
 )
 bootstrap <- bootstrap[file.exists(bootstrap)][1L]
 if (is.na(bootstrap)) stop("Run from ablation-03 or the repository root.", call. = FALSE)

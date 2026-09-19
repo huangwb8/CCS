@@ -2,7 +2,7 @@
 # 标准化 DT::datatable() 调用的辅助函数
 #
 # 使用方式：
-#   source(file.path("templates", "datatables_helper.R"))
+#   source(file.path("scripts", "helpers", "datatables_helper.R"))
 #   render_dt(data, n = 100)
 #
 # 注意：此函数假设 DT 包已通过 00.Environment.R 中的 luckyBase::Plus.library("DT") 加载

@@ -7,8 +7,8 @@ if (.Platform$OS.type == "windows") {
   if (!nzchar(utf8_locale)) stop("biology cache: UTF-8 locale is required for signature names.")
 }
 
-bootstrap <- c(file.path("templates", "workflow_helpers.R"),
-  file.path("test", "ablation-03", "templates", "workflow_helpers.R"))
+bootstrap <- c(file.path("scripts", "helpers", "workflow_helpers.R"),
+  file.path("test", "ablation-03", "scripts", "helpers", "workflow_helpers.R"))
 bootstrap <- bootstrap[file.exists(bootstrap)][1L]
 if (is.na(bootstrap)) stop("Run from ablation-03 or the repository root.", call. = FALSE)
 source(bootstrap, local = TRUE)

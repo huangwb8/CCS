@@ -1,7 +1,7 @@
 # Evaluate the original reciprocal structural design using prepared inputs only.
 options(stringsAsFactors = FALSE, device = function(...) grDevices::pdf(file = NULL))
-bootstrap <- c(file.path("templates", "workflow_helpers.R"),
-  file.path("test", "ablation-03", "templates", "workflow_helpers.R"))
+bootstrap <- c(file.path("scripts", "helpers", "workflow_helpers.R"),
+  file.path("test", "ablation-03", "scripts", "helpers", "workflow_helpers.R"))
 bootstrap <- bootstrap[file.exists(bootstrap)][1L]
 if (is.na(bootstrap)) stop("Run from ablation-03 or the repository root.", call. = FALSE)
 source(bootstrap, local = TRUE)
@@ -368,7 +368,7 @@ forward_all <- forward_result$summary[
   inputs = c(.wf_output("ablation-experiment", "stage-receipt.rds"),
     .wf_output("01-biology", "stage-receipt.rds"),
     .wf_output("01-representations", "stage-receipt.rds"),
-    .wf_path("templates", "workflow_helpers.R"),
+    .wf_path("scripts", "helpers", "workflow_helpers.R"),
     .wf_path("02.03.00. 结构复现分析.R"),
     .ablation03_path("02.03.00. 结构复现分析_functions.R"),
     .ablation03_repo_path("R", "ablation.R")),

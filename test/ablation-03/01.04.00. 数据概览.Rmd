@@ -33,17 +33,17 @@ knitr::opts_chunk$set(
   fig.align = "center"
 )
 if (.Platform$OS.type == "windows") Sys.setlocale("LC_CTYPE", "Chinese_China.utf8")
-bootstrap <- c(file.path("templates", "workflow_helpers.R"),
-  file.path("test", "ablation-03", "templates", "workflow_helpers.R"))
+bootstrap <- c(file.path("scripts", "helpers", "workflow_helpers.R"),
+  file.path("test", "ablation-03", "scripts", "helpers", "workflow_helpers.R"))
 bootstrap <- bootstrap[file.exists(bootstrap)][1L]
 if (is.na(bootstrap)) stop("Run from ablation-03 or the repository root.", call. = FALSE)
 source(bootstrap, local = TRUE)
 source(.ablation03_path("01.01.00. 数据准备_functions.R"))
 source(.ablation03_path("02.01.00. 表示分析_functions.R"))
-source(.ablation03_path("templates", "nature_colors.R"))
-source(.ablation03_path("templates", "nature_theme.R"))
-source(.ablation03_path("templates", "plot_delivery_helpers.R"))
-source(.ablation03_path("templates", "datatables_helper.R"))
+source(.ablation03_path("scripts", "helpers", "nature_colors.R"))
+source(.ablation03_path("scripts", "helpers", "nature_theme.R"))
+source(.ablation03_path("scripts", "helpers", "plot_delivery_helpers.R"))
+source(.ablation03_path("scripts", "helpers", "datatables_helper.R"))
 
 result_dir <- .wf_output("01-data")
 .wf_validate(result_dir)

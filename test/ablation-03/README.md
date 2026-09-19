@@ -9,7 +9,7 @@
 - 大体积缓存：`D:/cache/ccs/_ablation-03/`，可用 `CCS_ABLATION_CACHE_ROOT` 显式覆盖。
 - 轻量产品清单：`products/main/<分析单元>/`，包含 `main.rds`、`summary.md`、`metadata.yaml` 与 `SUCCESS`。
 - 正式图表与表格：`reports/figures/`、`reports/tables/`。
-- 公共模板与辅助入口：`templates/` 保存工作流/Rmd helper，`scripts/` 保存可单独运行的维护和基准脚本。
+- HTML 主题资源：`templates/` 只保存 Liquid Glass CSS 与 after-body include；工作流和 Rmd helper 位于 `scripts/helpers/`，作为项目级运行时依赖随仓库维护，不从本机 Skill 安装目录加载；可单独运行的维护和基准入口位于 `scripts/`。
 - 质量保障：`tests/` 保存不依赖交互输入的合同测试。
 - Rmd 与同名 HTML：本目录根部。
 - 原有 `tmp/`：仅保留历史结果，不再作为新流程的读写入口。

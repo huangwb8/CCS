@@ -6,6 +6,8 @@
 
 ## [Unreleased]
 
+- 收敛 `test/ablation-03/templates/` 为 Liquid Glass 专用主题目录：仍在使用的工作流与 Rmd helper 迁入 `scripts/helpers/`，同步分析脚本、报告和测试引用，并删除未使用的绘图模板与陈旧 HTML 片段。
+
 - 重写 `docs/ablation.md` 为当前 representation 工作流的业务逻辑与函数地图：移除已删除的 layered 实验、Gate 1、`experiment = "cohort"` 别名与 smoke fixture 描述，按当前 `ablation()` 签名、参数 schema、输出文件、decoder 指标与 staged 生命周期重新核对内容。
 
 - 重排 `test/ablation-03` 分析单元编号：准备与数据审计统一为 `01.01.00`–`01.04.00`，正式分析统一为 `02.01.00`–`02.03.00`，并同步脚本、产品目录、配置、测试与运行文档引用。

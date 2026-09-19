@@ -1,6 +1,6 @@
 # Evaluate biological anchors using prepared caches and stage-02 neighbours.
-bootstrap <- c(file.path("templates", "workflow_helpers.R"),
-  file.path("test", "ablation-03", "templates", "workflow_helpers.R"))
+bootstrap <- c(file.path("scripts", "helpers", "workflow_helpers.R"),
+  file.path("test", "ablation-03", "scripts", "helpers", "workflow_helpers.R"))
 bootstrap <- bootstrap[file.exists(bootstrap)][1L]
 if (is.na(bootstrap)) stop("Run from ablation-03 or the repository root.", call. = FALSE)
 source(bootstrap, local = TRUE)
@@ -201,7 +201,7 @@ cat(sprintf("anchors=%d coverage_rows=%d utility_rows=%d output=%s\n", length(an
 .wf_receipt("ablation-biology", "02.02.00. 生物锚点分析",
   inputs = c(file.path(result_dir, "stage-receipt.rds"), cache_path, builder_path,
     config_path, .wf_path("02.02.00. 生物锚点分析.R"),
-    .wf_path("templates", "workflow_helpers.R"),
+    .wf_path("scripts", "helpers", "workflow_helpers.R"),
     .wf_output("01-biology", "stage-receipt.rds"),
     file.path(.ablation03_dir, "02.02.00. 生物锚点分析_functions.R")),
   outputs = file.path(out_dir, c("anchor_coverage.csv", "anchor_utility.csv",

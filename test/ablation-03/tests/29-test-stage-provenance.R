@@ -1,4 +1,4 @@
-source("test/ablation-03/templates/stage_receipt_helpers.R")
+source("test/ablation-03/scripts/helpers/stage_receipt_helpers.R")
 stage <- tempfile("stage-")
 dir.create(stage)
 input <- file.path(stage, "input.txt")
