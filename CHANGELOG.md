@@ -6,6 +6,8 @@
 
 ## [Unreleased]
 
+- 重写 `docs/ablation.md` 为当前 representation 工作流的业务逻辑与函数地图：移除已删除的 layered 实验、Gate 1、`experiment = "cohort"` 别名与 smoke fixture 描述，按当前 `ablation()` 签名、参数 schema、输出文件、decoder 指标与 staged 生命周期重新核对内容。
+
 - 重排 `test/ablation-03` 分析单元编号：准备与数据审计统一为 `01.01.00`–`01.04.00`，正式分析统一为 `02.01.00`–`02.03.00`，并同步脚本、产品目录、配置、测试与运行文档引用。
 
 - 将 `ablation()` 收敛为单一 representation 工作流：移除 `experiment = "cohort"` 兼容别名及旧 layered/cohort 编排、参数和测试入口；不再保留已脱离正式流程的历史实验分支。
