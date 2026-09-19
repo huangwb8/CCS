@@ -53,8 +53,8 @@ fmt_pct <- function(x, digits = 1L) paste0(fmt(100 * x, digits), "%")
 fmt_p <- function(x) ifelse(is.finite(x), format.pval(x, digits = 3, eps = 1e-3), "NA")
 fmt_ci <- function(x) paste0("[", fmt(x$ci_low), ", ", fmt(x$ci_high), "]")
 analysis_name <- basename(.ablation03_path())
-biology_input_script_name <- "03.00.00. 生物输入准备.R"
-structural_script_name <- "07.00.00. 结构复现分析.R"
+biology_input_script_name <- "01.03.00. 生物输入准备.R"
+structural_script_name <- "02.03.00. 结构复现分析.R"
 result_dir <- .wf_output("ablation-experiment")
 .wf_validate(result_dir)
 manifest <- readRDS(file.path(result_dir, "manifest.rds"))
@@ -108,11 +108,11 @@ table_dir <- .ablation03_report_path("tables")
 dir.create(table_dir, recursive = TRUE, showWarnings = FALSE)
 utils::write.csv(
   structural_directional_summary,
-  file.path(table_dir, "07.00.00. directional-summary.csv"),
+  file.path(table_dir, "02.03.00. directional-summary.csv"),
   row.names = FALSE
 )
 structural_functions_name <-
-  "07.00.00. 结构复现分析_functions.R"
+  "02.03.00. 结构复现分析_functions.R"
 structural_all <- structural_summary[
   structural_summary$scope == "all_cohort_pairs",
   ,
@@ -268,7 +268,7 @@ structural_d1_heatmap <- structural_matrix_long(
 figure_dir <- .ablation03_report_path("figures")
 dir.create(figure_dir, recursive = TRUE, showWarnings = FALSE)
 preview_dir <- bensz_run_dir(bensz_preview_root(params$plot_run_dir),
-  prefix = "07.00.00-structural-reproducibility")
+  prefix = "02.03.00-structural-reproducibility")
 ```
 
 本报告是 `r analysis_name` 实验的结构可复现性模块；读取双向投影与 matched-bank 分析结果，不运行模型计算。
@@ -414,7 +414,7 @@ p11 <- ggplot2::ggplot(
 # another, median diamonds expose the central shift, and the full correlation
 # range retains negative estimates without clipping values.
 fig11_jpg <- .ae_save_plot(
-  p11, "07.00.00. structural-reproducibility-paired", figure_dir,
+  p11, "02.03.00. structural-reproducibility-paired", figure_dir,
   preview_dir, fig11, params$plot_preview_dpi
 )
 knitr::include_graphics(fig11_jpg)
@@ -471,7 +471,7 @@ p12 <- ggplot2::ggplot(
 # onto two lines; a square grid, external legend, and fixed color scale avoid
 # clipping and make this panel directly comparable with Figure 13.
 fig12_jpg <- .ae_save_plot(
-  p12, "07.00.00. structural-similarity-direct", figure_dir,
+  p12, "02.03.00. structural-similarity-direct", figure_dir,
   preview_dir, fig12, params$plot_preview_dpi
 )
 knitr::include_graphics(fig12_jpg)
@@ -516,7 +516,7 @@ p13 <- ggplot2::ggplot(
 # square aspect, external legend, and common -1 to 1 scale, enabling cellwise visual
 # comparison without rescaling artifacts.
 fig13_jpg <- .ae_save_plot(
-  p13, "07.00.00. structural-similarity-d1", figure_dir,
+  p13, "02.03.00. structural-similarity-d1", figure_dir,
   preview_dir, fig13, params$plot_preview_dpi
 )
 knitr::include_graphics(fig13_jpg)
@@ -635,7 +635,7 @@ p14 <- ggplot2::ggplot(
 # all repeats visible, the zero line fixes direction, and outlined diamonds
 # distinguish complete-bank estimates from matched design sensitivity.
 fig14_jpg <- .ae_save_plot(
-  p14, "07.00.00. structural-matched-bank-sensitivity", figure_dir,
+  p14, "02.03.00. structural-matched-bank-sensitivity", figure_dir,
   preview_dir, fig14, params$plot_preview_dpi
 )
 knitr::include_graphics(fig14_jpg)

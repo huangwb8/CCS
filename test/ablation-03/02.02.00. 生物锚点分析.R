@@ -26,7 +26,7 @@ neighbours <- retrieval$neighbors[retrieval$neighbors$neighbor_rank <= 15, , dro
 contract <- readRDS(file.path(result_dir, "sample-contract.rds"))
 target_ids <- sort(unique(c(contract$reference$sample_id, contract$query$sample_id)))
 if (!file.exists(cache_path)) {
-  stop("ablation-03 biology: expression-anchor-cache.rds is missing; run 03.00.00. 生物输入准备.R first.", call. = FALSE)
+  stop("ablation-03 biology: expression-anchor-cache.rds is missing; run 01.03.00. 生物输入准备.R first.", call. = FALSE)
 }
 .wf_validate(.wf_output("01-biology"))
 cache <- readRDS(cache_path)
@@ -43,7 +43,7 @@ if (!identical(normalizePath(sig_path, winslash = "/", mustWork = FALSE), cache$
 config_path <- file.path(
   .ablation03_dir, "raw", "config", "biological-anchors.yml"
 )
-builder_path <- .wf_path("03.00.00. 生物输入准备.R")
+builder_path <- .wf_path("01.03.00. 生物输入准备.R")
 if (!identical(digest::digest(file = sig_path, algo = "md5"), cache$signature$md5) ||
     !identical(digest::digest(file = builder_path, algo = "md5"), cache$builder_md5) ||
     !identical(digest::digest(file = config_path, algo = "md5"), cache$signature$config_md5) ||
@@ -57,7 +57,7 @@ if (file.exists(full_path)) {
     stop("ablation-03 biology: expression source hash mismatch; rebuild the cache.", call. = FALSE)
   }
 }
-source(file.path(.ablation03_dir, "06.00.00. 生物锚点分析_functions.R"))
+source(file.path(.ablation03_dir, "02.02.00. 生物锚点分析_functions.R"))
 .wf_begin("ablation-biology", stage_parameters)
 prepared_contract <- readRDS(.wf_output("01-representations", "sample-contract.rds"))
 if (!identical(contract, prepared_contract)) stop("Analysis and prepared sample contracts differ; rerun from 01b.")
@@ -195,14 +195,14 @@ saveRDS(list(anchors = anchors, coverage = coverage, utility = utility, contrast
                             genes_with_finite_scale = nrow(global_stats))),
         file.path(out_dir, "ablation03-biology.rds"))
 
-# Figures and tables are rendered by 06.00.00. 生物锚点分析.Rmd.
+# Figures and tables are rendered by 02.02.00. 生物锚点分析.Rmd.
 cat(sprintf("anchors=%d coverage_rows=%d utility_rows=%d output=%s\n", length(anchors), nrow(coverage), nrow(utility), out_dir))
 
-.wf_receipt("ablation-biology", "06.00.00. 生物锚点分析",
+.wf_receipt("ablation-biology", "02.02.00. 生物锚点分析",
   inputs = c(file.path(result_dir, "stage-receipt.rds"), cache_path, builder_path,
-    config_path, .wf_path("06.00.00. 生物锚点分析.R"),
+    config_path, .wf_path("02.02.00. 生物锚点分析.R"),
     .wf_path("templates", "workflow_helpers.R"),
     .wf_output("01-biology", "stage-receipt.rds"),
-    file.path(.ablation03_dir, "06.00.00. 生物锚点分析_functions.R")),
+    file.path(.ablation03_dir, "02.02.00. 生物锚点分析_functions.R")),
   outputs = file.path(out_dir, c("anchor_coverage.csv", "anchor_utility.csv",
     "anchor_contrasts.csv", "anchor_inference.csv", "anchor_missing_pairs.csv", "ablation03-biology.rds")))

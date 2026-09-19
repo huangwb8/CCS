@@ -10,12 +10,12 @@ source(.ablation03_path("templates", "stage_receipt_helpers.R"), local = TRUE)
 .wf_output <- function(...) file.path(.ablation03_cache_root, ...)
 .wf_lock_dir <- file.path(.ablation03_cache_root, ".workflow-lock")
 .wf_stage_units <- c(
-  `01-data` = "01.00.00. 数据准备",
-  `01-representations` = "02.00.00. 表示输入准备",
-  `01-biology` = "03.00.00. 生物输入准备",
-  `ablation-experiment` = "05.00.00. 表示分析",
-  `ablation-biology` = "06.00.00. 生物锚点分析",
-  `ablation-structural-reproducibility` = "07.00.00. 结构复现分析"
+  `01-data` = "01.01.00. 数据准备",
+  `01-representations` = "01.02.00. 表示输入准备",
+  `01-biology` = "01.03.00. 生物输入准备",
+  `ablation-experiment` = "02.01.00. 表示分析",
+  `ablation-biology` = "02.02.00. 生物锚点分析",
+  `ablation-structural-reproducibility` = "02.03.00. 结构复现分析"
 )
 .wf_product_dir <- function(stage) {
   unit_stem <- unname(.wf_stage_units[[stage]])

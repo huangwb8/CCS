@@ -1,6 +1,6 @@
 # Exercise the production extraction loop with two historically Undefined cohorts.
 # Restoring the output tissue must not change the outer atlas lookup key.
-code <- parse("test/ablation-03/03.00.00. 生物输入准备.R", encoding = "UTF-8")
+code <- parse("test/ablation-03/01.03.00. 生物输入准备.R", encoding = "UTF-8")
 loops <- Filter(function(x) is.call(x) && identical(x[[1]], as.name("for")), as.list(code))
 stopifnot(length(loops) == 1L)
 fixture <- new.env(parent = baseenv())

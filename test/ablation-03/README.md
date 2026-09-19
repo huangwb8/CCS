@@ -18,13 +18,13 @@
 
 | 单元 | 职责 | 外部缓存阶段 |
 |---|---|---|
-| `01.00.00. 数据准备` | 输入、组织映射、CCS 对象与数据画像 | `01-data` |
-| `02.00.00. 表示输入准备` | Direct/d1、样本契约与端点资格 | `01-representations` |
-| `03.00.00. 生物输入准备` | 连续锚点与结构表达缓存 | `01-biology` |
-| `04.00.00. 数据概览` | 输入审计报告 | 无 |
-| `05.00.00. 表示分析` | 几何、retrieval、readout、learning curve、scaling、decoder | `ablation-experiment` |
-| `06.00.00. 生物锚点分析` | 连续锚点效用与队列级推断 | `ablation-biology` |
-| `07.00.00. 结构复现分析` | 双向结构复现与 matched-bank 敏感性 | `ablation-structural-reproducibility` |
+| `01.01.00. 数据准备` | 输入、组织映射、CCS 对象与数据画像 | `01-data` |
+| `01.02.00. 表示输入准备` | Direct/d1、样本契约与端点资格 | `01-representations` |
+| `01.03.00. 生物输入准备` | 连续锚点与结构表达缓存 | `01-biology` |
+| `01.04.00. 数据概览` | 输入审计报告 | 无 |
+| `02.01.00. 表示分析` | 几何、retrieval、readout、learning curve、scaling、decoder | `ablation-experiment` |
+| `02.02.00. 生物锚点分析` | 连续锚点效用与队列级推断 | `ablation-biology` |
+| `02.03.00. 结构复现分析` | 双向结构复现与 matched-bank 敏感性 | `ablation-structural-reproducibility` |
 
 ## 运行
 
@@ -75,7 +75,7 @@ Pop-Location
 ```
 
 输入 RDS 至少包含 `object`（已安装 CCS 0.8.3 生成的 `CCS` 对象）、`data`
-和 `metadata`；为兼容 `01.00.00. 数据准备.R` 的既有产物，
+和 `metadata`；为兼容 `01.01.00. 数据准备.R` 的既有产物，
 `resCCS_ablation`、`data_all`、`ablation_metadata` 也会分别作为这三个字段的
 别名读取。运行入口会拒绝其它 CCS 版本，避免阶段对象与包实现不一致。
 `biology_inputs` 与 `structural_inputs` 在相应 target 启用前也必须显式提供。
@@ -93,12 +93,12 @@ Pop-Location
 
 ```powershell
 $r = 'C:/R/R-4.3.1/bin/Rscript.exe'
-& $r --vanilla 'test/ablation-03/01.00.00. 数据准备.R'
-& $r --vanilla 'test/ablation-03/02.00.00. 表示输入准备.R'
-& $r --vanilla 'test/ablation-03/03.00.00. 生物输入准备.R'
-& $r --vanilla 'test/ablation-03/05.00.00. 表示分析.R'
-& $r --vanilla 'test/ablation-03/06.00.00. 生物锚点分析.R'
-& $r --vanilla 'test/ablation-03/07.00.00. 结构复现分析.R'
+& $r --vanilla 'test/ablation-03/01.01.00. 数据准备.R'
+& $r --vanilla 'test/ablation-03/01.02.00. 表示输入准备.R'
+& $r --vanilla 'test/ablation-03/01.03.00. 生物输入准备.R'
+& $r --vanilla 'test/ablation-03/02.01.00. 表示分析.R'
+& $r --vanilla 'test/ablation-03/02.02.00. 生物锚点分析.R'
+& $r --vanilla 'test/ablation-03/02.03.00. 结构复现分析.R'
 ```
 
 任一阶段启动时先写 `run-state.rds(status = "running")` 并使旧完成标记失效；正式结果、来源凭据和项目内 `SUCCESS` 全部复验后才提交 `complete`。报告拒绝读取非 complete 批次。
@@ -106,15 +106,15 @@ $r = 'C:/R/R-4.3.1/bin/Rscript.exe'
 流程支持 `BENSZ_FORCE_STEP=AA.BB.CC` 强制重算单元，以及 `BENSZ_RESUME_FROM=AA.BB.CC` 从指定单元恢复；恢复点之前若有任一无效 checkpoint，会立即停止并要求先修复前序单元。示例：
 
 ```powershell
-$env:BENSZ_FORCE_STEP = '05.00.00'
-& $r --vanilla 'test/ablation-03/05.00.00. 表示分析.R'
+$env:BENSZ_FORCE_STEP = '02.01.00'
+& $r --vanilla 'test/ablation-03/02.01.00. 表示分析.R'
 Remove-Item Env:BENSZ_FORCE_STEP
 
-$env:BENSZ_RESUME_FROM = '05.00.00'
-& $r --vanilla 'test/ablation-03/01.00.00. 数据准备.R'
-& $r --vanilla 'test/ablation-03/02.00.00. 表示输入准备.R'
-& $r --vanilla 'test/ablation-03/03.00.00. 生物输入准备.R'
-& $r --vanilla 'test/ablation-03/05.00.00. 表示分析.R'
+$env:BENSZ_RESUME_FROM = '02.01.00'
+& $r --vanilla 'test/ablation-03/01.01.00. 数据准备.R'
+& $r --vanilla 'test/ablation-03/01.02.00. 表示输入准备.R'
+& $r --vanilla 'test/ablation-03/01.03.00. 生物输入准备.R'
+& $r --vanilla 'test/ablation-03/02.01.00. 表示分析.R'
 Remove-Item Env:BENSZ_RESUME_FROM
 ```
 
@@ -127,7 +127,7 @@ Remove-Item Env:BENSZ_RESUME_FROM
 ```powershell
 $env:CCS_ABLATION_WORKERS = '2'
 $env:CCS_ABLATION_MEMORY_GB = '48'
-& $r --vanilla 'test/ablation-03/05.00.00. 表示分析.R'
+& $r --vanilla 'test/ablation-03/02.01.00. 表示分析.R'
 Remove-Item Env:CCS_ABLATION_WORKERS
 Remove-Item Env:CCS_ABLATION_MEMORY_GB
 ```

@@ -29,7 +29,7 @@ dir.create(out_dir, recursive = TRUE, showWarnings = FALSE)
 if (!file.exists(full_path)) stop("ablation-03 cache: expression RDS not found: ", full_path, call. = FALSE)
 if (!file.exists(sig_path)) stop("ablation-03 cache: signature RDS not found: ", sig_path, call. = FALSE)
 
-source(file.path(ablation_dir, "06.00.00. 生物锚点分析_functions.R"))
+source(file.path(ablation_dir, "02.02.00. 生物锚点分析_functions.R"))
 stage_parameters <- list(
   expression_path = normalizePath(full_path, winslash = "/", mustWork = TRUE),
   signature_path = normalizePath(sig_path, winslash = "/", mustWork = TRUE),
@@ -104,7 +104,7 @@ if (!length(cohorts)) stop("ablation-03 cache: no target samples were found in e
 coverage <- do.call(rbind, coverage); missing <- do.call(rbind, missing)
 cache <- list(
   schema_version = 2L, status = "complete", created_at = format(Sys.time(), tz = "UTC"),
-  builder_md5 = digest::digest(file = .wf_path("03.00.00. 生物输入准备.R"), algo = "md5"),
+  builder_md5 = digest::digest(file = .wf_path("01.03.00. 生物输入准备.R"), algo = "md5"),
   source = list(path = normalizePath(full_path, winslash = "/"), md5 = source_hash),
   signature = list(path = normalizePath(sig_path, winslash = "/"), md5 = signature_hash,
                    config_path = normalizePath(config_path, winslash = "/"),
@@ -133,7 +133,7 @@ prepared <- structural$analysis$prepared
 full_d1 <- structural$structural$full_d1
 ablation_metadata <- structural$structural$ablation_metadata
 biology_cache <- readRDS(cache_path)
-source(.ablation03_path("07.00.00. 结构复现分析_functions.R"))
+source(.ablation03_path("02.03.00. 结构复现分析_functions.R"))
 output_dir <- out_dir
 reference_ids <- Reduce(intersect, list(
   rownames(prepared$reference_direct), rownames(full_d1)
@@ -197,9 +197,9 @@ if (is.null(anchor_cache)) {
   invisible(gc())
 }
 
-.wf_receipt("01-biology", "03.00.00. 生物输入准备",
+.wf_receipt("01-biology", "01.03.00. 生物输入准备",
   inputs = c(.wf_output("01-data", "stage-receipt.rds"),
     file.path(result_dir, "stage-receipt.rds"), full_path, sig_path, config_path,
-    .ablation03_path("06.00.00. 生物锚点分析_functions.R"),
-    .ablation03_path("07.00.00. 结构复现分析_functions.R")),
+    .ablation03_path("02.02.00. 生物锚点分析_functions.R"),
+    .ablation03_path("02.03.00. 结构复现分析_functions.R")),
   outputs = c(cache_path, structural_anchor_path))

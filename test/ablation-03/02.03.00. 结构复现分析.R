@@ -5,7 +5,7 @@ bootstrap <- c(file.path("templates", "workflow_helpers.R"),
 bootstrap <- bootstrap[file.exists(bootstrap)][1L]
 if (is.na(bootstrap)) stop("Run from ablation-03 or the repository root.", call. = FALSE)
 source(bootstrap, local = TRUE)
-source(.ablation03_path("07.00.00. 结构复现分析_functions.R"))
+source(.ablation03_path("02.03.00. 结构复现分析_functions.R"))
 # Step 1: Freeze the reciprocal validation contract before inspecting results.
 seed <- 20260912L
 tail_fraction <- 1 / 3
@@ -364,13 +364,13 @@ saveRDS(
 forward_all <- forward_result$summary[
   forward_result$summary$scope == "all_cohort_pairs", , drop = FALSE
 ]
-.wf_receipt("ablation-structural-reproducibility", "07.00.00. 结构复现分析",
+.wf_receipt("ablation-structural-reproducibility", "02.03.00. 结构复现分析",
   inputs = c(.wf_output("ablation-experiment", "stage-receipt.rds"),
     .wf_output("01-biology", "stage-receipt.rds"),
     .wf_output("01-representations", "stage-receipt.rds"),
     .wf_path("templates", "workflow_helpers.R"),
-    .wf_path("07.00.00. 结构复现分析.R"),
-    .ablation03_path("07.00.00. 结构复现分析_functions.R"),
+    .wf_path("02.03.00. 结构复现分析.R"),
+    .ablation03_path("02.03.00. 结构复现分析_functions.R"),
     .ablation03_repo_path("R", "ablation.R")),
   outputs = list.files(output_dir, pattern = "^(structural_|ablation03-structural).*\\.(csv|rds)$", full.names = TRUE))
 reverse_all <- reverse_result$summary[

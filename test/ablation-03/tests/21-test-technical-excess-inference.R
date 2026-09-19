@@ -1,6 +1,6 @@
 # TDD RED test: technical-neighbor excess cohort-level inference.
 
-source(file.path("test", "ablation-03", "05.00.00. 表示分析_functions.R"))
+source(file.path("test", "ablation-03", "02.01.00. 表示分析_functions.R"))
 if (!exists(".ae_technical_inference", mode = "function")) {
   stop("Expected technical inference helper is missing.", call. = FALSE)
 }

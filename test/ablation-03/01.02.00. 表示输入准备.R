@@ -6,7 +6,7 @@ if (is.na(bootstrap)) stop("Run from ablation-03 or the repository root.", call.
 source(bootstrap, local = TRUE)
 inputs <- .wf_read("01-data", "inputs.rds")
 source(.ablation03_repo_path("R", "ablation.R"))
-source(.ablation03_path("05.00.00. 表示分析_functions.R"))
+source(.ablation03_path("02.01.00. 表示分析_functions.R"))
 ablation_params <- .ae_ablation_params(inputs$filtered_cohorts, inputs$n_cores)
 stage_parameters <- list(
   params = ablation_params,
@@ -37,10 +37,10 @@ for (stage in c("representation", "structural")) {
       query = analysis$prepared$query_metadata), file.path(output_dir, "sample-contract.rds"))
   }
 }
-.wf_receipt("01-representations", "02.00.00. 表示输入准备",
+.wf_receipt("01-representations", "01.02.00. 表示输入准备",
   inputs = c(.wf_output("01-data", "stage-receipt.rds"),
     .ablation03_repo_path("R", "ablation.R"),
-    .ablation03_path("05.00.00. 表示分析_functions.R"),
+    .ablation03_path("02.01.00. 表示分析_functions.R"),
     list.files(inputs$resCCS_ablation@Repeat$model.dir, pattern = "modelFit.rds$",
       recursive = TRUE, full.names = TRUE)),
   outputs = list.files(

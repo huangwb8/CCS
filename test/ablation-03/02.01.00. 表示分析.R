@@ -6,7 +6,7 @@ if (is.na(bootstrap)) stop("Run from ablation-03 or the repository root.", call.
 source(bootstrap, local = TRUE)
 bundle <- .wf_read("01-representations", "representation-inputs.rds")
 source(.ablation03_repo_path("R", "ablation.R"))
-source(.ablation03_path("05.00.00. 表示分析_functions.R"))
+source(.ablation03_path("02.01.00. 表示分析_functions.R"))
 bundle$config <- .ae_apply_runtime_config(bundle$config, bundle$analysis)
 output_dir <- .wf_output("ablation-experiment")
 stage_parameters <- list(
@@ -29,11 +29,11 @@ ablation_result <- .ablation_run_prepared_representation(
   .wf_read("01-data", "data-profile.rds"),
   file.path(output_dir, "data-profile.rds")
 )
-.wf_receipt("ablation-experiment", "05.00.00. 表示分析",
+.wf_receipt("ablation-experiment", "02.01.00. 表示分析",
   inputs = c(.wf_output("01-representations", "stage-receipt.rds"),
     .wf_output("01-data", "stage-receipt.rds"),
     .ablation03_repo_path("R", "ablation.R"),
-    .ablation03_path("05.00.00. 表示分析_functions.R")),
+    .ablation03_path("02.01.00. 表示分析_functions.R")),
   outputs = file.path(output_dir, c("manifest.rds", "native_geometry.rds",
     "retrieval.rds", "anchor_retrieval.rds", "sample-contract.rds", "readout.rds",
     "learning_curve.rds", "cohort_scaling.rds", "tradeoffs.rds", "ablation-result.rds",

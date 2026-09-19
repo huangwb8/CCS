@@ -5,7 +5,7 @@ bootstrap <- bootstrap[file.exists(bootstrap)][1L]
 if (is.na(bootstrap)) stop("Run from ablation-03 or the repository root.", call. = FALSE)
 source(bootstrap, local = TRUE)
 luckyBase::Plus.library(c("CCS", "readxl", "digest"))
-source(.ablation03_path("01.00.00. 数据准备_functions.R"))
+source(.ablation03_path("01.01.00. 数据准备_functions.R"))
 
 # Step 1: Resolve cross-platform roots without embedding user-specific directories.
 sysname <- Sys.info()[["sysname"]]
@@ -328,7 +328,7 @@ saveRDS(list(resCCS_ablation = resCCS_ablation, resCCS_full = resCCS_full,
   filtered_cohorts = filtered_cohorts, n_cores = n_cores, full_d1 = full_d1,
   tissue_resolution_audit = tissue_resolution_audit),
   file.path(data_output_dir, "inputs.rds"))
-.wf_receipt("01-data", "01.00.00. 数据准备",
+.wf_receipt("01-data", "01.01.00. 数据准备",
   inputs = c(data_path, resccs_path, full_resccs_path, batch_workbook_path,
-    tissue_mapping_path, .ablation03_path("01.00.00. 数据准备_functions.R")),
+    tissue_mapping_path, .ablation03_path("01.01.00. 数据准备_functions.R")),
   outputs = file.path(data_output_dir, c("inputs.rds", "data-profile.rds")))

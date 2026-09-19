@@ -2,7 +2,7 @@
 
 source(file.path("R", "ablation.R"))
 source(file.path(
-  "test", "ablation-03", "05.00.00. 表示分析_functions.R"
+  "test", "ablation-03", "02.01.00. 表示分析_functions.R"
 ))
 
 # External query predictions do not make the design confirmatory when the

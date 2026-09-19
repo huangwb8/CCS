@@ -34,17 +34,17 @@ $env:CCS_ABLATION_MEMORY_GB = [string]$MemoryGB
 
 Set-Location $repoRoot
 $stages = @(
-  'test/ablation-03/01.00.00. 数据准备.R',
-  'test/ablation-03/02.00.00. 表示输入准备.R',
-  'test/ablation-03/03.00.00. 生物输入准备.R'
+  'test/ablation-03/01.01.00. 数据准备.R',
+  'test/ablation-03/01.02.00. 表示输入准备.R',
+  'test/ablation-03/01.03.00. 生物输入准备.R'
 )
 if (-not $SkipBenchmark) {
   $stages += 'test/ablation-03/scripts/benchmark-learning-curve.R'
 }
 $stages += @(
-  'test/ablation-03/05.00.00. 表示分析.R',
-  'test/ablation-03/06.00.00. 生物锚点分析.R',
-  'test/ablation-03/07.00.00. 结构复现分析.R'
+  'test/ablation-03/02.01.00. 表示分析.R',
+  'test/ablation-03/02.02.00. 生物锚点分析.R',
+  'test/ablation-03/02.03.00. 结构复现分析.R'
 )
 
 Write-Host "Fresh ablation-03 cache: $CacheRoot"

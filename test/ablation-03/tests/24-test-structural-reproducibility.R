@@ -2,7 +2,7 @@
 
 source(file.path(
   "test", "ablation-03",
-  "07.00.00. 结构复现分析_functions.R"
+  "02.03.00. 结构复现分析_functions.R"
 ))
 source(file.path("R", "ablation.R"))
 

@@ -8,7 +8,7 @@ bootstrap <- bootstrap[file.exists(bootstrap)][1L]
 if (is.na(bootstrap)) stop("Run from ablation-03 or the repository root.", call. = FALSE)
 source(bootstrap, local = TRUE)
 source(.ablation03_repo_path("R", "ablation.R"))
-source(.ablation03_path("05.00.00. 表示分析_functions.R"))
+source(.ablation03_path("02.01.00. 表示分析_functions.R"))
 
 if (!dir.create(.wf_lock_dir, showWarnings = FALSE)) {
   stop(

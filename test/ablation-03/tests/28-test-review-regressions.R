@@ -1,8 +1,8 @@
 # Regression cases for the manuscript audit. All inputs are synthetic.
 source("R/ccs.R")
 source("R/ablation.R")
-source("test/ablation-03/06.00.00. 生物锚点分析_functions.R")
-source("test/ablation-03/07.00.00. 结构复现分析_functions.R")
+source("test/ablation-03/02.02.00. 生物锚点分析_functions.R")
+source("test/ablation-03/02.03.00. 结构复现分析_functions.R")
 failures <- character()
 check <- function(name, code) {
   tryCatch({force(code); cat("PASS", name, "\n")}, error = function(e) {

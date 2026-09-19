@@ -53,10 +53,10 @@ fmt_pct <- function(x, digits = 1L) paste0(fmt(100 * x, digits), "%")
 fmt_p <- function(x) ifelse(is.finite(x), format.pval(x, digits = 3, eps = 1e-3), "NA")
 fmt_ci <- function(x) paste0("[", fmt(x$ci_low), ", ", fmt(x$ci_high), "]")
 analysis_name <- basename(.ablation03_path())
-structure_report_name <- "07.00.00. 结构复现分析"
-biology_input_script_name <- "03.00.00. 生物输入准备.R"
-biology_script_name <- "06.00.00. 生物锚点分析.R"
-biology_functions_name <- "06.00.00. 生物锚点分析_functions.R"
+structure_report_name <- "02.03.00. 结构复现分析"
+biology_input_script_name <- "01.03.00. 生物输入准备.R"
+biology_script_name <- "02.02.00. 生物锚点分析.R"
+biology_functions_name <- "02.02.00. 生物锚点分析_functions.R"
 result_dir <- .wf_output("ablation-experiment")
 .wf_validate(result_dir)
 manifest <- readRDS(file.path(result_dir, "manifest.rds"))
@@ -77,7 +77,7 @@ if (biology_available) {
   dir.create(table_dir, recursive = TRUE, showWarnings = FALSE)
   utils::write.csv(
     biology_inference,
-    file.path(table_dir, "06.00.00. anchor-inference.csv"),
+    file.path(table_dir, "02.02.00. anchor-inference.csv"),
     row.names = FALSE
   )
 } else {
@@ -118,7 +118,7 @@ biology_top_signal <- biology_signal_pool[
   drop = FALSE
 ]
 preview_dir <- bensz_run_dir(bensz_preview_root(params$plot_run_dir),
-  prefix = "06.00.00-biology")
+  prefix = "02.02.00-biology")
 ```
 
 本报告是 `r analysis_name` 实验的生物学分析模块；只读取已经完成的邻居检索与 anchor 评估结果。

@@ -3,29 +3,29 @@ source("test/ablation-03/templates/workflow_helpers.R", local = TRUE)
 
 Sys.unsetenv(c("BENSZ_FORCE_STEP", "BENSZ_RESUME_FROM"))
 stopifnot(identical(
-  bensz_run_decision("01.00.00", list(valid = TRUE)),
+  bensz_run_decision("01.01.00", list(valid = TRUE)),
   "hit"
 ))
 stopifnot(identical(
-  bensz_run_decision("01.00.00", list(valid = FALSE)),
+  bensz_run_decision("01.01.00", list(valid = FALSE)),
   "run"
 ))
 
-Sys.setenv(BENSZ_FORCE_STEP = "01.00.00")
+Sys.setenv(BENSZ_FORCE_STEP = "01.01.00")
 stopifnot(identical(
-  bensz_run_decision("01.00.00", list(valid = TRUE)),
+  bensz_run_decision("01.01.00", list(valid = TRUE)),
   "run"
 ))
 Sys.unsetenv("BENSZ_FORCE_STEP")
 
-Sys.setenv(BENSZ_RESUME_FROM = "03.00.00")
+Sys.setenv(BENSZ_RESUME_FROM = "01.03.00")
 resume_error <- tryCatch(
-  bensz_run_decision("02.00.00", list(valid = FALSE)),
+  bensz_run_decision("01.02.00", list(valid = FALSE)),
   error = identity
 )
 stopifnot(inherits(resume_error, "error"))
 stopifnot(identical(
-  bensz_run_decision("02.00.00", list(valid = TRUE)),
+  bensz_run_decision("01.02.00", list(valid = TRUE)),
   "hit"
 ))
 Sys.unsetenv("BENSZ_RESUME_FROM")
