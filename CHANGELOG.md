@@ -6,6 +6,15 @@
 
 ## [Unreleased]
 
+- 将 `ablation()` 收敛为单一 representation 工作流：移除 `experiment = "cohort"` 兼容别名及旧 layered/cohort 编排、参数和测试入口；不再保留已脱离正式流程的历史实验分支。
+
+- 为 `test/ablation-03` 落实项目级 `renv` 支持：新增环境初始化、核心依赖安装、CCS 安装、snapshot/restore/status/check 入口和正式 targets launcher；运行元数据记录 `renv.lock` 指纹，缺少锁文件或环境不一致时在分析前失败。
+
+- 收紧 `test/ablation-03` 的 CCS 版本边界：targets 入口现在要求已安装的
+  CCS `0.8.3`，并兼容 `01.00.00. 数据准备.R` 既有输入 RDS 的
+  `resCCS_ablation`、`data_all`、`ablation_metadata` 字段别名；仍只进行静态
+  代码调整，本轮未运行 R、targets 或实验。
+
 - 修复包文档检查阻断：移除两处不可执行的示例占位文本，将依赖外部 `resCCS` 对象的示例标记为不自动运行，将 XGBoost 参数范围中的 Unicode 无穷符号改为 LaTeX 可移植的 `Inf`，并补充 `plotImportance()` 的 `nTop` 参数说明。
 
 - 为 `ablation()` 增加可序列化的 `context`、`plan`、`run`、`result` 阶段调度，
