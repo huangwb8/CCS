@@ -52,6 +52,18 @@
   run_id <- Sys.getenv("CCS_ABLATION_RUN_ID", unset = "manual")
   package_path <- tryCatch(find.package("CCS"), error = function(e) NA_character_)
   description <- tryCatch(utils::packageDescription("CCS"), error = function(e) NULL)
+  required_version <- "0.8.3"
+  package_version <- if (is.null(description)) NA_character_ else {
+    as.character(description$Version)
+  }
+  if (is.na(package_version) ||
+      utils::compareVersion(package_version, required_version) != 0) {
+    stop(
+      "ablation-03 requires the installed CCS package version ",
+      required_version, "; found ", package_version, ".",
+      call. = FALSE
+    )
+  }
   metadata <- list(
     schema_version = 1L,
     run_id = as.character(run_id),
@@ -60,7 +72,7 @@
     R = R.version.string,
     package = list(
       name = "CCS",
-      version = if (is.null(description)) NA_character_ else description$Version,
+      version = package_version,
       path = package_path,
       git_commit = Sys.getenv("CCS_GIT_COMMIT", unset = NA_character_),
       build_id = Sys.getenv("CCS_BUILD_ID", unset = NA_character_)
@@ -68,6 +80,17 @@
     api = "ablation"
   )
   metadata$project_dir <- normalizePath(getwd(), winslash = "/", mustWork = TRUE)
+  lockfile <- file.path(metadata$project_dir, "renv.lock")
+  if (!file.exists(lockfile) || !requireNamespace("renv", quietly = TRUE)) {
+    stop("ablation-03 requires an initialized and activated renv project.", call. = FALSE)
+  }
+  metadata$renv <- list(
+    project = metadata$project_dir,
+    lockfile = normalizePath(lockfile, winslash = "/", mustWork = TRUE),
+    lockfile_md5 = unname(tools::md5sum(lockfile)),
+    activated_project = Sys.getenv("RENV_PROJECT", unset = NA_character_),
+    version = as.character(utils::packageVersion("renv"))
+  )
   metadata$seed <- as.integer(Sys.getenv("CCS_ABLATION_SEED", unset = "20260727"))
   metadata$input_rds <- Sys.getenv("CCS_ABLATION_INPUT_RDS", unset = NA_character_)
   metadata
@@ -82,8 +105,25 @@
     )
   }
   inputs <- readRDS(input_path)
-  required <- c("object", "data", "metadata")
-  missing <- setdiff(required, names(inputs))
+  if (!is.list(inputs)) {
+    stop("ablation-03 input RDS must contain a named list.", call. = FALSE)
+  }
+  # The staged CCS 0.8.3 workflow uses object/data/metadata.  Preserve
+  # compatibility with the existing 01-data product, which names the same
+  # values resCCS_ablation/data_all/ablation_metadata.
+  aliases <- list(
+    object = c("object", "resCCS_ablation"),
+    data = c("data", "data_all"),
+    metadata = c("metadata", "ablation_metadata")
+  )
+  for (field in names(aliases)) {
+    candidates <- aliases[[field]]
+    present <- candidates[candidates %in% names(inputs)]
+    present <- present[!vapply(present, function(name) is.null(inputs[[name]]), logical(1))]
+    if (length(present) > 0L) inputs[[field]] <- inputs[[present[1L]]]
+  }
+  required <- names(aliases)
+  missing <- required[vapply(required, function(field) is.null(inputs[[field]]), logical(1))]
   if (length(missing) > 0L) {
     stop("ablation-03 input RDS is missing: ", paste(missing, collapse = ", "), call. = FALSE)
   }

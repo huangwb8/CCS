@@ -35,19 +35,51 @@
 `D:/cache/ccs/_ablation-03/targets`（可用 `CCS_ABLATION_CACHE_ROOT`
 覆盖）。首次运行需要准备一个 RDS 输入清单，并通过环境变量提供路径：
 
+### renv 项目环境
+
+`ablation-03` 的正式运行必须使用本目录的项目级 `renv` 环境。`renv` 锁定 R 包版本，`targets` 仍负责分析依赖、缓存和恢复；CCS 必须是已安装的 `0.8.3` 包，不能通过 `load_all()` 或 `source()` 代替。
+
+首次初始化（只需在当前分析项目执行一次）：
+
+```powershell
+$r = 'C:/R/R-4.3.1/bin/Rscript.exe'
+Push-Location 'test/ablation-03'
+& $r --vanilla 'scripts/renv-ablation03.R' --command init
+& $r --vanilla 'scripts/renv-ablation03.R' --command install-core
+& $r --vanilla 'scripts/renv-ablation03.R' --command install-ccs
+& $r --vanilla 'scripts/renv-ablation03.R' --command snapshot
+Pop-Location
+```
+
+在干净 R 库或另一台机器复现：
+
+```powershell
+Push-Location 'test/ablation-03'
+& $r --vanilla 'scripts/renv-ablation03.R' --command restore
+& $r --vanilla 'scripts/renv-ablation03.R' --command check
+& .\scripts\run-targets-renv.ps1 -Action manifest
+& .\scripts\run-targets-renv.ps1 -Action make
+Pop-Location
+```
+
+`run-targets-renv.ps1` 会先显式激活并检查 renv、`CCS 0.8.3`、lockfile 和核心依赖，再调用 targets。缺少 renv 或 CCS 版本不符时会提前失败。
+
 ```powershell
 $env:CCS_ABLATION_INPUT_RDS = 'D:/cache/ccs/inputs/ablation-03-inputs.rds'
 $env:CCS_ABLATION_RUN_ID = 'review-01'
 $r = 'C:/R/R-4.3.1/bin/Rscript.exe'
 Push-Location 'test/ablation-03'
-& $r -e "targets::tar_manifest(script = '_targets.R')"
-& $r -e "targets::tar_make(script = '_targets.R')"
+& $r --vanilla -e "source('renv/activate.R'); targets::tar_manifest(script = '_targets.R')"
+& $r --vanilla -e "source('renv/activate.R'); targets::tar_make(script = '_targets.R')"
 Pop-Location
 ```
 
-输入 RDS 至少包含 `object`（已安装版本 CCS 生成的 `CCS` 对象）、`data`
-和 `metadata`；`biology_inputs` 与 `structural_inputs` 在相应 target 启用
-前也必须显式提供。当前迁移阶段只建立串行依赖图，不启用 crew/future，
+输入 RDS 至少包含 `object`（已安装 CCS 0.8.3 生成的 `CCS` 对象）、`data`
+和 `metadata`；为兼容 `01.00.00. 数据准备.R` 的既有产物，
+`resCCS_ablation`、`data_all`、`ablation_metadata` 也会分别作为这三个字段的
+别名读取。运行入口会拒绝其它 CCS 版本，避免阶段对象与包实现不一致。
+`biology_inputs` 与 `structural_inputs` 在相应 target 启用前也必须显式提供。
+当前迁移阶段只建立串行依赖图，不启用 crew/future，
 也不运行本目录原有的编号脚本。待串行结果经审阅并完成科学等价性验证后，
 再引入动态分支和受控并行。
 

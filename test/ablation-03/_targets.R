@@ -4,6 +4,18 @@
 # branches and crew/future are introduced only after this dependency graph has
 # passed equivalence and resource review.
 
+renv_activation <- file.path(getwd(), "renv", "activate.R")
+if (!file.exists(renv_activation)) {
+  stop(
+    "ablation-03 requires project renv; run scripts/renv-ablation03.R --command init.",
+    call. = FALSE
+  )
+}
+source(renv_activation, local = .GlobalEnv)
+if (!requireNamespace("renv", quietly = TRUE)) {
+  stop("ablation-03 renv activation did not provide renv.", call. = FALSE)
+}
+
 if (!requireNamespace("targets", quietly = TRUE)) {
   stop("Install the targets package before running ablation-03.", call. = FALSE)
 }
