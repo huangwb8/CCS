@@ -5,6 +5,14 @@ if (!file.exists(env_path)) {
   stop("Expected ablation-03 environment file is missing.", call. = FALSE)
 }
 
+old_cache_root <- Sys.getenv("CCS_ABLATION_CACHE_ROOT", unset = NA_character_)
+Sys.setenv(CCS_ABLATION_CACHE_ROOT = tempfile("ablation-env-test-"))
+on.exit({
+  if (is.na(old_cache_root)) Sys.unsetenv("CCS_ABLATION_CACHE_ROOT") else {
+    Sys.setenv(CCS_ABLATION_CACHE_ROOT = old_cache_root)
+  }
+}, add = TRUE)
+
 device_requests <- 0L
 original_device <- getOption("device")
 on.exit(options(device = original_device), add = TRUE)

@@ -1,7 +1,7 @@
 workflow: "main"
 requirements:
   - id: "REQ-01"
-    description: "大体积缓存固定写入 D:/cache/ccs/_ablation-03，并支持可靠断点恢复"
+    description: "大体积缓存写入正式 R 入口显式提供的 cache.root，并支持可靠断点恢复"
     units: ["01.01.00", "01.02.00", "01.03.00", "02.01.00", "02.02.00", "02.03.00"]
   - id: "REQ-02"
     description: "Rmd、HTML 与可发表图表保存在 test/ablation-03 的规范位置"

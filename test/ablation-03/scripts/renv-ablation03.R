@@ -37,7 +37,7 @@ ensure_global_renv <- function() {
   invisible(TRUE)
 }
 
-required_packages <- c("targets", "digest", "rmarkdown", "knitr", "yaml")
+required_packages <- c("digest", "rmarkdown", "knitr", "yaml")
 project_lock <- file.path(project, "renv.lock")
 setwd(project)
 

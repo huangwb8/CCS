@@ -53,6 +53,14 @@ serial <- run_curve(1L)
 parallel <- run_curve(2L)
 stopifnot(identical(serial$metrics, parallel$metrics))
 stopifnot(identical(serial$paired, parallel$paired))
+stopifnot(
+  serial$runtime$workers == 1L,
+  parallel$runtime$workers == 2L,
+  parallel$runtime$total_thread_budget == 2L,
+  parallel$runtime$job_count == 4L,
+  parallel$runtime$input_bytes > 0,
+  is.numeric(parallel$runtime$peak_working_set_bytes)
+)
 
 checkpoint_dir <- tempfile("ablation-learning-curve-")
 dir.create(checkpoint_dir)
@@ -112,5 +120,42 @@ bad <- try(
   silent = TRUE
 )
 stopifnot(inherits(bad, "try-error"))
+
+runtime_config <- list(validation = list(numCores = 1L, workers = 1L))
+runtime_analysis <- list(prepared = list(
+  reference_direct = matrix(0, 10L, 10L),
+  query_direct = matrix(0, 10L, 10L),
+  reference_d1 = matrix(0, 10L, 10L),
+  query_d1 = matrix(0, 10L, 10L)
+))
+old_runtime_env <- Sys.getenv(
+  c("CCS_ABLATION_CORES", "CCS_ABLATION_WORKERS", "CCS_ABLATION_MEMORY_GB"),
+  unset = NA_character_
+)
+Sys.setenv(
+  CCS_ABLATION_CORES = "4",
+  CCS_ABLATION_WORKERS = "4",
+  CCS_ABLATION_MEMORY_GB = "0.001"
+)
+resolved_runtime <- .ablation_apply_runtime_config(runtime_config, runtime_analysis)
+stopifnot(
+  resolved_runtime$validation$workers <= 4L,
+  resolved_runtime$validation$numCores >= 1L,
+  resolved_runtime$validation$total_thread_budget == 4L
+)
+Sys.setenv(CCS_ABLATION_MEMORY_GB = "0.000000001")
+memory_error <- tryCatch(
+  .ablation_apply_runtime_config(runtime_config, runtime_analysis),
+  error = identity
+)
+stopifnot(
+  inherits(memory_error, "error"),
+  grepl("cannot accommodate one", conditionMessage(memory_error), fixed = TRUE)
+)
+for (name in names(old_runtime_env)) {
+  if (is.na(old_runtime_env[[name]])) Sys.unsetenv(name) else {
+    do.call(Sys.setenv, stats::setNames(list(old_runtime_env[[name]]), name))
+  }
+}
 
 cat("ablation performance runtime tests passed\n")

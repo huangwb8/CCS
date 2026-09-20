@@ -46,21 +46,13 @@ options(stringsAsFactors = FALSE)
 .ablation03_path <- function(...) file.path(.ablation03_dir, ...)
 .ablation03_repo_path <- function(...) file.path(.ablation03_root, ...)
 
-# Large, recoverable analysis products live outside the repository. The
-# Windows default is the project-specific cache requested for ablation-03;
-# other platforms must opt in explicitly through the same environment variable.
-.ablation03_cache_default <- if (.Platform$OS.type == "windows") {
-  "D:/cache/ccs/_ablation-03"
-} else {
-  ""
-}
 .ablation03_cache_root <- Sys.getenv(
   "CCS_ABLATION_CACHE_ROOT",
-  unset = .ablation03_cache_default
+  unset = ""
 )
 if (!nzchar(.ablation03_cache_root)) {
   stop(
-    "Set CCS_ABLATION_CACHE_ROOT to a writable ablation-03 cache directory.",
+    "Set CCS_ABLATION_CACHE_ROOT explicitly through run-ablation-03.R.",
     call. = FALSE
   )
 }

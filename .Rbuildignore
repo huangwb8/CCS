@@ -1,0 +1,15 @@
+^renv($|/)
+^renv\.lock$
+^.*\.Rproj$
+^.*\.code-workspace$
+^\.Rproj\.user$
+^\.env$
+^\.bensz-api($|/)
+^\.ccs-cache($|/)
+^docs($|/)
+^tmp($|/)
+^test($|/)
+^tools($|/)
+^AGENTS\.md$
+^CLAUDE\.md$
+^Prompts\.md$

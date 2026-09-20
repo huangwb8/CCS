@@ -14,6 +14,16 @@
 
 # 日常
 
+---
+
+R CMD build 正在递归复制历史 .bensz-api 大目录  ，这肯定是不对的。  .bensz-api 是一个中间文件的托管，是一个“垃圾场”。 它一定要在 .Rbuildignore  里。E:\RCloud\RFactory\ccs\test 是测试类目录，并不属于 ccs 包， 它一定要在 .Rbuildignore  里。E:\RCloud\RFactory\ccs\.ccs-cache 、E:\RCloud\RFactory\ccs\renv 不应该被需要，因为E:\RCloud\RFactory\ccs是包的根目录；如果有其它地方引用它，这肯定是不对的；我怀疑是不是和 ablation-03 有关；如果是，应该都要挪到 ablation-03 里，不要污染根目录。 
+
+---
+
+我希望你改好 R\ablation.R 后，包含在  0.8.3 的CCS版本里并安装在本设备里；如果持续有变动就持续安装，总之 0.8.3 这个版本还没有正式发布的， 所以没关系，你安装就行；因为 ablation-03 依赖ccs 包的最新版。 然后，在  test\ablation-03\tmp 的某个子文件夹里正式跑一个ablation-03的轻量测试，你可以从正式的 ablation-03 里截取少量真实样本，然后基于完全一样的脚本。运行测试肯定会发现一些问题，你就改；改到正常工作为止。 最后，依据测试的情况优化正式的ablation-03分析。
+
+---
+
 基于 docs\plans\2026-09-18-ablation-03-targets-renv-rmd-parallel-migration.md 优化 R\ablation.R 和 test\ablation-03 。 ablation-03 的代码只是写好，先不要跑，到时让我先审一下。 
 
 ---

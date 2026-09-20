@@ -672,3 +672,35 @@
   })
   do.call(rbind, rows)
 }
+.asr_assert_representation_contract <- function(
+    structural_prepared,
+    representation_prepared,
+    representation_manifest
+) {
+  if (!identical(representation_prepared$input_key, representation_manifest$input_key)) {
+    stop("structural reproducibility: representation manifest/input mismatch.", call. = FALSE)
+  }
+  same_contract <- identical(
+    structural_prepared$selected_module_ids,
+    representation_prepared$selected_module_ids
+  ) && identical(
+    colnames(structural_prepared$reference_direct),
+    colnames(representation_prepared$reference_direct)
+  ) && identical(
+    colnames(structural_prepared$reference_d1),
+    colnames(representation_prepared$reference_d1)
+  ) && setequal(
+    structural_prepared$filtered_cohorts,
+    representation_prepared$filtered_cohorts
+  ) && setequal(
+    structural_prepared$filtered_cohorts,
+    representation_manifest$external_cohorts
+  )
+  if (!same_contract) {
+    stop(
+      "structural reproducibility: representation feature/cohort contract changed; rerun from 01.02.00.",
+      call. = FALSE
+    )
+  }
+  invisible(TRUE)
+}

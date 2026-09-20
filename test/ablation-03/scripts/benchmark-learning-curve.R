@@ -1,26 +1,78 @@
-# Benchmark serial versus bounded-PSOCK learning-curve execution on persisted
-# ablation-03 inputs. This tool does not alter scientific result products.
-bootstrap <- c(
-  file.path("scripts", "helpers", "workflow_helpers.R"),
-  file.path("test", "ablation-03", "scripts", "helpers", "workflow_helpers.R")
-)
-bootstrap <- bootstrap[file.exists(bootstrap)][1L]
-if (is.na(bootstrap)) stop("Run from ablation-03 or the repository root.", call. = FALSE)
-source(bootstrap, local = TRUE)
-source(.ablation03_repo_path("R", "ablation.R"))
-source(.ablation03_path("02.01.00. 表示分析_functions.R"))
+#!/usr/bin/env Rscript
 
-if (!dir.create(.wf_lock_dir, showWarnings = FALSE)) {
-  stop(
-    "The ablation-03 external cache is locked. Do not benchmark concurrently; ",
-    "if the owner crashed, confirm that process has stopped and remove the lock manually."
-  )
+# Optional, read-only benchmark for an existing ablation-03 cache. Benchmark
+# outputs must be written outside the scientific cache root.
+
+args <- commandArgs(trailingOnly = TRUE)
+value_after <- function(flag) {
+  index <- match(flag, args)
+  if (is.na(index) || index == length(args)) return(NULL)
+  args[[index + 1L]]
 }
-on.exit(unlink(.wf_lock_dir, recursive = TRUE, force = TRUE), add = TRUE)
-.wf_atomic_save_rds(
-  list(stage = "learning-curve-benchmark", pid = Sys.getpid()),
-  file.path(.wf_lock_dir, "owner.rds")
+usage <- paste(
+  "Usage: Rscript --vanilla test/ablation-03/scripts/benchmark-learning-curve.R",
+  "--cache-root <existing-cache> --output-dir <benchmark-output> [--workers <n>]"
 )
+if (any(args %in% c("-h", "--help"))) {
+  cat(usage, "\n")
+  quit(save = "no", status = 0L)
+}
+cache_root <- value_after("--cache-root")
+output_dir <- value_after("--output-dir")
+if (is.null(cache_root) || !nzchar(cache_root) || is.null(output_dir) || !nzchar(output_dir)) {
+  stop("--cache-root and --output-dir are required; no default paths are permitted.\n", usage, call. = FALSE)
+}
+workers_arg <- value_after("--workers")
+workers <- suppressWarnings(as.integer(if (is.null(workers_arg)) "2" else workers_arg))
+if (length(workers) != 1L || is.na(workers) || workers < 1L) {
+  stop("--workers must be a positive integer.", call. = FALSE)
+}
+
+all_args <- commandArgs(trailingOnly = FALSE)
+file_arg <- all_args[grepl("^--file=", all_args)]
+if (length(file_arg) == 0L) stop("Cannot resolve benchmark script path.", call. = FALSE)
+script_file <- normalizePath(sub("^--file=", "", file_arg[[1L]]), winslash = "/", mustWork = TRUE)
+project_dir <- normalizePath(file.path(dirname(script_file), ".."), winslash = "/", mustWork = TRUE)
+repo_root <- normalizePath(file.path(project_dir, "..", ".."), winslash = "/", mustWork = TRUE)
+cache_root <- normalizePath(cache_root, winslash = "/", mustWork = TRUE)
+output_dir <- normalizePath(output_dir, winslash = "/", mustWork = FALSE)
+cache_prefix <- paste0(tolower(cache_root), "/")
+if (identical(tolower(output_dir), tolower(cache_root)) ||
+    startsWith(paste0(tolower(output_dir), "/"), cache_prefix)) {
+  stop("--output-dir must be outside --cache-root so benchmark data cannot alter formal cache.", call. = FALSE)
+}
+
+identity <- tryCatch(
+  readRDS(file.path(cache_root, ".ablation03-root.rds")),
+  error = function(error) NULL
+)
+if (!is.list(identity) || !identical(identity$analysis, "ablation-03") ||
+    !identity$mode %in% c("formal", "lightweight")) {
+  stop("--cache-root is not an initialized formal/lightweight ablation-03 cache.", call. = FALSE)
+}
+if (dir.exists(file.path(cache_root, ".ablation-entry-lock")) ||
+    dir.exists(file.path(cache_root, ".workflow-lock"))) {
+  stop("The ablation-03 cache is active; benchmark only after the analysis exits.", call. = FALSE)
+}
+
+dir.create(output_dir, recursive = TRUE, showWarnings = FALSE)
+if (!dir.exists(output_dir)) stop("Cannot create --output-dir: ", output_dir, call. = FALSE)
+benchmark_lock <- file.path(output_dir, ".benchmark-lock")
+if (!dir.create(benchmark_lock, showWarnings = FALSE)) {
+  stop("Benchmark output is already locked: ", output_dir, call. = FALSE)
+}
+on.exit(unlink(benchmark_lock, recursive = TRUE, force = TRUE), add = TRUE)
+
+Sys.setenv(
+  CCS_ABLATION_CACHE_ROOT = cache_root,
+  CCS_ABLATION_MODE = identity$mode,
+  CCS_ABLATION_ALLOW_TEST_ENTRY = "1"
+)
+old_wd <- getwd()
+on.exit(setwd(old_wd), add = TRUE)
+setwd(repo_root)
+source(file.path(project_dir, "scripts", "helpers", "workflow_helpers.R"), local = TRUE)
+source(.ablation03_path("02.01.00. 表示分析_functions.R"), local = TRUE)
 
 bundle <- .wf_read("01-representations", "representation-inputs.rds")
 prepared <- bundle$analysis$prepared
@@ -41,7 +93,6 @@ repeats <- as.integer(Sys.getenv("CCS_ABLATION_BENCHMARK_REPEATS", unset = "1"))
 if (!is.finite(repeats) || repeats < 1L || repeats > config$validation$repeats) {
   stop("CCS_ABLATION_BENCHMARK_REPEATS is outside the configured repeat range.")
 }
-workers <- as.integer(Sys.getenv("CCS_ABLATION_BENCHMARK_WORKERS", unset = "2"))
 total_threads <- as.integer(Sys.getenv(
   "CCS_ABLATION_CORES",
   unset = as.character(config$validation$numCores * config$validation$workers)
@@ -104,10 +155,9 @@ report <- data.frame(
   speedup_vs_serial = c(1, serial$timing[["elapsed"]] / parallel$timing[["elapsed"]]),
   result_equivalent = TRUE,
   r_version = R.version.string,
+  ccs_version = as.character(utils::packageVersion("CCS")),
   xgboost_version = as.character(utils::packageVersion("xgboost")),
   stringsAsFactors = FALSE
 )
-output_dir <- file.path(.wf_output("ablation-experiment"), "performance")
-dir.create(output_dir, recursive = TRUE, showWarnings = FALSE)
 .ablation_atomic_write_csv(report, file.path(output_dir, "learning-curve-benchmark.csv"))
 print(report)

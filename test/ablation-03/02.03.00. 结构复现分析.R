@@ -12,7 +12,24 @@ tail_fraction <- 1 / 3
 min_entity_n <- 8L
 min_shared_entities <- 8L
 n_boot <- 2000L
-matched_repeats <- 20L
+min_entity_n <- suppressWarnings(as.integer(Sys.getenv(
+  "CCS_ABLATION_STRUCTURAL_MIN_ENTITY_N", unset = as.character(min_entity_n)
+)))
+n_boot <- suppressWarnings(as.integer(Sys.getenv(
+  "CCS_ABLATION_STRUCTURAL_BOOTSTRAP", unset = as.character(n_boot)
+)))
+if (length(min_entity_n) != 1L || is.na(min_entity_n) || min_entity_n < 1L) {
+  stop("CCS_ABLATION_STRUCTURAL_MIN_ENTITY_N must be a positive integer.", call. = FALSE)
+}
+if (length(n_boot) != 1L || is.na(n_boot) || n_boot < 0L) {
+  stop("CCS_ABLATION_STRUCTURAL_BOOTSTRAP must be a non-negative integer.", call. = FALSE)
+}
+matched_repeats <- suppressWarnings(as.integer(Sys.getenv(
+  "CCS_ABLATION_MATCHED_REPEATS", unset = "20"
+)))
+if (length(matched_repeats) != 1L || is.na(matched_repeats) || matched_repeats < 1L) {
+  stop("CCS_ABLATION_MATCHED_REPEATS must be a positive integer.", call. = FALSE)
+}
 stage_parameters <- list(
   seed = seed,
   tail_fraction = tail_fraction,
@@ -31,14 +48,16 @@ dir.create(output_dir, recursive = TRUE, showWarnings = FALSE)
 bundle <- .wf_read("01-representations", "structural-inputs.rds")
 prepared <- bundle$analysis$prepared
 full_d1 <- bundle$structural$full_d1
-source(.ablation03_repo_path("R", "ablation.R"))
+representation_bundle <- .wf_read("01-representations", "representation-inputs.rds")
 manifest <- .wf_read("ablation-experiment", "manifest.rds")
 biology_cache <- .wf_read("01-biology", "expression-anchor-cache.rds")
 anchor_cache <- .wf_read("01-biology", "structural-anchor-cache.rds")
 anchor_cache_key <- anchor_cache$cache_key
-if (!identical(prepared$input_key, manifest$input_key)) {
-  stop("Structural and representation inputs differ; rerun from 01b.", call. = FALSE)
-}
+.asr_assert_representation_contract(
+  structural_prepared = prepared,
+  representation_prepared = representation_bundle$analysis$prepared,
+  representation_manifest = manifest
+)
 full_module_manifest <- bundle$structural$full_module_manifest
 module_table <- .asr_resolve_module_table(
   full_module_manifest,
@@ -371,7 +390,7 @@ forward_all <- forward_result$summary[
     .wf_path("scripts", "helpers", "workflow_helpers.R"),
     .wf_path("02.03.00. 结构复现分析.R"),
     .ablation03_path("02.03.00. 结构复现分析_functions.R"),
-    .ablation03_repo_path("R", "ablation.R")),
+    .ablation03_ccs_description),
   outputs = list.files(output_dir, pattern = "^(structural_|ablation03-structural).*\\.(csv|rds)$", full.names = TRUE))
 reverse_all <- reverse_result$summary[
   reverse_result$summary$scope == "all_cohort_pairs", , drop = FALSE

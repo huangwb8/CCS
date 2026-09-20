@@ -1,0 +1,15 @@
+.Rproj.user
+.Rhistory
+.RData
+.Ruserdata
+test/*
+plans/*
+.env
+!test/ablation/
+!test/ablation-02/
+!test/ablation-03/
+.bensz-api/
+.ccs-cache/
+/renv/
+*tmp*/
+test/*/tmp/

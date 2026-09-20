@@ -119,8 +119,10 @@ third <- expect_rebuild(function() {
 invisible(expect_rebuild(function() {
   state <- readRDS(state_path)
   state$status <- "running"
+  state$pid <- 999999L
+  state$hostname <- unname(Sys.info()[["nodename"]])
   .ablation_atomic_save_rds(state, state_path)
-}, "state-not-complete", 44L))
+}, "stale-running-state", 44L))
 
 invisible(expect_rebuild(function() {
   cached <- readRDS(cache_path)
@@ -152,9 +154,85 @@ stopifnot(counter == 6L)
 
 state <- readRDS(state_path)
 stopifnot(
-  identical(state$schema_version, 1L),
-  identical(state$status, "complete"), identical(state$key, key_a)
+  identical(state$schema_version, 2L),
+  identical(state$status, "complete"), identical(state$key, key_a),
+  is.numeric(state$working_set_start_bytes),
+  is.numeric(state$peak_working_set_bytes),
+  state$result_bytes > 0
 )
+
+failed_key <- digest::digest("failed-node", algo = "md5")
+failed <- tryCatch(
+  .ablation_cached_node(
+    "readout", cache_root, failed_key,
+    compute = function() stop("synthetic checkpoint failure"),
+    verbose = FALSE
+  ),
+  error = identity
+)
+stopifnot(inherits(failed, "error"))
+failed_state <- readRDS(file.path(
+  cache_root, "checkpoints", "readout", paste0(failed_key, ".state.rds")
+))
+stopifnot(
+  identical(failed_state$status, "failed"),
+  identical(failed_state$error_class, "simpleError"),
+  grepl("synthetic checkpoint failure", failed_state$error_summary, fixed = TRUE)
+)
+
+stale_key <- digest::digest("stale-node", algo = "md5")
+stale_dir <- file.path(cache_root, "checkpoints", "readout")
+.ablation_atomic_save_rds(
+  list(
+    schema_version = 2L, status = "running", node = "readout", key = stale_key,
+    run_id = "dead-run", pid = 999999L, hostname = unname(Sys.info()[["nodename"]]),
+    started_at = "2000-01-01T00:00:00+0000", updated_at = "2000-01-01T00:00:00+0000"
+  ),
+  file.path(stale_dir, paste0(stale_key, ".state.rds"))
+)
+stale_result <- .ablation_cached_node(
+  "readout", cache_root, stale_key,
+  compute = function() list(answer = 48L), verbose = FALSE
+)
+stale_state <- readRDS(file.path(stale_dir, paste0(stale_key, ".state.rds")))
+stopifnot(
+  stale_result$value$answer == 48L,
+  identical(stale_result$reason, "stale-running-state"),
+  identical(stale_state$status, "complete"),
+  identical(stale_state$recovered_from$status, "stale"),
+  identical(stale_state$recovered_from$stale_reason, "owner-process-not-active")
+)
+
+legacy_key <- digest::digest("legacy-running-node", algo = "md5")
+.ablation_atomic_save_rds(
+  list(schema_version = 1L, status = "running", node = "readout", key = legacy_key),
+  file.path(stale_dir, paste0(legacy_key, ".state.rds"))
+)
+legacy_result <- .ablation_cached_node(
+  "readout", cache_root, legacy_key,
+  compute = function() list(answer = 49L), verbose = FALSE
+)
+stopifnot(
+  legacy_result$value$answer == 49L,
+  identical(legacy_result$reason, "stale-running-state")
+)
+
+active_key <- digest::digest("active-node", algo = "md5")
+.ablation_atomic_save_rds(
+  list(
+    schema_version = 2L, status = "running", node = "readout", key = active_key,
+    run_id = "active-run", pid = Sys.getpid(), hostname = unname(Sys.info()[["nodename"]])
+  ),
+  file.path(stale_dir, paste0(active_key, ".state.rds"))
+)
+active_error <- tryCatch(
+  .ablation_cached_node(
+    "readout", cache_root, active_key,
+    compute = function() list(answer = 49L), verbose = FALSE
+  ),
+  error = identity
+)
+stopifnot(inherits(active_error, "error"), grepl("active", conditionMessage(active_error), fixed = TRUE))
 
 fit_path <- file.path(cache_root, "fit-cache.rds")
 .ablation_atomic_save_rds(

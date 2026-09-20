@@ -2,5 +2,5 @@
 
 - External cache stage: 01-data
 - Output files: 2
-- Stage receipt MD5: b1343c3a3a65f3d7689c798d651e6a1f
+- Stage receipt MD5: 4b7869c523878ee2ba821031f652a25a
 - Large objects remain under CCS_ABLATION_CACHE_ROOT.

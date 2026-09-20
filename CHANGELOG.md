@@ -6,6 +6,32 @@
 
 ## [Unreleased]
 
+- 将 `ablation-03` 收敛为唯一正式 R 入口 `run-ablation-03.R`：强制显式
+  `--cache-root`，按编号顺序在独立 R 会话中执行六个科学脚本，并记录 profile、
+  `run_id`、已安装 CCS 0.8.3 身份和资源预算；删除 PowerShell launcher 与 targets
+  运行入口。正式脚本改为消费已安装 CCS namespace，不再直接 source 仓库
+  `R/ablation.R`。新增轻量真实样本 profile、独立只读 benchmark、PID 感知锁和
+  stale/failed 恢复合同测试。
+- 隔离 `ablation-03` 的 profile 产品边界：`formal` 继续写项目内可审计的
+  `products/main/`，`lightweight` 则把 checkpoint 清单与计算缓存一并写入显式
+  `--cache-root`，避免轻量验收覆盖正式分析产品。
+- 修复 Windows R 子会话继承无效 `C.UTF-8` locale 时中文编号脚本及 helper 文件名
+  无法解析的问题；正式 R 入口现在向每个独立阶段会话传递 UTF-8 绝对路径，并以明确
+  UTF-8 编码载入脚本。
+
+- 恢复 scaling summary 已引用但缺失的 `.ablation_bootstrap_mean()`，使用固定 seed
+  的 percentile bootstrap 并在返回时恢复调用方 RNG 状态，解除 bank-scaling 汇总
+  与出版推断合同测试的运行阻断。
+
+- 在 `.Rbuildignore` 中以锚定目录规则排除 `.env`、`.bensz-api/`、`.ccs-cache/`、
+  `renv/`、`docs/`、`test/` 和 `tmp/`
+  中间工作区，避免 `R CMD build` 递归打包历史浏览器 profile、
+  预览图、任务归档、可重建 RDS 和环境凭据，并防止 Windows 长路径失败、
+  非便携仓库文件名警告与序列化版本污染。新增纯 R `tools/build-package.R`，先按
+  `.Rbuildignore` 构造干净 staging，再调用 R 4.3.1 的 `R CMD build`，绕开该版本在
+  读取排除规则前递归复制外部源码路径的行为；Windows 下显式启用 UTF-8 locale，支持
+  含中文的构建输出路径：子进程在 ASCII 临时目录生成 tarball，再由父 R 写入目标目录。
+
 - 收敛 `test/ablation-03/templates/` 为 Liquid Glass 专用主题目录：仍在使用的工作流与 Rmd helper 迁入 `scripts/helpers/`，同步分析脚本、报告和测试引用，并删除未使用的绘图模板与陈旧 HTML 片段。
 
 - 重写 `docs/ablation.md` 为当前 representation 工作流的业务逻辑与函数地图：移除已删除的 layered 实验、Gate 1、`experiment = "cohort"` 别名与 smoke fixture 描述，按当前 `ablation()` 签名、参数 schema、输出文件、decoder 指标与 staged 生命周期重新核对内容。
@@ -14,34 +40,22 @@
 
 - 将 `ablation()` 收敛为单一 representation 工作流：移除 `experiment = "cohort"` 兼容别名及旧 layered/cohort 编排、参数和测试入口；不再保留已脱离正式流程的历史实验分支。
 
-- 为 `test/ablation-03` 落实项目级 `renv` 支持：新增环境初始化、核心依赖安装、CCS 安装、snapshot/restore/status/check 入口和正式 targets launcher；运行元数据记录 `renv.lock` 指纹，缺少锁文件或环境不一致时在分析前失败。
-
-- 收紧 `test/ablation-03` 的 CCS 版本边界：targets 入口现在要求已安装的
-  CCS `0.8.3`，并兼容 `01.01.00. 数据准备.R` 既有输入 RDS 的
-  `resCCS_ablation`、`data_all`、`ablation_metadata` 字段别名；仍只进行静态
-  代码调整，本轮未运行 R、targets 或实验。
+- `test/ablation-03` 的项目级 `renv` 仅保留在分析目录用于环境
+  snapshot/restore；CCS 包根目录不创建或依赖 `renv/`。正式入口直接要求本机已安装
+  CCS `0.8.3`。
 
 - 修复包文档检查阻断：移除两处不可执行的示例占位文本，将依赖外部 `resCCS` 对象的示例标记为不自动运行，将 XGBoost 参数范围中的 Unicode 无穷符号改为 LaTeX 可移植的 `Inf`，并补充 `plotImportance()` 的 `nTop` 参数说明。
 
 - 为 `ablation()` 增加可序列化的 `context`、`plan`、`run`、`result` 阶段调度，
   并通过 `cache.root` 将中间节点缓存与正式 `output.dir` 分离；保留默认
-  `step = "all"` 的普通调用语义；默认 `.ccs-cache/` 已加入忽略规则，未修改版本号。
+  `step = "all"` 的普通调用语义；`cache.root = NULL` 改用会话临时目录，不再在
+  包源码当前目录创建 `.ccs-cache/`。
 
-- 新增 `ablation-03` 的 targets 串行迁移骨架：`R/ablation.R` 提供不依赖
-  workflow/SUCCESS/stage receipt 的阶段化 `ablation()` API；
-  `test/ablation-03/_targets.R` 将正式 store 固定到
-  `D:\cache\ccs\_ablation-03\targets`，并要求通过已安装的 `CCS::`
-  API 运行。本轮只完成代码与接口改造，未运行完整 `ablation-03`，待审阅后
-  再进行小规模 smoke 与串行验收；未修改版本号。
-
-- 移除未被正式 targets 流程消费的 `ablation_*` 公共导出和独立 targets API 文档；
+- 移除未被正式分析流程消费的 `ablation_*` 公共导出和独立 workflow API 文档；
   job 规划保留为内部实现，运行身份元数据移回 `ablation-03` wiring，公共入口收敛为 `ablation()`。
 
 - 更新项目指令：明确 ablation 重构通过包、科学等价性和 `ablation-03` 串行验收后，才递增 CCS patch 版本，并使用 `C:\R\R-4.3.1` 对应环境完成构建、检查和安装；本门禁不适用于验证前的开发迭代。
-- 明确 ablation-03 的正式运行必须消费已安装的 CCS 包 API；不得直接 source `R/ablation.R`，开发期 `load_all()` 仅用于包测试，不作为正式分析入口。
-- 明确新版 targets ablation-03 的正式缓存根目录为 `D:\cache\ccs\_ablation-03`；targets store、分支对象和运行状态写入该外部目录，项目目录仅保留源码、配置和正式报告。
-
-- 新增 `test/ablation-03/scripts/run-fresh-analysis.ps1`，为 Windows R 4.3.1 提供隔离的全新分析缓存根目录、UTF-8 locale、受限 CPU/内存预算、可选 benchmark 与七阶段顺序入口；不覆盖既有 ablation-03 缓存。
+- 明确 ablation-03 的正式运行必须消费已安装的 CCS 包 API；不得直接 source `R/ablation.R`，开发期 `load_all()` 仅用于包测试，不作为正式分析入口。缓存根目录由 R 入口显式提供，项目目录仅保留源码、配置、测试和正式报告。
 
 - 整理 `test/ablation-03` 目录边界：将重复的 `input/` 说明并入 `raw/`，将生物学锚点配置归入 `raw/config/`，将辅助入口从 `tools/` 统一为 `scripts/`，并把既有正式图表归位到 `reports/figures/`；保留根目录 `analysis-plan.yaml` 作为标准工作流清单，不迁移或删除历史 `tmp/` 缓存。
 

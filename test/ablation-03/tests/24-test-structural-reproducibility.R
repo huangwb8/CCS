@@ -183,4 +183,39 @@ stopifnot(
     "external_bank_to_reference_targets")
 )
 
+# Structural and representation draws may use different samples/seeds, while
+# their feature, module and external-cohort contracts must remain identical.
+representation_prepared <- list(
+  input_key = "representation-key",
+  selected_module_ids = c("A|one", "B|two"),
+  reference_direct = matrix(0, 2, 2, dimnames = list(c("r1", "r2"), c("f1", "f2"))),
+  reference_d1 = matrix(0, 2, 2, dimnames = list(c("r1", "r2"), c("d1", "d2"))),
+  filtered_cohorts = c("A/query", "B/query")
+)
+structural_prepared <- representation_prepared
+structural_prepared$input_key <- "structural-key"
+rownames(structural_prepared$reference_direct) <- c("s1", "s2")
+rownames(structural_prepared$reference_d1) <- c("s1", "s2")
+representation_manifest <- list(
+  input_key = "representation-key",
+  external_cohorts = rev(representation_prepared$filtered_cohorts)
+)
+stopifnot(isTRUE(invisible(.asr_assert_representation_contract(
+  structural_prepared,
+  representation_prepared,
+  representation_manifest
+))))
+
+bad_structural <- structural_prepared
+colnames(bad_structural$reference_d1)[1L] <- "changed"
+contract_error <- tryCatch(
+  .asr_assert_representation_contract(
+    bad_structural,
+    representation_prepared,
+    representation_manifest
+  ),
+  error = identity
+)
+stopifnot(inherits(contract_error, "error"))
+
 cat("structural reproducibility contract tests passed\n")

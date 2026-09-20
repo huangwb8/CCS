@@ -5,7 +5,6 @@ bootstrap <- bootstrap[file.exists(bootstrap)][1L]
 if (is.na(bootstrap)) stop("Run from ablation-03 or the repository root.", call. = FALSE)
 source(bootstrap, local = TRUE)
 bundle <- .wf_read("01-representations", "representation-inputs.rds")
-source(.ablation03_repo_path("R", "ablation.R"))
 seed <- bundle$seed
 config <- bundle$config
 analysis <- bundle$analysis

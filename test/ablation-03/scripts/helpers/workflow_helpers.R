@@ -5,10 +5,54 @@ if (is.na(env_path)) stop("Run from ablation-03 or the repository root.", call. 
 source(env_path, local = TRUE)
 source(.ablation03_path("scripts", "helpers", "checkpoint_helpers.R"), local = TRUE)
 source(.ablation03_path("scripts", "helpers", "stage_receipt_helpers.R"), local = TRUE)
+source(.ablation03_path("scripts", "helpers", "run_identity_helpers.R"), local = TRUE)
+.ablation03_ccs_version <- as.character(utils::packageVersion("CCS"))
+if (!identical(.ablation03_ccs_version, "0.8.3")) {
+  stop(
+    "ablation-03 requires installed CCS 0.8.3; found ", .ablation03_ccs_version, ".",
+    call. = FALSE
+  )
+}
+.ablation03_ccs_namespace <- asNamespace("CCS")
+.ablation03_ccs_symbols <- grep(
+  "^\\.ablation_", ls(.ablation03_ccs_namespace, all.names = TRUE), value = TRUE
+)
+for (.ablation03_symbol in .ablation03_ccs_symbols) {
+  assign(
+    .ablation03_symbol,
+    get(.ablation03_symbol, envir = .ablation03_ccs_namespace, inherits = FALSE),
+    envir = environment()
+  )
+}
+rm(.ablation03_symbol)
+.ablation03_ccs_description <- file.path(find.package("CCS"), "DESCRIPTION")
 .wf_root <- .ablation03_dir
 .wf_path <- function(...) .ablation03_path(...)
 .wf_output <- function(...) file.path(.ablation03_cache_root, ...)
 .wf_lock_dir <- file.path(.ablation03_cache_root, ".workflow-lock")
+.wf_mode <- Sys.getenv("CCS_ABLATION_MODE", unset = "formal")
+if (!.wf_mode %in% c("formal", "lightweight")) {
+  stop("CCS_ABLATION_MODE must be formal or lightweight.", call. = FALSE)
+}
+.wf_product_root <- if (identical(.wf_mode, "formal")) {
+  .ablation03_dir
+} else {
+  .ablation03_cache_root
+}
+.ablation03_bind_cache_identity(.ablation03_cache_root, .wf_mode)
+.wf_entry_lock <- file.path(.ablation03_cache_root, ".ablation-entry-lock", "owner.rds")
+if (!identical(Sys.getenv("CCS_ABLATION_ALLOW_TEST_ENTRY"), "1")) {
+  .wf_entry_owner <- tryCatch(readRDS(.wf_entry_lock), error = function(error) NULL)
+  .wf_run_id <- Sys.getenv("CCS_ABLATION_RUN_ID", unset = "")
+  if (!is.list(.wf_entry_owner) || !nzchar(.wf_run_id) ||
+      !identical(.wf_entry_owner$run_id, .wf_run_id) ||
+      !identical(.wf_entry_owner$mode, .wf_mode)) {
+    stop(
+      "ablation-03 numbered stages must run through run-ablation-03.R.",
+      call. = FALSE
+    )
+  }
+}
 .wf_stage_units <- c(
   `01-data` = "01.01.00. 数据准备",
   `01-representations` = "01.02.00. 表示输入准备",
@@ -20,7 +64,13 @@ source(.ablation03_path("scripts", "helpers", "stage_receipt_helpers.R"), local 
 .wf_product_dir <- function(stage) {
   unit_stem <- unname(.wf_stage_units[[stage]])
   if (is.null(unit_stem)) stop("Unknown workflow stage: ", stage, call. = FALSE)
-  .ablation03_path("products", "main", unit_stem)
+  bensz_product_dir("main", unit_stem, root = .wf_product_root)
+}
+.wf_product_status <- function(stage) {
+  old_wd <- getwd()
+  on.exit(setwd(old_wd), add = TRUE)
+  setwd(.wf_product_root)
+  bensz_checkpoint_status(.wf_product_dir(stage))
 }
 .wf_atomic_save_rds <- function(value, path) {
   dir.create(dirname(path), recursive = TRUE, showWarnings = FALSE)
@@ -64,10 +114,7 @@ source(.ablation03_path("scripts", "helpers", "stage_receipt_helpers.R"), local 
     if (!identical(state$cache_identity, expected_identity)) {
       stop("stage parameter identity changed", call. = FALSE)
     }
-    old_wd <- getwd()
-    on.exit(setwd(old_wd), add = TRUE)
-    setwd(.ablation03_dir)
-    product_status <- bensz_checkpoint_status(.wf_product_dir(stage))
+    product_status <- .wf_product_status(stage)
     if (!isTRUE(product_status$valid)) stop(product_status$reason, call. = FALSE)
     TRUE
   }, error = function(error) FALSE)
@@ -85,6 +132,27 @@ source(.ablation03_path("scripts", "helpers", "stage_receipt_helpers.R"), local 
   stage_dir <- .wf_output(stage)
   dir.create(stage_dir, recursive = TRUE, showWarnings = FALSE)
   dir.create(.ablation03_cache_root, recursive = TRUE, showWarnings = FALSE)
+  if (dir.exists(.wf_lock_dir)) {
+    owner <- .wf_read_rds_safe(file.path(.wf_lock_dir, "owner.rds"))
+    local_host <- unname(Sys.info()[["nodename"]])
+    active <- is.list(owner) &&
+      (!identical(owner$hostname, local_host) || .ablation03_pid_is_alive(owner$pid))
+    if (active) {
+      stop(
+        "Another ablation-03 stage owns the external-cache lock: ", .wf_lock_dir,
+        " (run ", owner$run_id, ").",
+        call. = FALSE
+      )
+    }
+    stale_dir <- file.path(
+      .ablation03_cache_root, "stale-locks",
+      paste0("stage-", format(Sys.time(), "%Y%m%dT%H%M%S"), "-", Sys.getpid())
+    )
+    dir.create(dirname(stale_dir), recursive = TRUE, showWarnings = FALSE)
+    if (!file.rename(.wf_lock_dir, stale_dir)) {
+      stop("Cannot archive stale workflow lock: ", .wf_lock_dir, call. = FALSE)
+    }
+  }
   if (!dir.create(.wf_lock_dir, showWarnings = FALSE)) {
     stop(
       "Another ablation-03 stage owns the external-cache lock: ", .wf_lock_dir,
@@ -100,7 +168,15 @@ source(.ablation03_path("scripts", "helpers", "stage_receipt_helpers.R"), local 
     }
   }, add = TRUE)
   .wf_atomic_save_rds(
-    list(stage = stage, pid = Sys.getpid(), started = format(Sys.time(), "%Y-%m-%dT%H:%M:%S%z")),
+    list(
+      schema_version = 2L,
+      stage = stage,
+      run_id = Sys.getenv("CCS_ABLATION_RUN_ID", unset = "manual"),
+      mode = .wf_mode,
+      pid = Sys.getpid(),
+      hostname = unname(Sys.info()[["nodename"]]),
+      started = format(Sys.time(), "%Y-%m-%dT%H:%M:%S%z")
+    ),
     file.path(.wf_lock_dir, "owner.rds")
   )
   receipt <- file.path(stage_dir, "stage-receipt.rds")
@@ -113,15 +189,46 @@ source(.ablation03_path("scripts", "helpers", "stage_receipt_helpers.R"), local 
   }
   .wf_atomic_save_rds(
     list(
+      schema_version = 2L,
       status = "running",
       stage = stage,
       cache_identity = .wf_identity(parameters),
-      started = format(Sys.time(), "%Y-%m-%dT%H:%M:%S%z")
+      run_id = Sys.getenv("CCS_ABLATION_RUN_ID", unset = "manual"),
+      mode = .wf_mode,
+      pid = Sys.getpid(),
+      hostname = unname(Sys.info()[["nodename"]]),
+      started = format(Sys.time(), "%Y-%m-%dT%H:%M:%S%z"),
+      updated = format(Sys.time(), "%Y-%m-%dT%H:%M:%S%z")
     ),
     file.path(stage_dir, "run-state.rds")
   )
+  options(
+    bensz.ablation03.previous_error = getOption("error"),
+    bensz.ablation03.active_stage = stage,
+    error = function() {
+      previous <- getOption("bensz.ablation03.previous_error")
+      options(error = previous)
+      active <- getOption("bensz.ablation03.active_stage")
+      if (is.character(active) && length(active) == 1L && nzchar(active)) {
+        .wf_fail(active, geterrmessage())
+      }
+      if (is.function(previous)) previous()
+    }
+  )
   lock_ready <- TRUE
   invisible(stage_dir)
+}
+.wf_fail <- function(stage, message) {
+  state_path <- file.path(.wf_output(stage), "run-state.rds")
+  state <- .wf_read_rds_safe(state_path)
+  if (!is.list(state)) state <- list(schema_version = 2L, stage = stage)
+  state$status <- "failed"
+  state$updated <- format(Sys.time(), "%Y-%m-%dT%H:%M:%S%z")
+  state$failed <- state$updated
+  state$error_summary <- substr(gsub("[\r\n\t]+", " ", as.character(message)), 1L, 1000L)
+  .wf_atomic_save_rds(state, state_path)
+  if (dir.exists(.wf_lock_dir)) unlink(.wf_lock_dir, recursive = TRUE, force = TRUE)
+  invisible(state)
 }
 .wf_validate <- function(stage_dir) {
   state_path <- file.path(stage_dir, "run-state.rds")
@@ -141,10 +248,7 @@ source(.ablation03_path("scripts", "helpers", "stage_receipt_helpers.R"), local 
   if (!is.character(stage) || length(stage) != 1L || is.null(.wf_stage_units[[stage]])) {
     stop("Workflow state has an unknown stage: ", stage_dir, call. = FALSE)
   }
-  old_wd <- getwd()
-  on.exit(setwd(old_wd), add = TRUE)
-  setwd(.ablation03_dir)
-  product_status <- bensz_checkpoint_status(.wf_product_dir(stage))
+  product_status <- .wf_product_status(stage)
   if (!isTRUE(product_status$valid)) {
     stop("Invalid project checkpoint for ", stage, ": ", product_status$reason, call. = FALSE)
   }
@@ -203,14 +307,18 @@ source(.ablation03_path("scripts", "helpers", "stage_receipt_helpers.R"), local 
   cache_identity <- bensz_hash_value(list(unit_stem = unit_stem, receipt = receipt))
   old_wd <- getwd()
   on.exit(setwd(old_wd), add = TRUE)
-  setwd(.ablation03_dir)
-  product_dir <- bensz_product_dir("main", unit_stem, root = .ablation03_dir)
+  setwd(.wf_product_root)
+  product_dir <- .wf_product_dir(stage)
   summary_lines <- c(
     paste0("# ", unit_stem), "",
     paste0("- External cache stage: ", stage),
     paste0("- Output files: ", length(relative_outputs)),
     paste0("- Stage receipt MD5: ", product$receipt_md5),
-    "- Large objects remain under CCS_ABLATION_CACHE_ROOT."
+    if (identical(.wf_mode, "formal")) {
+      "- Large objects remain under CCS_ABLATION_CACHE_ROOT."
+    } else {
+      "- Lightweight product and large objects remain under CCS_ABLATION_CACHE_ROOT."
+    }
   )
   bensz_write_checkpoint(
     object = product,
@@ -227,9 +335,16 @@ source(.ablation03_path("scripts", "helpers", "stage_receipt_helpers.R"), local 
   }
   .wf_atomic_save_rds(
     list(
+      schema_version = 2L,
       status = "complete",
       stage = stage,
       cache_identity = running_state$cache_identity,
+      run_id = running_state$run_id,
+      mode = running_state$mode,
+      pid = running_state$pid,
+      hostname = running_state$hostname,
+      started = running_state$started,
+      updated = format(Sys.time(), "%Y-%m-%dT%H:%M:%S%z"),
       completed = format(Sys.time(), "%Y-%m-%dT%H:%M:%S%z"),
       receipt_md5 = unname(tools::md5sum(receipt_path))
     ),
@@ -238,5 +353,10 @@ source(.ablation03_path("scripts", "helpers", "stage_receipt_helpers.R"), local 
   if (dir.exists(.wf_lock_dir) && unlink(.wf_lock_dir, recursive = TRUE, force = TRUE) != 0L) {
     stop("Stage completed but the workflow lock could not be released: ", .wf_lock_dir, call. = FALSE)
   }
+  options(
+    error = getOption("bensz.ablation03.previous_error"),
+    bensz.ablation03.active_stage = NULL,
+    bensz.ablation03.previous_error = NULL
+  )
   invisible(product)
 }
