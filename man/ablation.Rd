@@ -19,16 +19,284 @@ ablation(
 }
 \arguments{
 \item{object}{A \code{CCS} object containing the frozen d1 representation.}
-\item{data}{Raw RNA expression data. A tissue/cohort nested list is preferred; each leaf can be an expression matrix or a list containing \code{expr}.}
-\item{metadata}{Optional sample annotation with sample, cohort, tissue and biological-label columns.}
-\item{output.dir}{Independent output directory. Existing CCS products are never overwritten.}
-\item{params}{Named nested list merged onto \code{.ablation_representation_default_params(seed)}. Unknown fields are rejected before computation.}
-\item{seed}{Master random seed.}
-\item{verbose}{Whether to report progress.}
-\item{step}{Lifecycle stage: \code{"all"}, \code{"context"}, \code{"plan"}, \code{"run"}, or \code{"result"}.}
-\item{input}{Optional serializable stage input consumed by the requested lifecycle step.}
-\item{cache.root}{Optional root directory for reusable intermediate cache.}
+
+\item{data}{Raw RNA expression data. A tissue/cohort nested list is preferred;
+each leaf can be an expression matrix or a list containing \code{expr}.}
+
+\item{metadata}{Optional sample annotation with sample, cohort, tissue and
+biological-label columns. Common CCS column names are recognized.}
+
+\item{output.dir}{Independent output directory. Existing CCS products are
+never overwritten.}
+
+\item{params}{Named nested list. Values are merged onto
+\code{.ablation_representation_default_params(seed)} under \code{comparison},
+\code{provenance}, \code{anchors}, \code{geometry}, \code{validation}, \code{controls}, \code{tradeoffs},
+\code{scaling}, and \code{output}. Unknown fields are rejected before computation.
+
+Representation-specific cohort-bank scaling settings:
+
+\describe{
+\item{\code{scaling$enabled}}{Logical; when \code{TRUE}, evaluate tissue breadth,
+within-tissue cohort depth, and matched-size frozen cohort-model banks.
+Default: \code{FALSE}.}
+\item{\code{scaling$module_counts}}{Positive module counts used for matched-size
+breadth-heavy versus depth-heavy contrasts. Infeasible sizes are
+retained in the exclusion audit. Default:
+\code{c(10L, 25L, 50L, 75L, 100L, 125L, 150L)}.}
+\item{\code{scaling$sequences}}{Number of independently randomized,
+reproducible bank-design repeats. Each repeat, rather than its samples
+or grid cells, is the uncertainty unit. Default: \code{10L}.}
+\item{\code{scaling$direct_feature_type}}{Main Direct-GSClassifier diagnostic
+contract: \code{"all"} for the complete native input or \code{"gene_pair"} for
+ordinary TSPs only. Default: \code{"all"}.}
+\item{\code{scaling$sensitivity_feature_type}}{Optional secondary Direct
+contract. \code{"gene_pair"} reports the explicitly named
+Direct-GSClassifier-TSP sensitivity analysis; \code{"none"} disables it.
+Default: \code{"gene_pair"}.}
+\item{\code{scaling$biology_anchors}}{Independent sample-level biological or
+clinical metadata columns used for external-utility neighborhood
+consistency. Missing or empty anchors are returned as \code{not_evaluated};
+cancer type is not substituted. Default: \code{character()}.}
+\item{\code{scaling$score_reference_samples}}{Fixed stratified reference
+sample cap shared by every bank score. This controls repeated neighbor
+and readout cost without changing bank-repeat uncertainty. \code{Inf} keeps
+all reference samples. Default: \code{5000L}.}
+\item{\code{scaling$score_query_samples}}{Fixed stratified external-query cap
+shared by every bank score. \code{Inf} keeps all eligible queries. Default:
+\code{2000L}.}
+\item{\code{scaling$lambda}}{Single pre-specified L2 penalty shared by Direct
+and matched-bank lineage diagnostics. Fixing it avoids re-tuning at
+every bank composition. Default: \code{1}.}
+\item{\code{scaling$bootstrap}}{Positive number of repeat-level bootstrap
+draws used for breadth/depth slopes, interactions, and matched-size
+summaries. Default:
+\code{1000L}.}
 }
-\value{An object of class \code{CCSAblation}.}
-\description{Evaluate the frozen CCS representation without retraining cohort submodels. The workflow compares Direct-GSClassifier with Cohort-d1 on paired retrieval, readout, learning curves, optional cohort-bank scaling, null controls, and feature reconstruction.}
-\author{Weibin Huang <hwb2012@@qq.com>}
+
+Shared representation, validation, and metric settings:
+
+\describe{
+\item{\code{general$rank}}{Positive target PCA rank used by Experiment 1 and the d1
+scaling curves. It is reduced automatically when a fold has fewer
+samples or features. Default: \code{50L}.}
+\item{\code{cohort$rank_sensitivity}}{Positive integer vector of additional PCA ranks
+evaluated in Experiment 1; infeasible values are reduced to the common
+maximum rank. Default: \code{c(25L, 50L, 100L)}.}
+\item{\code{general$k}}{Positive neighborhood size used by kNN similarity, mixing,
+purity, fidelity, and stability metrics. It is capped at the available
+sample count minus one. Default: \code{30L}.}
+\item{\code{general$distance}}{Distance label stored in metric and audit outputs.
+Current computations remain Euclidean regardless of this value; this is
+not yet a distance-method switch. Default: \code{"euclidean"}.}
+\item{\code{general$n_folds}}{Number of whole-cohort validation folds shared by
+Experiments 1 and 2. \code{Inf} creates one fold per cohort; a finite value is
+capped at the number of cohorts and must yield at least two folds.
+Default: \code{Inf}.}
+\item{\code{general$bootstrap}}{Positive number of bootstrap draws used for metric
+summaries and paired 95 percent confidence intervals. Default: \code{1000L}.}
+\item{\code{general$max_samples}}{Maximum number of aligned input samples retained
+before all experiments. \code{Inf} keeps every sample; finite limits use
+tissue-by-cohort stratified sampling. Default: \code{Inf}.}
+\item{\code{cohort$geometry_samples}}{Maximum stratified sample count used for the
+dimension-free Direct-GSClassifier-versus-d1 geometry comparison in Experiment 1.
+Default: \code{5000L}.}
+\item{\code{cohort$distance_pairs}}{Maximum number of sampled row pairs used to
+estimate the Spearman correlation between distance rankings. Default:
+\code{100000L}.}
+\item{\code{cohort$mechanism_samples}}{Maximum stratified sample count used by the
+selective-reconstruction mechanism metrics in Experiment 1. Default:
+\code{1000L}.}
+\item{\code{general$probe}}{Logical; whether Experiments 1 and 2 fit the cross-cohort
+linear XGBoost probe and report macro AUROC and balanced accuracy.
+Default: \code{TRUE}.}
+\item{\code{general$probe_label}}{Metadata column decoded by the probe. Labels not
+represented in at least two cohorts are excluded. Default: \code{"tissue"}.}
+\item{\code{general$probe_nrounds}}{Positive XGBoost boosting-round count for the
+linear probe. Default: \code{50L}.}
+\item{\code{general$numCores}}{Positive thread count passed to the XGBoost probe.
+Default: \code{1L}.}
+\item{\code{validation$numCores}}{Positive XGBoost thread count used by each
+representation readout worker. Default: \code{1L}.}
+\item{\code{validation$workers}}{Positive PSOCK worker count for independent
+learning-curve jobs. The default \code{1L} preserves serial execution;
+callers should divide their total CPU budget between workers and
+\code{validation$numCores} to avoid oversubscription.}
+}
+
+Experiment 1 null-control settings:
+
+\describe{
+\item{\code{cohort$rp_density}}{Probability that an entry of the sparse Achlioptas
+Null-RP projection matrix is nonzero; it should lie in \verb{(0, 1]}.
+Default: \code{1 / 3}.}
+\item{\code{cohort$rp_seeds}}{Non-empty vector of seeds for independent Null-RP
+repeats. Default: \code{seed + seq_len(20)}.}
+\item{\code{cohort$permutation_seeds}}{Non-empty vector of seeds for independent
+within-cohort, whole-module Null-Perm repeats. Default:
+\code{seed + 1000L + seq_len(20)}.}
+}
+
+Experiment 2 cohort-axis scaling settings:
+
+\describe{
+\item{\code{scaling$counts}}{Positive module counts evaluated on each nested
+sequence; values above the available module bank are capped. Default:
+\code{c(10L, 25L, 50L, 75L, 100L, 125L, 150L)}.}
+\item{\code{scaling$sequences}}{Positive number of tissue-balanced nested
+module sequences used for the d1 scaling curves. Default: \code{100L}.}
+\item{\code{scaling$embedding_counts}}{Module counts at which the more
+expensive downstream two-stage embedding and DBSCAN analysis is run;
+unavailable counts are capped. Default: \code{c(25L, 50L, 100L, 150L)}.}
+\item{\code{scaling$embedding_sequences}}{Number of nested sequences, starting
+from the generated sequence list, retained for downstream embedding.
+Default: \code{10L}.}
+\item{\code{scaling$embedding_seeds}}{Seeds for paired sample subsampling,
+two-stage reduction, clustering, and stability repeats at each selected
+module count. Default: \code{seed + 2000L + seq_len(10)}.}
+\item{\code{scaling$subsample_fraction}}{Fraction in \verb{(0, 1]} sampled within
+tissue-by-cohort strata for each downstream scaling repeat. Default:
+\code{0.8}.}
+}
+
+Experiment 3 tissue-first settings:
+
+\describe{
+\item{\code{tissue_first$seeds}}{Seeds defining paired stratified subsamples and
+reduction repeats shared by the Two-stage and One-stage arms. Default:
+\code{seed + 3000L + seq_len(20)}.}
+\item{\code{tissue_first$subsample_fraction}}{Fraction in \verb{(0, 1]} sampled within
+tissue-by-cohort strata for each Experiment 3 repeat. Default: \code{0.8}.}
+\item{\code{general$fidelity_samples}}{Maximum stratified sample count used when
+computing embedding trustworthiness and continuity. Default: \code{2000L}.}
+}
+
+Shared dimensional-reduction settings are supplied as
+\code{general = list(dr = list(...))}:
+
+\describe{
+\item{\code{general$dr$method}}{Reduction method forwarded to the CCS reduction
+helpers. Default: \code{"UWOT"}.}
+\item{\code{general$dr$dimension}}{Two positive target dimensions: the first is the
+per-tissue d2 dimension and the second is the final global d3 dimension.
+Low-rank blocks use the largest feasible smaller value. Default:
+\code{c(5L, 2L)}.}
+\item{\code{general$dr$n_neighbors}}{Neighborhood size forwarded to UWOT and capped
+for small blocks; it must be at least two when supplied. Default: \code{30L}.}
+\item{\code{general$dr$min_dist}}{UWOT minimum-distance parameter. Default: \code{0.01}.}
+\item{\code{general$dr$spread}}{UWOT spread parameter. Default: \code{0.75}.}
+\item{\code{general$dr$set_op_mix_ratio}}{UWOT fuzzy-set intersection/union mixing
+parameter. Default: \code{1}.}
+\item{\code{general$dr$metric}}{Distance metric forwarded to the reduction backend.
+Default: \code{"euclidean"}.}
+\item{\code{general$dr$n_threads}}{Positive reduction thread count, or \code{NULL} to use
+the CCS/backend default. Default: \code{NULL}.}
+}
+
+Shared DBSCAN settings are supplied as \code{general = list(cluster = list(...))}:
+
+\describe{
+\item{\code{general$cluster$eps}}{Positive DBSCAN neighborhood radius applied after
+column-standardizing d3. Default: \code{0.02}.}
+\item{\code{general$cluster$minPts}}{Positive DBSCAN core-point neighborhood threshold.
+Default: \code{20L}.}
+}
+
+Experiment 4 end-to-end metaCCS settings are supplied as
+\code{metaccs = list(...)}:
+
+\describe{
+\item{\code{metaccs$resample_seeds}}{Non-empty, finite, unique seeds defining
+tissue-by-cohort stratified sample-composition repeats. Default:
+\code{seed + 4000L + seq_len(10)}.}
+\item{\code{metaccs$umap_seeds}}{Non-empty, finite, unique algorithm seeds run
+within each metaCCS resample. Default:
+\code{seed + 5000L + seq_len(5)}.}
+\item{\code{metaccs$subsample_fraction}}{Fraction in \verb{(0, 1]} retained within
+each tissue-by-cohort stratum. A value of \code{1} measures algorithmic rather
+than sample-composition variation. Default: \code{0.8}.}
+\item{\code{metaccs$parameter_mode}}{\code{"fixed"} uses the shared \code{general$dr} and
+\code{general$cluster} settings once; \code{"grid"} evaluates the Cartesian product of
+\code{dr_grid} and \code{cluster_grid} for both arms. Default: \code{"fixed"}.}
+\item{\code{metaccs$dr_grid}}{For grid mode, a non-empty list of named partial
+\code{general$dr} lists, or a data frame whose rows are partial configurations.
+Each entry is merged onto \code{general$dr}. \code{NULL} uses only the base configuration.
+Default: \code{NULL}.}
+\item{\code{metaccs$cluster_grid}}{For grid mode, a non-empty list of named
+partial \code{general$cluster} lists, or a data frame whose rows are partial
+configurations. Each entry is merged onto \code{general$cluster}. \code{NULL} uses only
+the base configuration. Default: \code{NULL}.}
+\item{\code{metaccs$direct_feature_mode}}{Feature-support rule for the Direct
+arm. The only currently supported value, \code{"tissue_model_union"}, uses
+the union of frozen-model GSClassifier input features within each tissue. Default:
+\code{"tissue_model_union"}.}
+\item{\code{metaccs$retain_assignments}}{Logical; retain per-sample raw DBSCAN
+cluster and noise assignments for every metaCCS run. Default: \code{TRUE}.}
+}
+
+Gate 1 settings are supplied as \code{scaling = list(gate = list(...))}:
+
+\describe{
+\item{\code{scaling$gate$enforce}}{Logical; Gate 1 is always calculated before
+scaling, but scaling is stopped on failure only when this is \code{TRUE}.
+Keep \code{FALSE} for exploratory analysis. Use \code{TRUE} for preregistered
+confirmatory or compute-gated analysis. Default: \code{FALSE}.}
+\item{\code{scaling$gate$primary_metric}}{Experiment 1 metric used for the three
+Cohort-minus-baseline decisions. If \code{"balanced_accuracy"} is not
+estimable, the current implementation falls back to \code{"biology_purity"}.
+Default: \code{"balanced_accuracy"}.}
+\item{\code{scaling$gate$min_gain}}{Minimum required lower bound of the paired 95 percent
+confidence interval for each of Cohort-Direct, Cohort-Null-RP, and
+Cohort-Null-Perm on the primary metric. \code{0} requires non-negative
+evidence; \code{0.02} requires at least a 0.02 lower-bound gain. Default: \code{0}.}
+\item{\code{scaling$gate$purity_tolerance}}{Largest accepted decrease in
+biology purity: the Cohort-Direct paired CI lower bound must be at least
+the negative tolerance. For example, \code{0.01} permits a lower bound of
+\code{-0.01}. Default: \code{0}.}
+\item{\code{scaling$gate$mixing_tolerance}}{Largest accepted decrease in cohort
+mixing, interpreted in the same way as \code{purity_tolerance}. Default: \code{0}.}
+}
+
+Output handling:
+
+\describe{
+\item{\code{output$cache_direct}}{Logical; persist the reconstructed
+Direct-GSClassifier matrix in \code{direct-feature-cache.rds} and reuse it
+only when the expression, sample, model, and feature-contract hashes
+all match. Default: \code{TRUE}.}
+\item{\code{general$cover}}{Logical; allow writing into a non-empty \code{output.dir} and
+replacing same-named ablation result files. Default: \code{FALSE}.}
+}}
+
+\item{seed}{Master random seed.}
+
+\item{verbose}{Whether to report progress.}
+
+\item{step}{Lifecycle stage: \code{"all"} (default), \code{"context"}, \code{"plan"},
+\code{"run"}, or \code{"result"}. Staged calls consume the object supplied through
+\code{input} and never write reviewer-facing products unless \code{step = "all"}.}
+
+\item{input}{Optional serializable stage input. It must be a context, plan,
+runner result, or a list containing one of those objects as required by
+\code{step}.}
+
+\item{cache.root}{Optional root directory for reusable intermediate cache.
+It is kept separate from \code{output.dir}; when omitted a transient directory
+under \code{tempdir()} is used and the current working directory is untouched.}
+}
+\value{
+An object of class \code{CCSAblation}.
+}
+\description{
+Evaluate the frozen CCS representation without retraining cohort submodels.
+The representation workflow reconstructs the complete native
+GSClassifier input and reuses only matching precomputed d1 rows. Filtered
+query samples absent from the object are reported and excluded,
+and compares Direct-GSClassifier with Cohort-d1 on independent
+query-to-reference retrieval, grouped linear readout, paired learning curves,
+null controls, and feature-type reconstruction. All stochastic operations
+are paired across comparison groups and recorded in an audit table.
+}
+\author{
+Weibin Huang \href{mailto:hwb2012@qq.com}{hwb2012@qq.com}
+}

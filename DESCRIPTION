@@ -48,6 +48,8 @@ Imports:
     torch,
     umap,
     uwot
-Depends: 
+Depends:
     luckyBase,
     xgboost
+Suggests:
+    ps

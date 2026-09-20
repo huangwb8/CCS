@@ -264,8 +264,8 @@
 #'   runner result, or a list containing one of those objects as required by
 #'   `step`.
 #' @param cache.root Optional root directory for reusable intermediate cache.
-#'   It is kept separate from `output.dir`; when omitted a hidden project-local
-#'   cache root is used.
+#'   It is kept separate from `output.dir`; when omitted a transient directory
+#'   under `tempdir()` is used and the current working directory is untouched.
 #'
 #' @return An object of class `CCSAblation`.
 #' @author Weibin Huang <hwb2012@@qq.com>
@@ -952,10 +952,16 @@ ablation <- function(
     if (!file.exists(state_path)) return(miss("missing-state"))
     state <- tryCatch(readRDS(state_path), error = function(error) NULL)
     if (is.null(state)) return(miss("unreadable-state"))
-    if (!is.list(state) || !identical(state$schema_version, 1L)) {
+    if (!is.list(state) || length(state$schema_version) != 1L ||
+        !state$schema_version %in% c(1L, 2L)) {
       return(miss("state-schema-mismatch"))
     }
-    if (!identical(state$status, "complete")) return(miss("state-not-complete"))
+    if (!identical(state$status, "complete")) {
+      status <- if (is.character(state$status) && length(state$status) == 1L) {
+        state$status
+      } else "not-complete"
+      return(miss(paste0("state-", status)))
+    }
     if (!identical(state$key, key)) return(miss("state-key-mismatch"))
     if (!is.null(node) && !identical(state$node, node)) {
       return(miss("state-node-mismatch"))
@@ -1014,12 +1020,93 @@ ablation <- function(
   cached
 }
 
+.ablation_runtime_identity <- function() {
+  hostname <- unname(Sys.info()[["nodename"]])
+  if (is.null(hostname) || is.na(hostname) || !nzchar(hostname)) {
+    hostname <- Sys.getenv("COMPUTERNAME", unset = "unknown")
+  }
+  run_id <- Sys.getenv("CCS_ABLATION_RUN_ID", unset = "")
+  if (!nzchar(run_id)) {
+    run_id <- paste0("r-", Sys.getpid(), "-", format(Sys.time(), "%Y%m%dT%H%M%S"))
+  }
+  list(
+    run_id = run_id,
+    pid = Sys.getpid(),
+    hostname = hostname
+  )
+}
+
+.ablation_pid_is_alive <- function(pid) {
+  if (length(pid) != 1L || is.na(pid) || !is.finite(pid) || pid < 1L) {
+    return(FALSE)
+  }
+  pid <- as.integer(pid)
+  if (identical(.Platform$OS.type, "windows")) {
+    output <- tryCatch(
+      suppressWarnings(system2(
+        "tasklist", c("/FI", shQuote(paste("PID eq", pid)), "/NH"),
+        stdout = TRUE, stderr = FALSE
+      )),
+      error = function(error) character()
+    )
+    return(any(grepl(paste0("\\b", pid, "\\b"), output)))
+  }
+  isTRUE(tryCatch({
+    status <- system2("kill", c("-0", as.character(pid)), stdout = FALSE, stderr = FALSE)
+    identical(status, 0L)
+  }, error = function(error) FALSE))
+}
+
+.ablation_running_state_is_active <- function(state) {
+  if (!is.list(state) || !identical(state$status, "running")) return(FALSE)
+  if (!is.character(state$hostname) || length(state$hostname) != 1L ||
+      is.na(state$hostname) || !nzchar(state$hostname) ||
+      length(state$pid) != 1L || is.na(state$pid) || !is.finite(state$pid)) {
+    return(FALSE)
+  }
+  identity <- .ablation_runtime_identity()
+  if (!identical(state$hostname, identity$hostname)) {
+    # A process on another host cannot be checked safely. It remains active
+    # until an operator explicitly marks it stale, avoiding time-based theft of
+    # a legitimately long computation.
+    return(TRUE)
+  }
+  .ablation_pid_is_alive(state$pid)
+}
+
+.ablation_condition_summary <- function(condition, limit = 1000L) {
+  message <- conditionMessage(condition)
+  message <- gsub("[\r\n\t]+", " ", message)
+  message <- gsub("[[:cntrl:]]", "", message)
+  substr(message, 1L, as.integer(limit))
+}
+
+.ablation_process_memory <- function() {
+  if (!requireNamespace("ps", quietly = TRUE)) {
+    return(list(working_set_bytes = NA_real_, peak_working_set_bytes = NA_real_))
+  }
+  info <- tryCatch({
+    handle <- getExportedValue("ps", "ps_handle")()
+    getExportedValue("ps", "ps_memory_info")(handle)
+  }, error = function(error) NULL)
+  if (is.null(info)) {
+    return(list(working_set_bytes = NA_real_, peak_working_set_bytes = NA_real_))
+  }
+  rss <- if ("rss" %in% names(info)) as.numeric(info[["rss"]]) else NA_real_
+  peak <- if ("peak_wset" %in% names(info)) {
+    as.numeric(info[["peak_wset"]])
+  } else rss
+  list(working_set_bytes = rss, peak_working_set_bytes = peak)
+}
+
 .ablation_cached_node <- function(
     node,
     output.dir,
     key,
     compute,
-    verbose = TRUE) {
+    verbose = TRUE,
+    job = NULL,
+    parameter_digest = NULL) {
   if (!grepl("^[a-z][a-z0-9-]*$", node)) {
     stop("ablation: invalid checkpoint node name: ", node, call. = FALSE)
   }
@@ -1037,8 +1124,49 @@ ablation <- function(
       path = file.path("checkpoints", node, basename(cache_path))))
   }
 
+  previous_state <- if (file.exists(state_path)) {
+    tryCatch(readRDS(state_path), error = function(error) NULL)
+  } else NULL
+  if (is.list(previous_state) && identical(previous_state$status, "running")) {
+    if (.ablation_running_state_is_active(previous_state)) {
+      stop(
+        "ablation: checkpoint is active in run ", previous_state$run_id,
+        " on ", previous_state$hostname, " (PID ", previous_state$pid, "): ", node,
+        call. = FALSE
+      )
+    }
+    previous_state$status <- "stale"
+    previous_state$stale_at <- format(Sys.time(), "%Y-%m-%dT%H:%M:%S%z")
+    previous_state$stale_reason <- "owner-process-not-active"
+    .ablation_atomic_save_rds(previous_state, state_path)
+    inspection$reason <- "stale-running-state"
+  }
+
+  identity <- .ablation_runtime_identity()
+  started_at <- Sys.time()
+  started_memory <- .ablation_process_memory()
+  running_state <- c(
+    list(
+      schema_version = 2L,
+      status = "running",
+      node = node,
+      key = key,
+      started_at = format(started_at, "%Y-%m-%dT%H:%M:%S%z"),
+      updated_at = format(started_at, "%Y-%m-%dT%H:%M:%S%z"),
+      parameter_digest = parameter_digest,
+      job = job,
+      working_set_start_bytes = started_memory$working_set_bytes
+    ),
+    identity
+  )
+  if (is.list(previous_state) && !identical(previous_state$status, "complete")) {
+    running_state$recovered_from <- previous_state[c(
+      "status", "run_id", "pid", "hostname", "failed_at", "stale_at",
+      "stale_reason", "error_class", "error_summary"
+    )]
+  }
   .ablation_atomic_save_rds(
-    list(schema_version = 1L, status = "running", node = node, key = key),
+    running_state,
     state_path
   )
   if (verbose) {
@@ -1046,7 +1174,33 @@ ablation <- function(
       "ablation: checkpoint miss: ", node, " (", inspection$reason, ")"
     )
   }
-  value <- compute()
+  value <- tryCatch(
+    compute(),
+    error = function(error) {
+      failed_at <- Sys.time()
+      failed_state <- running_state
+      failed_state$status <- "failed"
+      failed_state$updated_at <- format(failed_at, "%Y-%m-%dT%H:%M:%S%z")
+      failed_state$failed_at <- failed_state$updated_at
+      failed_state$elapsed_seconds <- as.numeric(difftime(failed_at, started_at, units = "secs"))
+      failed_state$error_class <- class(error)[1L]
+      failed_state$error_summary <- .ablation_condition_summary(error)
+      .ablation_atomic_save_rds(failed_state, state_path)
+      stop(error)
+    },
+    interrupt = function(interrupt) {
+      failed_at <- Sys.time()
+      failed_state <- running_state
+      failed_state$status <- "failed"
+      failed_state$updated_at <- format(failed_at, "%Y-%m-%dT%H:%M:%S%z")
+      failed_state$failed_at <- failed_state$updated_at
+      failed_state$elapsed_seconds <- as.numeric(difftime(failed_at, started_at, units = "secs"))
+      failed_state$error_class <- "interrupt"
+      failed_state$error_summary <- .ablation_condition_summary(interrupt)
+      .ablation_atomic_save_rds(failed_state, state_path)
+      stop(interrupt)
+    }
+  )
   .ablation_atomic_save_rds(
     list(
       schema_version = 1L,
@@ -1058,11 +1212,18 @@ ablation <- function(
     ),
     cache_path
   )
-  .ablation_atomic_save_rds(
-    list(schema_version = 1L, status = "complete", node = node, key = key,
-      cache_md5 = unname(tools::md5sum(cache_path))),
-    state_path
-  )
+  completed_at <- Sys.time()
+  completed_memory <- .ablation_process_memory()
+  complete_state <- running_state
+  complete_state$status <- "complete"
+  complete_state$updated_at <- format(completed_at, "%Y-%m-%dT%H:%M:%S%z")
+  complete_state$completed_at <- complete_state$updated_at
+  complete_state$elapsed_seconds <- as.numeric(difftime(completed_at, started_at, units = "secs"))
+  complete_state$result_bytes <- as.numeric(utils::object.size(value))
+  complete_state$working_set_end_bytes <- completed_memory$working_set_bytes
+  complete_state$peak_working_set_bytes <- completed_memory$peak_working_set_bytes
+  complete_state$cache_md5 <- unname(tools::md5sum(cache_path))
+  .ablation_atomic_save_rds(complete_state, state_path)
   list(value = value, status = "written", lookup_status = "miss",
     reason = inspection$reason, key = key,
     path = file.path("checkpoints", node, basename(cache_path)))
@@ -2071,6 +2232,52 @@ ablation <- function(
 }
 
 
+.ablation_validate_override <- function(default, override, path = "params") {
+  if (!is.list(override)) {
+    stop("ablation: ", path, " must be a named list.", call. = FALSE)
+  }
+  if (length(override) == 0) {
+    return(invisible(TRUE))
+  }
+  if (is.null(names(override)) || any(!nzchar(names(override))) || anyDuplicated(names(override))) {
+    stop("ablation: ", path, " must have unique, non-empty names.", call. = FALSE)
+  }
+  unknown <- setdiff(names(override), names(default))
+  if (length(unknown) > 0) {
+    stop(
+      "ablation: unknown params field(s): ",
+      paste(paste0(path, "$", unknown), collapse = ", "), ".",
+      call. = FALSE
+    )
+  }
+  for (name in intersect(names(default), names(override))) {
+    if (is.list(default[[name]])) {
+      .ablation_validate_override(
+        default[[name]],
+        override[[name]],
+        paste0(path, "$", name)
+      )
+    }
+  }
+  invisible(TRUE)
+}
+
+
+.ablation_merge_lists <- function(default, override) {
+  if (length(override) == 0) {
+    return(default)
+  }
+  for (name in names(override)) {
+    if (is.list(default[[name]]) && is.list(override[[name]])) {
+      default[[name]] <- .ablation_merge_lists(default[[name]], override[[name]])
+    } else {
+      default[[name]] <- override[[name]]
+    }
+  }
+  default
+}
+
+
 .ablation_resolve_representation_config <- function(seed, params) {
   default <- .ablation_representation_default_params(seed)
   .ablation_validate_override(default, params, path = "params")
@@ -2176,6 +2383,66 @@ ablation <- function(
       stop("ablation: provenance sample caps must be positive or Inf.", call. = FALSE)
     }
   }
+  config
+}
+
+.ablation_apply_runtime_config <- function(config, analysis = NULL) {
+  existing_workers <- config$validation$workers
+  if (is.null(existing_workers)) existing_workers <- 1L
+  existing_total <- max(
+    1L,
+    as.integer(config$validation$numCores) * as.integer(existing_workers)
+  )
+  total_threads <- suppressWarnings(as.integer(Sys.getenv(
+    "CCS_ABLATION_CORES",
+    unset = as.character(existing_total)
+  )))
+  workers <- suppressWarnings(as.integer(Sys.getenv(
+    "CCS_ABLATION_WORKERS",
+    unset = as.character(existing_workers)
+  )))
+  if (length(total_threads) != 1L || !is.finite(total_threads) || total_threads < 1L) {
+    stop("ablation: CCS_ABLATION_CORES must be one positive integer.", call. = FALSE)
+  }
+  if (length(workers) != 1L || !is.finite(workers) || workers < 1L) {
+    stop("ablation: CCS_ABLATION_WORKERS must be one positive integer.", call. = FALSE)
+  }
+  workers <- min(as.integer(workers), as.integer(total_threads))
+  memory_gb <- suppressWarnings(as.numeric(Sys.getenv(
+    "CCS_ABLATION_MEMORY_GB",
+    unset = "Inf"
+  )))
+  if (length(memory_gb) != 1L || is.na(memory_gb) || memory_gb <= 0) {
+    stop("ablation: CCS_ABLATION_MEMORY_GB must be one positive number.", call. = FALSE)
+  }
+  worker_bytes <- NA_real_
+  if (!is.null(analysis) && is.list(analysis$prepared)) {
+    prepared <- analysis$prepared
+    matrices <- prepared[c(
+      "reference_direct", "query_direct", "reference_d1", "query_d1"
+    )]
+    worker_bytes <- 3 * sum(vapply(
+      matrices,
+      function(value) as.numeric(utils::object.size(value)),
+      numeric(1L)
+    ))
+    if (is.finite(memory_gb) && is.finite(worker_bytes) && worker_bytes > 0) {
+      memory_workers <- floor(memory_gb * 1024^3 / worker_bytes)
+      if (memory_workers < 1L) {
+        stop(
+          "ablation: CCS_ABLATION_MEMORY_GB cannot accommodate one estimated worker (",
+          format(round(worker_bytes / 1024^3, 2), nsmall = 2), " GiB required).",
+          call. = FALSE
+        )
+      }
+      workers <- min(workers, memory_workers)
+    }
+  }
+  config$validation$workers <- workers
+  config$validation$numCores <- max(1L, floor(total_threads / workers))
+  config$validation$memory_gb <- memory_gb
+  config$validation$worker_memory_estimate_bytes <- worker_bytes
+  config$validation$total_thread_budget <- total_threads
   config
 }
 
@@ -2805,6 +3072,7 @@ ablation <- function(
   # Prepared bundles created before runtime workers were introduced retain the
   # historical single-worker behavior instead of failing on a missing field.
   if (is.null(config$validation$workers)) config$validation$workers <- 1L
+  config <- .ablation_apply_runtime_config(config, analysis)
   prepared <- analysis$prepared
   anchor <- analysis$anchor
   dir.create(output.dir, recursive = TRUE, showWarnings = FALSE)
@@ -3888,7 +4156,22 @@ ablation <- function(
     output.dir = checkpoint_output_dir,
     key = job_key,
     compute = compute,
-    verbose = FALSE
+    verbose = FALSE,
+    job = as.list(job),
+    parameter_digest = digest::digest(
+      list(
+        parent = checkpoint_key,
+        label_column = label_column,
+        fractions = fractions,
+        lambda = lambda,
+        inner_folds = inner_folds,
+        nrounds = nrounds,
+        numCores = numCores,
+        seed = seed,
+        test_hash = test_hash
+      ),
+      algo = "md5"
+    )
   )$value
 }
 
@@ -3908,6 +4191,8 @@ ablation <- function(
     checkpoint_key = NULL,
     seed
 ) {
+  started_at <- Sys.time()
+  started_memory <- .ablation_process_memory()
   test_hash <- digest::digest(sort(test_metadata$sample_id), algo = "md5")
   workers <- max(1L, as.integer(workers))
   job_table <- do.call(rbind, lapply(seq_along(fractions), function(fraction_index) {
@@ -3984,12 +4269,59 @@ ablation <- function(
   paired$delta_balanced_accuracy <-
     paired$balanced_accuracy_d1 - paired$balanced_accuracy_direct
   paired$delta_macro_auroc <- paired$macro_auroc_d1 - paired$macro_auroc_direct
+  completed_at <- Sys.time()
+  completed_memory <- .ablation_process_memory()
   list(
     status = "complete",
     metrics = metrics,
     paired = paired,
-    test_sample_hash = test_hash
+    test_sample_hash = test_hash,
+    runtime = list(
+      started_at = format(started_at, "%Y-%m-%dT%H:%M:%S%z"),
+      completed_at = format(completed_at, "%Y-%m-%dT%H:%M:%S%z"),
+      elapsed_seconds = as.numeric(difftime(completed_at, started_at, units = "secs")),
+      workers = workers,
+      threads_per_worker = as.integer(numCores),
+      total_thread_budget = workers * as.integer(numCores),
+      job_count = length(jobs),
+      input_bytes = sum(vapply(representations, function(value) {
+        as.numeric(utils::object.size(value$train)) +
+          as.numeric(utils::object.size(value$test))
+      }, numeric(1L))),
+      working_set_start_bytes = started_memory$working_set_bytes,
+      working_set_end_bytes = completed_memory$working_set_bytes,
+      peak_working_set_bytes = completed_memory$peak_working_set_bytes
+    )
   )
+}
+
+
+# Percentile bootstrap interval for a finite numeric mean. Preserve the caller's
+# RNG state because this helper is used inside deterministic scaling summaries.
+.ablation_bootstrap_mean <- function(values, bootstrap, seed) {
+  values <- as.numeric(values)
+  values <- values[is.finite(values)]
+  bootstrap <- as.integer(bootstrap)
+  if (length(values) == 0L || length(bootstrap) != 1L || is.na(bootstrap) ||
+      bootstrap < 1L) {
+    return(c(NA_real_, NA_real_))
+  }
+  if (length(values) == 1L) return(rep(values, 2L))
+  seed_exists <- exists(".Random.seed", envir = .GlobalEnv, inherits = FALSE)
+  if (seed_exists) old_seed <- get(".Random.seed", envir = .GlobalEnv, inherits = FALSE)
+  on.exit({
+    if (seed_exists) {
+      assign(".Random.seed", old_seed, envir = .GlobalEnv)
+    } else if (exists(".Random.seed", envir = .GlobalEnv, inherits = FALSE)) {
+      rm(".Random.seed", envir = .GlobalEnv)
+    }
+  }, add = TRUE)
+  set.seed(as.integer(seed))
+  estimates <- replicate(
+    bootstrap,
+    mean(sample(values, length(values), replace = TRUE))
+  )
+  unname(stats::quantile(estimates, c(0.025, 0.975), names = FALSE, type = 7L))
 }
 
 
@@ -5340,8 +5672,10 @@ ablation <- function(
 # -------------------------------------------------------------------------
 
 .ablation_resolve_cache_layout <- function(cache.root = NULL, output.dir = NULL) {
-  default_root <- file.path(getwd(), ".ccs-cache", "ablation")
-  if (is.null(cache.root)) cache.root <- default_root
+  transient <- is.null(cache.root)
+  if (transient) {
+    cache.root <- tempfile("ccs-ablation-cache-", tmpdir = tempdir())
+  }
   if (length(cache.root) != 1L || is.na(cache.root) || !nzchar(cache.root)) {
     stop("ablation: cache.root must be one non-empty path.", call. = FALSE)
   }
@@ -5373,8 +5707,7 @@ ablation <- function(
   if (!all(vapply(directories, dir.exists, logical(1)))) {
     stop("ablation: cannot create cache layout below cache.root.", call. = FALSE)
   }
-  c(list(schema_version = 1L, root = root,
-         default = identical(root, normalizePath(default_root, winslash = "/", mustWork = FALSE))),
+  c(list(schema_version = 1L, root = root, default = transient),
     directories)
 }
 
@@ -5394,6 +5727,7 @@ ablation <- function(
     object = object, data = data, metadata = metadata, config = config,
     output.dir = cache$preparation_dir, seed = seed, verbose = verbose
   )
+  config <- .ablation_apply_runtime_config(config, analysis)
   context_key <- digest::digest(
     list(schema_version = 1L, input_key = analysis$prepared$input_key,
          config = config, seed = as.integer(seed)), algo = "md5"

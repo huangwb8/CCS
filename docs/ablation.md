@@ -72,7 +72,16 @@ ablation(
 
 阶段对象通过 `input` 传递；非 `all` 阶段不会把中间对象伪装成正式结果。
 
-`cache.root` 只指定中间缓存根目录，默认是项目下被忽略的 `.ccs-cache/ablation/`；`output.dir` 保存正式产品，两者不能相同。非空输出目录默认拒绝写入，需要 `params$output$cover = TRUE` 显式放开。
+`cache.root` 只指定中间缓存根目录；`output.dir` 保存正式产品，两者不能相同。未提供
+`cache.root` 时使用本次 R 会话的临时目录，进程结束后不保证保留，也不会在当前工作目录
+创建 `.ccs-cache`。需要恢复、审计或复用缓存的分析必须显式提供 `cache.root`。非空输出
+目录默认拒绝写入，需要 `params$output$cover = TRUE` 显式放开。
+
+运行时可用 `CCS_ABLATION_CORES`、`CCS_ABLATION_WORKERS` 和
+`CCS_ABLATION_MEMORY_GB` 声明总线程、PSOCK worker 与内存预算。配置在准备完成后按
+四个只读表示矩阵的三倍体积估计单 worker 内存；预算不足以容纳一个 worker 时直接
+报错，足够时只下调 worker 并重新分配每个 worker 的 XGBoost 线程，不改变 seed、job
+顺序或科学参数。
 
 ## 输入怎样变成可比较表示
 
@@ -206,7 +215,12 @@ flowchart LR
 
 `.ablation_resolve_cache_layout()` 将缓存分为 `context/`（含 `preparation/`）、`plan/`、`nodes/`、`jobs/`、`runner/`、`state/`。`.ablation_node_cache_key()` 绑定实际输入、样本/feature hash、节点参数、seed、schema、algorithm revision、递归代码依赖和运行库版本。
 
-`.ablation_cached_node()` 只有在 state、key、文件 MD5 和 value hash 均一致且为 `complete` 时才命中；中断、`running`、损坏或契约不匹配都会安全重算。Direct、native geometry、retrieval、readout、learning curve job、scaling fit 和 decoder 各有独立缓存边界。
+`.ablation_cached_node()` 只有在 state、key、文件 MD5 和 value hash 均一致且为
+`complete` 时才命中。state 记录 `run_id`、PID、主机、开始/更新时间、job/参数摘要、
+耗时、结果大小和可用的峰值工作集；错误或中断原子写为 `failed`。同主机 owner PID
+仍存活时拒绝接管，PID 已退出时先记录 `stale` 与恢复来源再重算；跨主机状态不会仅凭
+超时被擅自接管。Direct、native geometry、retrieval、readout、learning curve job、
+scaling fit 和 decoder 各有独立缓存边界。
 
 每个随机步骤从显式 seed 派生：readout/learning curve、bank scaling 和 decoder 分别使用独立偏移（如 `+1000`、`+20000`、`+30000` 附近），null 控制直接由主 seed 派生。sample hash、feature hash、config hash、module sequence hash 和 input key 用于复核配对是否真实成立。
 
@@ -260,7 +274,7 @@ result$readout$overall
 context <- ablation(
   object = ccs_fit, data = nested_data, metadata = metadata,
   step = "context",
-  cache.root = ".ccs-cache/ablation"
+  cache.root = "D:/cache/ccs/my-ablation"
 )
 plan <- ablation(step = "plan", input = context)
 run <- ablation(step = "run", input = plan)
