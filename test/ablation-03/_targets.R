@@ -1,23 +1,18 @@
-# ablation-03 targets entry point
+# ablation-03: one targets graph for formal analysis and input-subset tests.
 #
-# targets owns pipeline provenance and crew owns target-level parallel workers.
-# The scientific API remains in the installed CCS package; observability is
-# written outside the targets store under the fixed cache root.
+# The input RDS is the only intended difference between runs. All scientific
+# stages use the same targets graph, package API and parameter contract.
 
 renv_activation <- file.path(getwd(), "renv", "activate.R")
 if (!file.exists(renv_activation)) {
-  stop(
-    "ablation-03 requires project renv; run scripts/renv-ablation03.R --command init.",
-    call. = FALSE
-  )
+  stop("ablation-03 requires the project renv environment.", call. = FALSE)
 }
 source(renv_activation, local = .GlobalEnv)
 if (!requireNamespace("renv", quietly = TRUE)) {
   stop("ablation-03 renv activation did not provide renv.", call. = FALSE)
 }
-
 if (!requireNamespace("targets", quietly = TRUE)) {
-  stop("Install the targets package before running ablation-03.", call. = FALSE)
+  stop("Install targets in the ablation-03 renv project.", call. = FALSE)
 }
 if (!requireNamespace("crew", quietly = TRUE) ||
     !requireNamespace("autometric", quietly = TRUE)) {
@@ -25,7 +20,6 @@ if (!requireNamespace("crew", quietly = TRUE) ||
 }
 
 targets::tar_source("targets")
-
 cache_root <- .ablation03_cache_root()
 store <- .ablation03_store(cache_root)
 observability <- .ablation03_observability_config(cache_root)
@@ -38,8 +32,6 @@ targets::tar_option_set(
   controller = controller
 )
 
-# The main targets process gets its own autometric log. Worker-specific logs
-# and CPU/RAM samples are configured above through crew_options_metrics().
 if (targets::tar_active()) {
   autometric::log_start(
     path = observability$main_log,
@@ -53,62 +45,57 @@ list(
     observability_config,
     .ablation03_observability_config(runtime_config$cache_root)
   ),
-  targets::tar_target(data_inputs, .ablation03_read_inputs(runtime_config)),
   targets::tar_target(
-    context,
-    CCS::ablation(
-      object = data_inputs$object,
-      data = data_inputs$data,
-      metadata = data_inputs$metadata,
-      params = .ablation03_representation_params(),
-      seed = runtime_config$seed,
-      step = "context",
-      output.dir = file.path(runtime_config$cache_root, "output"),
-      cache.root = runtime_config$cache_root,
-      verbose = FALSE
+    data_preparation,
+    .ablation03_prepare_data_target(runtime_config)
+  ),
+  targets::tar_target(
+    representation_inputs,
+    .ablation03_target_stage(
+      "01.02.00. 表示输入准备.R",
+      dependency = data_preparation,
+      cache_root = runtime_config$cache_root
     )
   ),
-  targets::tar_target(plan, CCS::ablation(step = "plan", input = context, verbose = FALSE)),
-  targets::tar_target(run, CCS::ablation(step = "run", input = plan, verbose = FALSE)),
-  targets::tar_target(
-    result,
-    CCS::ablation(
-      step = "result",
-      input = run,
-      output.dir = file.path(runtime_config$cache_root, "output"),
-      params = .ablation03_representation_params(),
-      verbose = FALSE
-    )
-  ),
-  targets::tar_target(native_geometry, run$value$native_geometry),
-  targets::tar_target(retrieval, run$value$retrieval),
-  targets::tar_target(readout, run$value$readout),
-  targets::tar_target(learning_curve, run$value$learning_curve),
-  targets::tar_target(cohort_scaling, run$value$cohort_scaling),
-  targets::tar_target(decoder, run$value$tradeoffs$decoder),
   targets::tar_target(
     biology_inputs,
-    .ablation03_require_optional_input(data_inputs, "biology_inputs")
+    .ablation03_biology_target(
+      data_target = data_preparation,
+      representation_target = representation_inputs,
+      runtime_config = runtime_config
+    )
   ),
   targets::tar_target(
-    biology_result,
-    .ablation03_passthrough_result(biology_inputs, "biology_inputs")
+    representation_analysis,
+    .ablation03_target_stage(
+      "02.01.00. 表示分析.R",
+      dependency = representation_inputs,
+      cache_root = runtime_config$cache_root
+    )
   ),
   targets::tar_target(
-    structural_inputs,
-    .ablation03_require_optional_input(data_inputs, "structural_inputs")
+    biology_analysis,
+    .ablation03_target_stage(
+      "02.02.00. 生物锚点分析.R",
+      dependency = list(representation_analysis, biology_inputs),
+      cache_root = runtime_config$cache_root
+    )
   ),
   targets::tar_target(
-    structural_result,
-    .ablation03_passthrough_result(structural_inputs, "structural_inputs")
+    structural_analysis,
+    .ablation03_target_stage(
+      "02.03.00. 结构复现分析.R",
+      dependency = list(representation_analysis, biology_inputs),
+      cache_root = runtime_config$cache_root
+    )
   ),
   targets::tar_target(
     resource_metrics,
     {
-      run
-      .ablation03_read_resource_metrics(
-        list(observability = observability_config)
-      )
+      representation_analysis
+      biology_analysis
+      structural_analysis
+      .ablation03_read_resource_metrics(list(observability = observability_config))
     }
   ),
   targets::tar_target(worker_health, .ablation03_worker_health(resource_metrics)),
@@ -117,16 +104,12 @@ list(
     list(
       runtime = runtime_config,
       observability = observability_config,
-      inputs = plan$context$analysis,
-      result = result,
-      native_geometry = native_geometry,
-      retrieval = retrieval,
-      readout = readout,
-      learning_curve = learning_curve,
-      scaling = cohort_scaling,
-      decoder = decoder,
-      biology = biology_result,
-      structural = structural_result,
+      data = data_preparation,
+      representations = representation_inputs,
+      biology_inputs = biology_inputs,
+      representation = representation_analysis,
+      biology = biology_analysis,
+      structural = structural_analysis,
       resource_metrics = resource_metrics,
       worker_health = worker_health
     )

@@ -12,24 +12,7 @@ tail_fraction <- 1 / 3
 min_entity_n <- 8L
 min_shared_entities <- 8L
 n_boot <- 2000L
-min_entity_n <- suppressWarnings(as.integer(Sys.getenv(
-  "CCS_ABLATION_STRUCTURAL_MIN_ENTITY_N", unset = as.character(min_entity_n)
-)))
-n_boot <- suppressWarnings(as.integer(Sys.getenv(
-  "CCS_ABLATION_STRUCTURAL_BOOTSTRAP", unset = as.character(n_boot)
-)))
-if (length(min_entity_n) != 1L || is.na(min_entity_n) || min_entity_n < 1L) {
-  stop("CCS_ABLATION_STRUCTURAL_MIN_ENTITY_N must be a positive integer.", call. = FALSE)
-}
-if (length(n_boot) != 1L || is.na(n_boot) || n_boot < 0L) {
-  stop("CCS_ABLATION_STRUCTURAL_BOOTSTRAP must be a non-negative integer.", call. = FALSE)
-}
-matched_repeats <- suppressWarnings(as.integer(Sys.getenv(
-  "CCS_ABLATION_MATCHED_REPEATS", unset = "20"
-)))
-if (length(matched_repeats) != 1L || is.na(matched_repeats) || matched_repeats < 1L) {
-  stop("CCS_ABLATION_MATCHED_REPEATS must be a positive integer.", call. = FALSE)
-}
+matched_repeats <- 20L
 stage_parameters <- list(
   seed = seed,
   tail_fraction = tail_fraction,

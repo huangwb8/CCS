@@ -119,7 +119,7 @@
   store <- .ablation03_store(cache_root)
   .ablation03_assert_writable(cache_root)
   .ablation03_assert_writable(store)
-  run_id <- Sys.getenv("CCS_ABLATION_RUN_ID", unset = "manual")
+  run_id <- Sys.getenv("CCS_ABLATION_RUN_ID", unset = "targets")
   package_path <- tryCatch(find.package("CCS"), error = function(e) NA_character_)
   description <- tryCatch(utils::packageDescription("CCS"), error = function(e) NULL)
   required_version <- "0.8.3"
@@ -163,6 +163,11 @@
   )
   metadata$seed <- as.integer(Sys.getenv("CCS_ABLATION_SEED", unset = "20260727"))
   metadata$input_rds <- Sys.getenv("CCS_ABLATION_INPUT_RDS", unset = NA_character_)
+  if (is.na(metadata$input_rds) || !nzchar(metadata$input_rds)) {
+    stop("Set CCS_ABLATION_INPUT_RDS to the formal or test input bundle.", call. = FALSE)
+  }
+  metadata$input_rds <- normalizePath(metadata$input_rds, winslash = "/", mustWork = TRUE)
+  metadata$analysis_contract <- "same-targets-same-parameters-input-only-differs"
   metadata
 }
 
@@ -216,6 +221,21 @@
   if (!methods::is(inputs$object, "CCS")) {
     stop("ablation-03 input$object must be a CCS object.", call. = FALSE)
   }
+  # Normalize the historical stage names once at the input boundary. Every
+  # downstream target consumes this same contract for formal and test data.
+  inputs$resCCS_ablation <- inputs$object
+  inputs$resCCS_full <- if (is.null(inputs$resCCS_full)) inputs$object else inputs$resCCS_full
+  inputs$data_all <- inputs$data
+  inputs$ablation_metadata <- inputs$metadata
+  inputs$n_cores <- suppressWarnings(as.integer(Sys.getenv("CCS_ABLATION_CORES", unset = "1")))
+  if (is.na(inputs$n_cores) || inputs$n_cores < 1L) inputs$n_cores <- 1L
+  if (is.null(inputs$filtered_cohorts)) {
+    inputs$filtered_cohorts <- as.character(inputs$object@Data$filtered.cohort)
+  }
+  inputs$full_d1 <- inputs$resCCS_full@Data$Probability$d1
+  if (is.null(inputs$tissue_resolution_audit)) {
+    inputs$tissue_resolution_audit <- data.frame()
+  }
   inputs
 }
 
@@ -228,35 +248,136 @@
   params
 }
 
-.ablation03_require_optional_input <- function(inputs, field) {
-  value <- inputs[[field]]
-  if (is.null(value)) {
-    stop(
-      "ablation-03 input RDS must provide `", field,
-      "` before the corresponding target can run.",
-      call. = FALSE
+# targets is the only workflow owner.  Numbered R files remain scientific
+# implementations, but are evaluated as target commands in the current R
+# process; they do not start child R sessions or own cache/lock/receipt state.
+.ablation03_target_stage <- function(stage_file, dependency = NULL, cache_root = .ablation03_cache_root()) {
+  if (!is.null(dependency)) invisible(dependency)
+  stage_path <- file.path(getwd(), stage_file)
+  if (!file.exists(stage_path)) {
+    stop("ablation-03 target stage is missing: ", stage_path, call. = FALSE)
+  }
+  old <- Sys.getenv(c(
+    "CCS_ABLATION_TARGETS", "CCS_ABLATION_CACHE_ROOT", "CCS_ABLATION_MODE",
+    "CCS_ABLATION_RUN_ID", "CCS_ABLATION_ALLOW_TEST_ENTRY"
+  ), unset = NA_character_)
+  on.exit({
+    names(old) <- c(
+      "CCS_ABLATION_TARGETS", "CCS_ABLATION_CACHE_ROOT", "CCS_ABLATION_MODE",
+      "CCS_ABLATION_RUN_ID", "CCS_ABLATION_ALLOW_TEST_ENTRY"
+    )
+    for (name in names(old)) {
+      if (is.na(old[[name]])) Sys.unsetenv(name) else {
+        do.call(Sys.setenv, stats::setNames(list(old[[name]]), name))
+      }
+    }
+  }, add = TRUE)
+  Sys.setenv(
+    CCS_ABLATION_TARGETS = "1",
+    CCS_ABLATION_CACHE_ROOT = cache_root,
+    CCS_ABLATION_MODE = "formal",
+    CCS_ABLATION_RUN_ID = "targets",
+    CCS_ABLATION_ALLOW_TEST_ENTRY = "1"
+  )
+  stage_env <- new.env(parent = globalenv())
+  sys.source(stage_path, envir = stage_env, encoding = "UTF-8")
+  .ablation03_stage_artifacts(stage_file, cache_root)
+}
+
+.ablation03_stage_artifacts <- function(stage_file, cache_root) {
+  stage_id <- sub("^([0-9]{2}\\.[0-9]{2}\\.[0-9]{2}).*$", "\\1", basename(stage_file))
+  directory <- switch(
+    stage_id,
+    `01.01.00` = "01-data",
+    `01.02.00` = "01-representations",
+    `01.03.00` = "01-biology",
+    `02.01.00` = "ablation-experiment",
+    `02.02.00` = "ablation-biology",
+    `02.03.00` = "ablation-structural-reproducibility",
+    stop("Unknown ablation-03 target stage: ", stage_file, call. = FALSE)
+  )
+  directory <- file.path(cache_root, directory)
+  if (!dir.exists(directory)) stop("Target stage produced no output directory: ", directory, call. = FALSE)
+  list(
+    stage = stage_id,
+    cache_root = normalizePath(cache_root, winslash = "/", mustWork = FALSE),
+    directory = normalizePath(directory, winslash = "/", mustWork = TRUE),
+    files = sort(list.files(directory, full.names = TRUE, recursive = FALSE))
+  )
+}
+
+.ablation03_prepare_data_target <- function(runtime_config) {
+  inputs <- .ablation03_read_inputs(runtime_config)
+  root <- file.path(runtime_config$cache_root, "01-data")
+  dir.create(root, recursive = TRUE, showWarnings = FALSE)
+  saveRDS(inputs, file.path(root, "inputs.rds"), version = 3)
+  profile <- inputs$data_profile
+  if (is.null(profile)) {
+    profile <- list(
+      schema_version = 1L,
+      source = runtime_config$input_rds,
+      sample_count = nrow(inputs$metadata),
+      cohort_count = length(unique(inputs$metadata$cohort))
     )
   }
-  value
+  saveRDS(profile, file.path(root, "data-profile.rds"), version = 3)
+  list(input = inputs, artifacts = list(
+    stage = "01.01.00",
+    cache_root = normalizePath(runtime_config$cache_root, winslash = "/", mustWork = FALSE),
+    directory = normalizePath(root, winslash = "/", mustWork = TRUE),
+    files = sort(list.files(root, full.names = TRUE, recursive = FALSE))
+  ))
 }
 
-.ablation03_split_jobs <- function(jobs, metrics) {
-  if (!is.data.frame(jobs) || nrow(jobs) == 0L) return(list())
-  if (!is.data.frame(metrics) || nrow(metrics) == 0L) {
-    return(lapply(seq_len(nrow(jobs)), function(i) data.frame()))
+.ablation03_materialize_optional_inputs <- function(data_target, runtime_config) {
+  inputs <- data_target$input
+  if (!is.null(inputs$biology_inputs)) {
+    dir.create(file.path(runtime_config$cache_root, "01-biology"), recursive = TRUE, showWarnings = FALSE)
+    saveRDS(inputs$biology_inputs,
+      file.path(runtime_config$cache_root, "01-biology", "expression-anchor-cache.rds"), version = 3)
+    if (!is.null(inputs$biology_inputs$structural_anchor_cache)) {
+      saveRDS(inputs$biology_inputs$structural_anchor_cache,
+        file.path(runtime_config$cache_root, "01-biology", "structural-anchor-cache.rds"), version = 3)
+    }
   }
-  fractions <- sort(unique(metrics$requested_fraction))
-  lapply(seq_len(nrow(jobs)), function(i) {
-    job <- jobs[i, , drop = FALSE]
-    requested_fraction <- fractions[job$fraction_index]
-    keep <- metrics$requested_fraction == requested_fraction &
-      metrics$repeat_id == job$repeat_id &
-      metrics$representation == job$representation
-    metrics[keep, , drop = FALSE]
-  })
+  if (!is.null(inputs$structural_inputs)) {
+    dir.create(file.path(runtime_config$cache_root, "01-representations"), recursive = TRUE, showWarnings = FALSE)
+    saveRDS(inputs$structural_inputs,
+      file.path(runtime_config$cache_root, "01-representations", "structural-inputs.rds"), version = 3)
+    if (!is.null(inputs$structural_inputs$structural_anchor_cache)) {
+      dir.create(file.path(runtime_config$cache_root, "01-biology"), recursive = TRUE, showWarnings = FALSE)
+      saveRDS(inputs$structural_inputs$structural_anchor_cache,
+        file.path(runtime_config$cache_root, "01-biology", "structural-anchor-cache.rds"), version = 3)
+    }
+  }
+  invisible(data_target)
 }
 
-.ablation03_passthrough_result <- function(value, label) {
-  if (is.null(value)) stop("ablation-03 missing ", label, " input.", call. = FALSE)
-  list(status = "provided", label = label, value = value)
+.ablation03_biology_target <- function(data_target, representation_target, runtime_config) {
+  invisible(data_target)
+  inputs <- data_target$input
+  if (!is.null(inputs$biology_inputs)) {
+    .ablation03_materialize_optional_inputs(data_target, runtime_config)
+    if (!file.exists(file.path(runtime_config$cache_root, "01-biology", "structural-anchor-cache.rds"))) {
+      stop(
+        "biology_inputs must include structural_anchor_cache when targets bypasses external expression preparation.",
+        call. = FALSE
+      )
+    }
+    return(.ablation03_stage_artifacts("01.03.00. biology-inputs.R", runtime_config$cache_root))
+  }
+  .ablation03_target_stage(
+    "01.03.00. 生物输入准备.R",
+    dependency = representation_target,
+    cache_root = runtime_config$cache_root
+  )
+}
+
+.ablation03_read_artifact <- function(artifacts, filename, required = TRUE) {
+  path <- file.path(artifacts$directory, filename)
+  if (!file.exists(path)) {
+    if (required) stop("Missing target artifact: ", path, call. = FALSE)
+    return(NULL)
+  }
+  readRDS(path)
 }

@@ -8,31 +8,9 @@
 }
 
 .ae_ablation_params <- function(filtered_cohorts, n_cores) {
-  env_integer <- function(name, default, minimum = 1L) {
-    value <- Sys.getenv(name, unset = "")
-    if (!nzchar(value)) return(as.integer(default))
-    value <- suppressWarnings(as.integer(value))
-    if (length(value) != 1L || is.na(value) || value < minimum) {
-      stop(name, " must be an integer >= ", minimum, ".", call. = FALSE)
-    }
-    value
-  }
-  env_numeric_vector <- function(name, default) {
-    value <- Sys.getenv(name, unset = "")
-    if (!nzchar(value)) return(default)
-    value <- suppressWarnings(as.numeric(strsplit(value, ",", fixed = TRUE)[[1L]]))
-    if (length(value) < 1L || any(!is.finite(value)) || any(value <= 0) || any(value > 1)) {
-      stop(name, " must be comma-separated fractions in (0, 1].", call. = FALSE)
-    }
-    sort(unique(value))
-  }
-  env_flag <- function(name, default) {
-    value <- tolower(Sys.getenv(name, unset = ""))
-    if (!nzchar(value)) return(isTRUE(default))
-    if (value %in% c("1", "true", "yes")) return(TRUE)
-    if (value %in% c("0", "false", "no")) return(FALSE)
-    stop(name, " must be true or false.", call. = FALSE)
-  }
+  # Scientific parameters are intentionally not read from environment
+  # variables. formal and lightweight targets must run the same experiment;
+  # only the input RDS may differ. Resource variables are handled separately.
   total_threads <- max(1L, as.integer(n_cores))
   workers <- as.integer(Sys.getenv("CCS_ABLATION_WORKERS", unset = "1"))
   if (!is.finite(workers) || workers < 1L) workers <- 1L
@@ -47,12 +25,8 @@
     ),
     provenance = list(
       external_cohorts = filtered_cohorts,
-      max_reference_samples = if (nzchar(Sys.getenv("CCS_ABLATION_MAX_REFERENCE_SAMPLES", unset = ""))) {
-        env_integer("CCS_ABLATION_MAX_REFERENCE_SAMPLES", 1L)
-      } else Inf,
-      max_query_samples = if (nzchar(Sys.getenv("CCS_ABLATION_MAX_QUERY_SAMPLES", unset = ""))) {
-        env_integer("CCS_ABLATION_MAX_QUERY_SAMPLES", 1L)
-      } else Inf,
+      max_reference_samples = Inf,
+      max_query_samples = Inf,
       require_external = TRUE
     ),
     anchors = list(
@@ -69,24 +43,22 @@
       search_k = 10000L,
       exact_validation_queries = 30L,
       min_annoy_recall = 0.90,
-      geometry_samples = env_integer("CCS_ABLATION_GEOMETRY_SAMPLES", 5000L),
-      distance_pairs = env_integer("CCS_ABLATION_DISTANCE_PAIRS", 100000L)
+      geometry_samples = 5000L,
+      distance_pairs = 100000L
     ),
     validation = list(
       enabled = TRUE,
-      learning_fractions = env_numeric_vector(
-        "CCS_ABLATION_LEARNING_FRACTIONS", c(0.10, 0.25, 0.50, 1.00)
-      ),
-      repeats = env_integer("CCS_ABLATION_REPEATS", 10L),
+      learning_fractions = c(0.10, 0.25, 0.50, 1.00),
+      repeats = 10L,
       inner_folds = 3L,
       lambda = c(0.1, 1, 10),
-      nrounds = env_integer("CCS_ABLATION_NROUNDS", 30L),
+      nrounds = 30L,
       min_class_n = 20L,
       numCores = threads,
       workers = workers
     ),
     scaling = list(
-      enabled = env_flag("CCS_ABLATION_SCALING_ENABLED", TRUE),
+      enabled = TRUE,
       module_counts = c(10L, 25L, 50L, 75L, 100L, 125L, 150L),
       sequences = 5L,
       direct_feature_type = "all",
@@ -98,13 +70,13 @@
       bootstrap = 2000L
     ),
     controls = list(
-      null_rp = env_flag("CCS_ABLATION_NULL_CONTROLS", TRUE),
+      null_rp = TRUE,
       null_rp_rank = 100L,
       null_rp_seeds = 20260805L + seq_len(3L),
-      null_perm = env_flag("CCS_ABLATION_NULL_CONTROLS", TRUE)
+      null_perm = TRUE
     ),
     tradeoffs = list(
-      decoder = env_flag("CCS_ABLATION_DECODER_ENABLED", TRUE),
+      decoder = TRUE,
       decoder_rank = 50L,
       decoder_lambda = 1,
       decoder_max_reference_samples = 10000L,

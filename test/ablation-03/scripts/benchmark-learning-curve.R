@@ -42,17 +42,8 @@ if (identical(tolower(output_dir), tolower(cache_root)) ||
   stop("--output-dir must be outside --cache-root so benchmark data cannot alter formal cache.", call. = FALSE)
 }
 
-identity <- tryCatch(
-  readRDS(file.path(cache_root, ".ablation03-root.rds")),
-  error = function(error) NULL
-)
-if (!is.list(identity) || !identical(identity$analysis, "ablation-03") ||
-    !identity$mode %in% c("formal", "lightweight")) {
-  stop("--cache-root is not an initialized formal/lightweight ablation-03 cache.", call. = FALSE)
-}
-if (dir.exists(file.path(cache_root, ".ablation-entry-lock")) ||
-    dir.exists(file.path(cache_root, ".workflow-lock"))) {
-  stop("The ablation-03 cache is active; benchmark only after the analysis exits.", call. = FALSE)
+if (!dir.exists(file.path(cache_root, "targets"))) {
+  stop("--cache-root does not contain a targets store.", call. = FALSE)
 }
 
 dir.create(output_dir, recursive = TRUE, showWarnings = FALSE)
@@ -65,8 +56,7 @@ on.exit(unlink(benchmark_lock, recursive = TRUE, force = TRUE), add = TRUE)
 
 Sys.setenv(
   CCS_ABLATION_CACHE_ROOT = cache_root,
-  CCS_ABLATION_MODE = identity$mode,
-  CCS_ABLATION_ALLOW_TEST_ENTRY = "1"
+  CCS_ABLATION_TARGETS = "1"
 )
 old_wd <- getwd()
 on.exit(setwd(old_wd), add = TRUE)

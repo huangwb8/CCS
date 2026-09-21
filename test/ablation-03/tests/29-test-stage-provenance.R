@@ -1,13 +1,12 @@
-source("test/ablation-03/scripts/helpers/stage_receipt_helpers.R")
-stage <- tempfile("stage-")
-dir.create(stage)
-input <- file.path(stage, "input.txt")
-output <- file.path(stage, "output.txt")
-writeLines("original", input)
-writeLines("result", output)
-.ae_write_stage_receipt(stage, input, output)
-stopifnot(isTRUE(.ae_validate_stage_receipt(stage)))
-writeLines("changed", input)
-error <- tryCatch({.ae_validate_stage_receipt(stage); NULL}, error = identity)
-stopifnot(inherits(error, "error"))
-cat("stage provenance tests passed\n")
+# Stage provenance belongs to targets, not numbered-script receipts.
+stopifnot(!file.exists("test/ablation-03/scripts/helpers/checkpoint_helpers.R"))
+stopifnot(!file.exists("test/ablation-03/scripts/helpers/stage_receipt_helpers.R"))
+stopifnot(!file.exists("test/ablation-03/scripts/helpers/run_identity_helpers.R"))
+target_lines <- readLines("test/ablation-03/_targets.R", warn = FALSE, encoding = "UTF-8")
+stopifnot(
+  any(grepl("targets::tar_target", target_lines, fixed = TRUE)),
+  any(grepl("representation_analysis", target_lines, fixed = TRUE)),
+  any(grepl("biology_analysis", target_lines, fixed = TRUE)),
+  any(grepl("structural_analysis", target_lines, fixed = TRUE))
+)
+cat("targets stage provenance boundary passed\n")

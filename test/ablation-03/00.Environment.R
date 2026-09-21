@@ -52,7 +52,7 @@ options(stringsAsFactors = FALSE)
 )
 if (!nzchar(.ablation03_cache_root)) {
   stop(
-    "Set CCS_ABLATION_CACHE_ROOT explicitly through run-ablation-03.R.",
+    "Set CCS_ABLATION_CACHE_ROOT explicitly through the targets launcher.",
     call. = FALSE
   )
 }
