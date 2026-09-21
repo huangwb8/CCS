@@ -6,6 +6,8 @@
 
 ## [Unreleased]
 
+- 重构 `ablation-03` 为单一 `targets` 编排：删除旧的编号阶段 runner、stage lock/receipt 和手工恢复协议；六个科学计算阶段仍由 targets 节点执行。formal 与轻量验收共享同一套参数和 targets 图，仅允许输入 RDS 不同。
+
 - 为 `ablation-03` targets 流程接入 `crew::crew_controller_local()`：独立 target 可并行调度，
   worker-specific 日志、CPU/RAM 资源指标和 targets 主进程日志写入正式 cache root 的
   `logs/targets-crew/`，并通过 `resource_metrics`/`worker_health` target 及
