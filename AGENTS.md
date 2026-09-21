@@ -22,6 +22,24 @@ A Computational Framework for Personalized Pan-cancer Genomic Classification.
 
 数据获取 → 探索分析 → 模型训练 → 验证评估
 
+### targets 流程强制门禁
+
+- 任何已经设计、声明或规划了 `targets` 依赖图的分析，必须严格通过该分析的
+  `_targets.R`、`targets/` wiring、正式 targets store 和 `tar_make()`/`tar_watch()`
+  执行与监测；不得用自定义 runner、逐脚本 shell 调度、临时 checkpoint 或其它
+  替代入口产生正式分析结果。
+- `targets` 的设计不是可选文档或备用实现。若正式入口、缓存边界、恢复逻辑或
+  dashboard 与 `_targets.R` 不一致，必须先修复流程一致性并停止正式计算，不能
+  继续运行另一套“等价”流程。
+- `tar_watch()` 必须指向本次正式运行实际使用的 targets store；不得把旧 store、
+  空 store 或自定义 checkpoint 状态冒充 targets 进度。删除、替换或降级既有
+  `targets` 流程必须由项目负责人明确授权，并同步更新计划、README、CHANGELOG
+  和验证门禁。
+- 需要 target-level 并行的分析必须通过 `crew` controller 接入 `tar_option_set()`；
+  worker-specific 日志、CPU/RAM metrics 和 targets 主进程 runtime logging 必须写入
+  正式 cache root 下的 observability 目录，并可由 `autometric::log_read()`/`log_plot()`
+  读取或可视化。不得把资源日志混入科学结果缓存，也不得用自定义并行 runner 替代 crew。
+
 ### 输出规范
 
 - 代码变更应遵循项目现有风格

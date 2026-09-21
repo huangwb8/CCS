@@ -1,8 +1,9 @@
 # ablation-03：表示性能、生物学锚点与结构可复现性
 
-本目录是独立于 CCS 包构建内容的可复现分析项目。科学计算只由六个编号 R 脚本
-实现；`run-ablation-03.R` 是唯一正式协调入口，负责显式缓存边界、运行身份、锁、
-资源预算和顺序执行，不包含第二套科学实现。
+本目录是独立于 CCS 包构建内容的可复现分析项目。正式分析由 `_targets.R` 声明完整
+依赖图，并由 `targets/` wiring、正式 targets store 和 `tar_make()` 统一调度、缓存与
+恢复；不得使用逐脚本 runner 生成正式结果。六个编号 R 脚本是被 targets 节点消费的
+科学实现，`run-ablation-03.R` 仅保留为历史/轻量诊断入口，不属于正式分析入口。
 
 ## 目录边界
 
@@ -13,7 +14,8 @@
 - `scripts/helpers/`：编号脚本共用的缓存、凭据和运行边界 helper。
 - `tests/`：不依赖交互输入的合同测试。
 - `tmp/`：本地轻量验收和临时输出；不属于 CCS 包。
-- 大体积缓存不写入 CCS 包根目录，必须由入口的 `--cache-root` 显式指定。
+- 大体积缓存不写入 CCS 包根目录；正式 targets store 固定为
+  `D:/cache/ccs/_ablation-03/targets`，由 `_targets.yaml` 和 wiring 统一声明。
 
 项目级 `renv/` 与 `renv.lock` 只属于本分析目录，不在 CCS 包根目录创建环境。
 正式编号脚本使用本机已安装的 CCS `0.8.3`；不得 `source()` 仓库
@@ -32,20 +34,38 @@
 
 `01.04.00. 数据概览.Rmd` 及三个 `02.*.Rmd` 只消费已完成结果，不参与计算调度。
 
-## 正式运行
+## 正式运行（targets）
 
-在 CCS 仓库根目录使用 Windows R 4.3.1。`--cache-root` 必填且没有默认值：
+在 CCS 仓库根目录使用 Windows R 4.3.1，通过 targets launcher 执行：
 
 ```powershell
 $r = 'C:/R/R-4.3.1/bin/Rscript.exe'
-& $r --vanilla 'test/ablation-03/run-ablation-03.R' `
-  --cache-root 'D:/cache/ccs/_ablation-03' `
-  --profile formal --cores 8 --workers 1 --memory-gb 48
+& $r --vanilla 'test/ablation-03/scripts/renv-ablation03.R' --command check
+& powershell -ExecutionPolicy Bypass -File 'test/ablation-03/scripts/run-targets-renv.ps1' -Action make
 ```
 
-入口严格按 `01.01.00` → `01.02.00` → `01.03.00` → `02.01.00` →
-`02.02.00` → `02.03.00` 顺序，以独立 R 会话执行同名脚本。可用 `--through
-01.03.00` 暂停在指定阶段进行诊断；再次执行同一命令会由 checkpoint 决定命中或重算。
+targets 使用 `crew::crew_controller_local()` 调度可并行的独立 target。默认最多启动 2 个
+worker，可通过 `CCS_ABLATION_TARGET_WORKERS` 显式调整。每个 worker 的结构化日志和 CPU/RAM
+采样写入正式 cache root 下的 `logs/targets-crew/workers/`，targets 主进程日志写入
+`logs/targets-crew/main-process.log`。运行结束后，`resource_metrics` 和 `worker_health` target
+读取这些记录；可用 `autometric::log_read()` 检查数据，并用
+`autometric::log_plot(metrics, metric = "resident")` 绘制单个 worker 的内存曲线。
+
+查看依赖图或监测正式运行：
+
+```powershell
+& powershell -ExecutionPolicy Bypass -File 'test/ablation-03/scripts/run-targets-renv.ps1' -Action manifest
+& $r --vanilla -e "source('test/ablation-03/renv/activate.R'); targets::tar_watch(config='_targets.yaml', project='main', browse=TRUE)"
+```
+
+或使用 launcher 的 dashboard 操作：
+
+```powershell
+& powershell -ExecutionPolicy Bypass -File 'test/ablation-03/scripts/run-targets-renv.ps1' -Action watch
+```
+
+`tar_watch()` 必须读取 `D:/cache/ccs/_ablation-03/targets`；不得用旧 store 或自定义
+learning-curve checkpoint 伪装成 targets 进度。
 
 启动时写入 `.ablation03-root.rds`、`.ablation-entry-lock/owner.rds` 和
 `runs/<run_id>/runtime.rds`。同一缓存根目录绑定一种 profile；活跃进程持有的缓存拒绝

@@ -72,6 +72,52 @@ stopifnot(
   !identical(learning_key_a, learning_key_b)
 )
 
+# Runtime observability changes must not invalidate scientific node keys.  The
+# helpers below only update checkpoint metadata (heartbeat, process identity,
+# memory, and error summaries); they are intentionally outside the scientific
+# implementation graph.
+operational_helper_names <- c(
+  ".ablation_checkpoint_heartbeat",
+  ".ablation_runtime_identity",
+  ".ablation_process_memory",
+  ".ablation_condition_summary"
+)
+operational_key_before <- .ablation_node_cache_key(
+  "learning-curve", prepared, list(fractions = 0.5), 11L, "learning-v1"
+)
+operational_originals <- lapply(
+  operational_helper_names,
+  get,
+  envir = environment(.ablation_node_code_identity),
+  inherits = FALSE
+)
+assign(
+  ".ablation_checkpoint_heartbeat",
+  function(...) invisible(FALSE),
+  envir = environment(.ablation_node_code_identity)
+)
+assign(
+  ".ablation_runtime_identity",
+  function() list(run_id = "changed-runtime", pid = 1L, hostname = "changed"),
+  envir = environment(.ablation_node_code_identity)
+)
+assign(
+  ".ablation_process_memory",
+  function() list(working_set_bytes = 0, peak_working_set_bytes = 0),
+  envir = environment(.ablation_node_code_identity)
+)
+assign(
+  ".ablation_condition_summary",
+  function(condition, limit = 1000L) "changed-summary",
+  envir = environment(.ablation_node_code_identity)
+)
+operational_key_after <- .ablation_node_cache_key(
+  "learning-curve", prepared, list(fractions = 0.5), 11L, "learning-v1"
+)
+stopifnot(identical(operational_key_before, operational_key_after))
+invisible(Map(assign, operational_helper_names, operational_originals,
+              MoreArgs = list(envir = environment(.ablation_node_code_identity))))
+
 counter <- 0L
 first <- .ablation_cached_node(
   "readout", cache_root, key_a,
@@ -179,6 +225,62 @@ stopifnot(
   identical(failed_state$error_class, "simpleError"),
   grepl("synthetic checkpoint failure", failed_state$error_summary, fixed = TRUE)
 )
+
+# Long jobs expose progress without changing their scientific result.  The
+# heartbeat must update only the owning running state and remain readable by a
+# later resume process.
+heartbeat_key <- digest::digest("heartbeat-node", algo = "md5")
+heartbeat_path <- file.path(
+  cache_root, "checkpoints", "learning-curve-job",
+  paste0(heartbeat_key, ".state.rds")
+)
+.ablation_atomic_save_rds(
+  list(
+    schema_version = 2L, status = "running",
+    node = "learning-curve-job", key = heartbeat_key,
+    run_id = "heartbeat-run", pid = Sys.getpid(),
+    hostname = unname(Sys.info()[["nodename"]]),
+    started_at = "2000-01-01T00:00:00+0000",
+    updated_at = "2000-01-01T00:00:00+0000",
+    heartbeat_count = 0L
+  ),
+  heartbeat_path
+)
+stopifnot(isTRUE(.ablation_checkpoint_heartbeat(
+  cache_root, "learning-curve-job", heartbeat_key,
+  list(stage = "inner-cv-xgb-complete", index = 2L, total = 13L)
+)))
+heartbeat_state <- readRDS(heartbeat_path)
+stopifnot(
+  identical(heartbeat_state$status, "running"),
+  identical(heartbeat_state$heartbeat_count, 1L),
+  identical(heartbeat_state$progress$stage, "inner-cv-xgb-complete"),
+  identical(heartbeat_state$progress$index, 2L),
+  identical(heartbeat_state$progress$total, 13L),
+  heartbeat_state$updated_at != "2000-01-01T00:00:00+0000"
+)
+
+foreign_key <- digest::digest("foreign-heartbeat", algo = "md5")
+foreign_path <- file.path(
+  cache_root, "checkpoints", "learning-curve-job",
+  paste0(foreign_key, ".state.rds")
+)
+.ablation_atomic_save_rds(
+  list(
+    schema_version = 2L, status = "running",
+    node = "learning-curve-job", key = foreign_key,
+    run_id = "foreign-run", pid = Sys.getpid() + 1L,
+    hostname = unname(Sys.info()[["nodename"]]),
+    heartbeat_count = 0L
+  ),
+  foreign_path
+)
+stopifnot(!isTRUE(.ablation_checkpoint_heartbeat(
+  cache_root, "learning-curve-job", foreign_key,
+  list(stage = "must-not-overwrite")
+)))
+foreign_state <- readRDS(foreign_path)
+stopifnot(identical(foreign_state$heartbeat_count, 0L))
 
 stale_key <- digest::digest("stale-node", algo = "md5")
 stale_dir <- file.path(cache_root, "checkpoints", "readout")

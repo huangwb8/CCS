@@ -167,7 +167,7 @@ plotOneBatchEffect <- function(object, data, mt) {
   mt_df3 <- left_join(mt_df2, annot, by = "ID")
   mt_df3$ID <- factor(mt_df3$ID, levels = rev(annot$ID))
   nSample <- length(unique(mt_df3$ID))
-  β <- 5 / nSample
+  beta_scale <- 5 / nSample
 
   # Here I don't want to use facet() series (～￣▽￣)～
 
@@ -176,10 +176,10 @@ plotOneBatchEffect <- function(object, data, mt) {
     p_batch1 <- ggplot(mt_df3, aes(x = ID, y = value, color = tissue, fill = "white")) +
       geom_boxplot(
         # outlier.shape = NA,  # Hide outliers for clarity
-        outlier.size = 0.001 * β,
-        width = 0.006 * β, linewidth = 0.001 * β
+        outlier.size = 0.001 * beta_scale,
+        width = 0.006 * beta_scale, linewidth = 0.001 * beta_scale
       ) +
-      stat_summary(fun = median, geom = "point", shape = 23, size = 40 * β, color = "black", fill = "black") +
+      stat_summary(fun = median, geom = "point", shape = 23, size = 40 * beta_scale, color = "black", fill = "black") +
       labs(x = "Sample", y = "Tissue-level") +
       guides(color = "none", fill = "none") +
       theme_bw() +
@@ -208,10 +208,10 @@ plotOneBatchEffect <- function(object, data, mt) {
     p_batch2 <- ggplot(mt_df3, aes(x = ID, y = value, color = cohort, fill = "white")) +
       geom_boxplot(
         # outlier.shape = NA,  # Hide outliers for clarity
-        outlier.size = 0.001 * β,
-        width = 0.006 * β, linewidth = 0.001 * β
+        outlier.size = 0.001 * beta_scale,
+        width = 0.006 * beta_scale, linewidth = 0.001 * beta_scale
       ) +
-      stat_summary(fun = median, geom = "point", shape = 23, size = 40 * β, color = "black", fill = "black") +
+      stat_summary(fun = median, geom = "point", shape = 23, size = 40 * beta_scale, color = "black", fill = "black") +
       labs(x = "Sample", y = "Cohort-level") +
       guides(color = "none", fill = "none") +
       theme_bw() +

@@ -88,6 +88,20 @@ job_files <- list.files(
 )
 stopifnot(length(job_files) == 4L)
 job_md5 <- tools::md5sum(job_files)
+job_state_files <- list.files(
+  file.path(checkpoint_dir, "checkpoints", "learning-curve-job"),
+  pattern = "^[a-f0-9]+\\.state\\.rds$",
+  full.names = TRUE
+)
+job_states <- lapply(job_state_files, readRDS)
+stopifnot(
+  length(job_states) == 4L,
+  all(vapply(job_states, function(state) {
+    identical(state$status, "complete") &&
+      is.numeric(state$heartbeat_count) && state$heartbeat_count > 0L &&
+      identical(state$progress$stage, "final-xgb-complete")
+  }, logical(1)))
+)
 resumed <- .ablation_learning_curve(
   representations = representations,
   train_metadata = train_metadata,

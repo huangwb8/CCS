@@ -217,7 +217,8 @@ flowchart LR
 
 `.ablation_cached_node()` 只有在 state、key、文件 MD5 和 value hash 均一致且为
 `complete` 时才命中。state 记录 `run_id`、PID、主机、开始/更新时间、job/参数摘要、
-耗时、结果大小和可用的峰值工作集；错误或中断原子写为 `failed`。同主机 owner PID
+耗时、结果大小和可用的峰值工作集；learning-curve job 还记录 `heartbeat_at`、
+`heartbeat_count`、当前子步骤和 working-set。错误或中断原子写为 `failed`。同主机 owner PID
 仍存活时拒绝接管，PID 已退出时先记录 `stale` 与恢复来源再重算；跨主机状态不会仅凭
 超时被擅自接管。Direct、native geometry、retrieval、readout、learning curve job、
 scaling fit 和 decoder 各有独立缓存边界。
