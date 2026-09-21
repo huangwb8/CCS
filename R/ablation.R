@@ -882,11 +882,25 @@ ablation <- function(
   # transitive invalidation without making an unrelated helper change evict all
   # recoverable nodes.
   implementation_environment <- environment(.ablation_node_code_identity)
+  # Runtime observability is deliberately outside the scientific implementation
+  # graph.  Heartbeats, process identity, memory sampling, and error summaries
+  # only annotate checkpoint state; changing them must not invalidate an
+  # otherwise identical scientific result.  Keep this list explicit so that a
+  # newly added operational helper cannot silently bypass cache invalidation
+  # review.  Cache read/write helpers are intentionally not included: changing
+  # their contracts can alter recovery semantics and must invalidate keys.
+  operational_helpers <- c(
+    ".ablation_checkpoint_heartbeat",
+    ".ablation_runtime_identity",
+    ".ablation_process_memory",
+    ".ablation_condition_summary"
+  )
   functions <- character()
   pending <- roots
   while (length(pending) > 0L) {
     name <- pending[[1L]]
     pending <- pending[-1L]
+    if (name %in% operational_helpers) next
     if (name %in% functions) next
     if (!exists(name, envir = implementation_environment, inherits = FALSE) ||
         !is.function(get(name, envir = implementation_environment, inherits = FALSE))) {
@@ -900,7 +914,7 @@ ablation <- function(
       exists(candidate, envir = implementation_environment, inherits = FALSE) &&
         is.function(get(candidate, envir = implementation_environment, inherits = FALSE))
     }, logical(1L))]
-    pending <- unique(c(pending, referenced))
+    pending <- unique(c(pending, setdiff(referenced, operational_helpers)))
   }
   functions <- sort(functions)
   definitions <- lapply(functions, function(name) {
@@ -1099,6 +1113,55 @@ ablation <- function(
   list(working_set_bytes = rss, peak_working_set_bytes = peak)
 }
 
+# Update a running checkpoint without changing its ownership.  This is used by
+# long learning-curve jobs so an operator can distinguish active computation
+# from a process that died before .ablation_cached_node() could write `failed`.
+.ablation_checkpoint_heartbeat <- function(
+    output.dir,
+    node,
+    key,
+    progress = NULL) {
+  if (length(output.dir) != 1L || !nzchar(output.dir) ||
+      length(node) != 1L || !nzchar(node) ||
+      length(key) != 1L || !nzchar(key)) {
+    return(invisible(FALSE))
+  }
+  state_path <- file.path(
+    output.dir, "checkpoints", node, paste0(key, ".state.rds")
+  )
+  state <- if (file.exists(state_path)) {
+    tryCatch(readRDS(state_path), error = function(error) NULL)
+  } else NULL
+  if (!is.list(state) || !identical(state$status, "running") ||
+      !identical(state$key, key)) {
+    return(invisible(FALSE))
+  }
+  identity <- .ablation_runtime_identity()
+  if (identical(state$hostname, identity$hostname) &&
+      !identical(as.integer(state$pid), as.integer(identity$pid))) {
+    return(invisible(FALSE))
+  }
+  now <- format(Sys.time(), "%Y-%m-%dT%H:%M:%S%z")
+  state$updated_at <- now
+  state$heartbeat_at <- now
+  previous_heartbeats <- if (is.null(state$heartbeat_count)) {
+    0L
+  } else {
+    as.integer(state$heartbeat_count)
+  }
+  state$heartbeat_count <- previous_heartbeats + 1L
+  memory <- .ablation_process_memory()
+  state$working_set_bytes <- memory$working_set_bytes
+  if (is.list(progress)) {
+    allowed <- intersect(
+      names(progress), c("stage", "index", "total", "detail")
+    )
+    state$progress <- progress[allowed]
+  }
+  .ablation_atomic_save_rds(state, state_path)
+  invisible(TRUE)
+}
+
 .ablation_cached_node <- function(
     node,
     output.dir,
@@ -1155,7 +1218,10 @@ ablation <- function(
       updated_at = format(started_at, "%Y-%m-%dT%H:%M:%S%z"),
       parameter_digest = parameter_digest,
       job = job,
-      working_set_start_bytes = started_memory$working_set_bytes
+      working_set_start_bytes = started_memory$working_set_bytes,
+      heartbeat_at = format(started_at, "%Y-%m-%dT%H:%M:%S%z"),
+      heartbeat_count = 0L,
+      progress = NULL
     ),
     identity
   )
@@ -1178,7 +1244,10 @@ ablation <- function(
     compute(),
     error = function(error) {
       failed_at <- Sys.time()
-      failed_state <- running_state
+      failed_state <- tryCatch(readRDS(state_path), error = function(e) NULL)
+      if (!is.list(failed_state) || !identical(failed_state$status, "running")) {
+        failed_state <- running_state
+      }
       failed_state$status <- "failed"
       failed_state$updated_at <- format(failed_at, "%Y-%m-%dT%H:%M:%S%z")
       failed_state$failed_at <- failed_state$updated_at
@@ -1190,7 +1259,10 @@ ablation <- function(
     },
     interrupt = function(interrupt) {
       failed_at <- Sys.time()
-      failed_state <- running_state
+      failed_state <- tryCatch(readRDS(state_path), error = function(e) NULL)
+      if (!is.list(failed_state) || !identical(failed_state$status, "running")) {
+        failed_state <- running_state
+      }
       failed_state$status <- "failed"
       failed_state$updated_at <- format(failed_at, "%Y-%m-%dT%H:%M:%S%z")
       failed_state$failed_at <- failed_state$updated_at
@@ -1214,7 +1286,10 @@ ablation <- function(
   )
   completed_at <- Sys.time()
   completed_memory <- .ablation_process_memory()
-  complete_state <- running_state
+  complete_state <- tryCatch(readRDS(state_path), error = function(error) NULL)
+  if (!is.list(complete_state) || !identical(complete_state$status, "running")) {
+    complete_state <- running_state
+  }
   complete_state$status <- "complete"
   complete_state$updated_at <- format(completed_at, "%Y-%m-%dT%H:%M:%S%z")
   complete_state$completed_at <- complete_state$updated_at
@@ -3781,8 +3856,16 @@ ablation <- function(
     lambda,
     nrounds,
     numCores,
-    seed
+    seed,
+    progress = NULL
 ) {
+  notify_progress <- function(event) {
+    if (is.function(progress)) {
+      try(progress(event), silent = TRUE)
+    }
+    invisible(NULL)
+  }
+  notify_progress("xgb-start")
   encoded <- match(as.character(train_label), classes) - 1L
   class_n <- table(encoded)
   weight <- as.numeric(1 / class_n[as.character(encoded)])
@@ -3830,6 +3913,7 @@ ablation <- function(
       byrow = TRUE
     )
   }
+  notify_progress("xgb-complete")
   colnames(probability) <- classes
   rownames(probability) <- rownames(test)
   list(
@@ -3874,8 +3958,15 @@ ablation <- function(
     nrounds = 50L,
     numCores = 1L,
     seed = 20260727,
-    blocks = NULL
+    blocks = NULL,
+    progress = NULL
 ) {
+  notify_progress <- function(stage, index = NULL, total = NULL, detail = NULL) {
+    if (is.function(progress)) {
+      try(progress(stage, index, total, detail), silent = TRUE)
+    }
+    invisible(NULL)
+  }
   train <- as.matrix(train)
   test <- as.matrix(test)
   if (nrow(train) != nrow(train_metadata) || nrow(test) != nrow(test_metadata)) {
@@ -3899,6 +3990,7 @@ ablation <- function(
   if (length(classes) < 2 || nrow(test) < 2) {
     stop("ablation: readout requires at least two train/test classes.", call. = FALSE)
   }
+  notify_progress("readout-start")
 
   fold <- .ablation_grouped_folds(
     train_metadata$cohort,
@@ -3907,6 +3999,7 @@ ablation <- function(
     label = train_label
   )
   lambda <- sort(unique(as.numeric(lambda)))
+  total_inner_fits <- 0L
   if (length(lambda) == 1L) {
     selected_lambda <- lambda
     inner_cv <- data.frame(
@@ -3940,8 +4033,10 @@ ablation <- function(
         )
       )
     })
+    total_inner_fits <- length(lambda) * length(fold_inputs)
     cv_rows <- lapply(seq_along(lambda), function(lambda_index) {
-      fold_score <- vapply(fold_inputs, function(input) {
+      fold_score <- vapply(seq_along(fold_inputs), function(fold_index) {
+        input <- fold_inputs[[fold_index]]
         if (!isTRUE(input$estimable)) return(NA_real_)
         prediction <- .ablation_xgb_linear_predict(
           input$transformed$train,
@@ -3951,7 +4046,14 @@ ablation <- function(
           lambda[lambda_index],
           nrounds,
           numCores,
-          seed + lambda_index * 100L + input$fold_id
+          seed + lambda_index * 100L + input$fold_id,
+          progress = function(event) notify_progress(
+            paste0("inner-cv-", event),
+            index = (lambda_index - 1L) * length(fold_inputs) + fold_index,
+            total = length(lambda) * length(fold_inputs),
+            detail = paste0("lambda=", lambda[lambda_index],
+              ";fold=", input$fold_id)
+          )
         )
         metrics <- .ablation_classification_metrics(
           input$test_label,
@@ -3991,7 +4093,12 @@ ablation <- function(
     selected_lambda,
     nrounds,
     numCores,
-    seed + 10000L
+    seed + 10000L,
+    progress = function(event) notify_progress(
+      paste0("final-", event),
+      index = total_inner_fits + 1L,
+      total = total_inner_fits + 1L
+    )
   )
   predictions <- data.frame(
     sample_id = test_metadata$sample_id,
@@ -4067,7 +4174,8 @@ ablation <- function(
     nrounds,
     numCores,
     seed,
-    test_hash
+    test_hash,
+    progress = NULL
 ) {
   fraction <- fractions[[job$fraction_index]]
   subset_seed <- seed + job$fraction_index * 1000L + job$repeat_id
@@ -4087,7 +4195,8 @@ ablation <- function(
     nrounds = nrounds,
     numCores = numCores,
     seed = subset_seed,
-    blocks = input$blocks
+    blocks = input$blocks,
+    progress = progress
   )
   data.frame(
     representation = job$representation,
@@ -4137,20 +4246,38 @@ ablation <- function(
     checkpoint_output_dir = NULL,
     checkpoint_key = NULL
 ) {
+  progress <- NULL
+  job_key <- NULL
+  if (!is.null(checkpoint_output_dir) && !is.null(checkpoint_key)) {
+    job_key <- digest::digest(
+      list(
+        parent = checkpoint_key,
+        fraction_index = job$fraction_index,
+        repeat_id = job$repeat_id,
+        representation = job$representation
+      ),
+      algo = "md5"
+    )
+    progress <- function(stage, index = NULL, total = NULL, detail = NULL) {
+      .ablation_checkpoint_heartbeat(
+        output.dir = checkpoint_output_dir,
+        node = "learning-curve-job",
+        key = job_key,
+        progress = list(
+          stage = stage,
+          index = index,
+          total = total,
+          detail = detail
+        )
+      )
+    }
+  }
   compute <- function() .ablation_learning_curve_job(
     job, representations, train_metadata, test_metadata, label_column,
-    fractions, lambda, inner_folds, nrounds, numCores, seed, test_hash
+    fractions, lambda, inner_folds, nrounds, numCores, seed, test_hash,
+    progress = progress
   )
-  if (is.null(checkpoint_output_dir) || is.null(checkpoint_key)) return(compute())
-  job_key <- digest::digest(
-    list(
-      parent = checkpoint_key,
-      fraction_index = job$fraction_index,
-      repeat_id = job$repeat_id,
-      representation = job$representation
-    ),
-    algo = "md5"
-  )
+  if (is.null(job_key)) return(compute())
   .ablation_cached_node(
     node = "learning-curve-job",
     output.dir = checkpoint_output_dir,

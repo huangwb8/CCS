@@ -6,6 +6,21 @@
 
 ## [Unreleased]
 
+- 为 `ablation-03` targets 流程接入 `crew::crew_controller_local()`：独立 target 可并行调度，
+  worker-specific 日志、CPU/RAM 资源指标和 targets 主进程日志写入正式 cache root 的
+  `logs/targets-crew/`，并通过 `resource_metrics`/`worker_health` target 及
+  `autometric::log_read()`/`log_plot()` 提供可追踪观测；未启动正式全量分析。
+- 修正 ablation 节点缓存键的实现图边界：heartbeat、运行身份、进程内存采样和错误摘要等
+  运行时可观测性 helper 不再使科学结果缓存失效；科学函数、传递科学 helper 以及缓存恢复契约
+  的变化仍会触发重新计算。
+- 恢复 `ablation-03` 的正式 `targets` 编排：重新启用 `_targets.R`、`targets/functions.R`、
+  `scripts/run-targets-renv.ps1` 和 `D:/cache/ccs/_ablation-03/targets` store；以后凡已设计
+  `targets` 流程的分析必须通过 `tar_make()` 执行，并可由 `tar_watch()` 监测，禁止使用
+  逐脚本 runner 生成正式结果。
+- 修正 targets 输入 wiring：当阶段化数据准备已将 biology/structural 输入写入正式 cache、
+  而主输入 RDS 未重复嵌入时，`targets/functions.R` 从同一 cache root 显式读取对应产物，
+  不再错误地把已完成的准备阶段判定为缺失输入。
+
 - 将 `ablation-03` 收敛为唯一正式 R 入口 `run-ablation-03.R`：强制显式
   `--cache-root`，按编号顺序在独立 R 会话中执行六个科学脚本，并记录 profile、
   `run_id`、已安装 CCS 0.8.3 身份和资源预算；删除 PowerShell launcher 与 targets
@@ -18,6 +33,11 @@
 - 修复 Windows R 子会话继承无效 `C.UTF-8` locale 时中文编号脚本及 helper 文件名
   无法解析的问题；正式 R 入口现在向每个独立阶段会话传递 UTF-8 绝对路径，并以明确
   UTF-8 编码载入脚本。
+- 为 learning-curve job checkpoint 增加 PID 归属校验、心跳时间、子步骤进度和当前
+  working-set 记录；完成或失败提交时保留最新心跳，进程硬终止后可安全识别为 stale，
+  避免把无进度的陈旧 `running` 状态误认为仍在计算。
+- 将 `plotBatchEffect()` 内部的希腊字母临时变量改为 ASCII 名称，避免 Windows R 4.3.1
+  的包安装检查在 ASCII 会话中无法解析源码；绘图计算保持不变。
 
 - 恢复 scaling summary 已引用但缺失的 `.ablation_bootstrap_mean()`，使用固定 seed
   的 percentile bootstrap 并在返回时恢复调用方 RNG 状态，解除 bank-scaling 汇总
