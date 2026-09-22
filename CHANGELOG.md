@@ -6,6 +6,14 @@
 
 ## [Unreleased]
 
+- 为 `ablation-03` 的 `targets::tar_watch()` 监控面板补齐并锁定 `shiny`、
+  `shinybusy` 与 `shinyWidgets` 依赖，保持与正式运行中的 `promises 1.2.1`
+  兼容，避免监控入口因缺少可选依赖而中止。
+
+- 修正 `ablation-03` targets 阶段加载器在 R 4.3.1 下向 `sys.source()` 传入不支持的
+  `encoding` 参数导致 `representation_inputs` 失败的问题；改用等价的隔离环境
+  `source(..., local = ..., encoding = "UTF-8")`，保持中文脚本加载与 targets 缓存边界不变。
+
 - 重构 `ablation-03` 为单一 `targets` 编排：删除旧的编号阶段 runner、stage lock/receipt 和手工恢复协议；六个科学计算阶段仍由 targets 节点执行。formal 与轻量验收共享同一套参数和 targets 图，仅允许输入 RDS 不同。
 
 - 为 `ablation-03` targets 流程接入 `crew::crew_controller_local()`：独立 target 可并行调度，

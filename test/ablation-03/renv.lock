@@ -32,83 +32,6 @@
     "Version": "3.18"
   },
   "Packages": {
-    "autometric": {
-      "Package": "autometric",
-      "Version": "0.1.2",
-      "Source": "Repository",
-      "Title": "Background Resource Logging",
-      "Depends": [
-        "R (>= 3.5.0)"
-      ],
-      "Imports": [
-        "graphics",
-        "utils"
-      ],
-      "NeedsCompilation": "yes",
-      "Repository": "CRAN"
-    },
-    "collections": {
-      "Package": "collections",
-      "Version": "0.3.12",
-      "Source": "Repository",
-      "Title": "High Performance Container Data Types",
-      "NeedsCompilation": "yes",
-      "Repository": "CRAN"
-    },
-    "crew": {
-      "Package": "crew",
-      "Version": "1.3.3",
-      "Source": "Repository",
-      "Title": "A Distributed Worker Launcher Framework",
-      "Depends": [
-        "R (>= 4.0.0)"
-      ],
-      "Imports": [
-        "cli (>= 3.1.0)",
-        "collections (>= 0.3.9)",
-        "data.table",
-        "later",
-        "mirai (>= 2.7.0)",
-        "nanonext (>= 1.9.0)",
-        "processx",
-        "promises",
-        "ps",
-        "R6",
-        "rlang",
-        "stats",
-        "tibble",
-        "tidyselect",
-        "tools",
-        "utils"
-      ],
-      "NeedsCompilation": "no",
-      "Repository": "CRAN"
-    },
-    "mirai": {
-      "Package": "mirai",
-      "Version": "2.7.2",
-      "Source": "Repository",
-      "Title": "Minimalist Async Evaluation Framework for R",
-      "Depends": [
-        "R (>= 3.6)"
-      ],
-      "Imports": [
-        "nanonext (>= 1.10.1)"
-      ],
-      "NeedsCompilation": "no",
-      "Repository": "CRAN"
-    },
-    "nanonext": {
-      "Package": "nanonext",
-      "Version": "1.10.2",
-      "Source": "Repository",
-      "Title": "Lightweight Toolkit for Messaging, Concurrency and the Web",
-      "Depends": [
-        "R (>= 3.6)"
-      ],
-      "NeedsCompilation": "yes",
-      "Repository": "CRAN"
-    },
     "AnnotationDbi": {
       "Package": "AnnotationDbi",
       "Version": "1.64.1",
@@ -1668,6 +1591,21 @@
       "Maintainer": "Jeroen Ooms <jeroen@berkeley.edu>",
       "Repository": "CRAN"
     },
+    "autometric": {
+      "Package": "autometric",
+      "Version": "0.1.2",
+      "Source": "Repository",
+      "Title": "Background Resource Logging",
+      "Depends": [
+        "R (>= 3.5.0)"
+      ],
+      "Imports": [
+        "graphics",
+        "utils"
+      ],
+      "NeedsCompilation": "yes",
+      "Repository": "CRAN"
+    },
     "backports": {
       "Package": "backports",
       "Version": "1.5.1",
@@ -2641,6 +2579,14 @@
       "NeedsCompilation": "no",
       "Repository": "CRAN"
     },
+    "collections": {
+      "Package": "collections",
+      "Version": "0.3.12",
+      "Source": "Repository",
+      "Title": "High Performance Container Data Types",
+      "NeedsCompilation": "yes",
+      "Repository": "CRAN"
+    },
     "colorspace": {
       "Package": "colorspace",
       "Version": "2.1-0",
@@ -2939,6 +2885,35 @@
       "NeedsCompilation": "no",
       "Author": "Jeroen Ooms [aut, cre] (<https://orcid.org/0000-0002-4035-0289>)",
       "Maintainer": "Jeroen Ooms <jeroen@berkeley.edu>",
+      "Repository": "CRAN"
+    },
+    "crew": {
+      "Package": "crew",
+      "Version": "1.3.3",
+      "Source": "Repository",
+      "Title": "A Distributed Worker Launcher Framework",
+      "Depends": [
+        "R (>= 4.0.0)"
+      ],
+      "Imports": [
+        "cli (>= 3.1.0)",
+        "collections (>= 0.3.9)",
+        "data.table",
+        "later",
+        "mirai (>= 2.7.0)",
+        "nanonext (>= 1.9.0)",
+        "processx",
+        "promises",
+        "ps",
+        "R6",
+        "rlang",
+        "stats",
+        "tibble",
+        "tidyselect",
+        "tools",
+        "utils"
+      ],
+      "NeedsCompilation": "no",
       "Repository": "CRAN"
     },
     "crosstalk": {
@@ -6002,6 +5977,20 @@
       "NeedsCompilation": "yes",
       "Repository": "CRAN"
     },
+    "mirai": {
+      "Package": "mirai",
+      "Version": "2.7.2",
+      "Source": "Repository",
+      "Title": "Minimalist Async Evaluation Framework for R",
+      "Depends": [
+        "R (>= 3.6)"
+      ],
+      "Imports": [
+        "nanonext (>= 1.10.1)"
+      ],
+      "NeedsCompilation": "no",
+      "Repository": "CRAN"
+    },
     "munsell": {
       "Package": "munsell",
       "Version": "0.5.0",
@@ -6023,6 +6012,17 @@
       "URL": "https://cran.r-project.org/package=munsell, https://github.com/cwickham/munsell/",
       "RoxygenNote": "6.0.1",
       "NeedsCompilation": "no",
+      "Repository": "CRAN"
+    },
+    "nanonext": {
+      "Package": "nanonext",
+      "Version": "1.10.2",
+      "Source": "Repository",
+      "Title": "Lightweight Toolkit for Messaging, Concurrency and the Web",
+      "Depends": [
+        "R (>= 3.6)"
+      ],
+      "NeedsCompilation": "yes",
       "Repository": "CRAN"
     },
     "nlme": {
@@ -8003,6 +8003,75 @@
       "NeedsCompilation": "no",
       "Author": "Winston Chang [aut, cre] (<https://orcid.org/0000-0002-1576-2126>), Joe Cheng [aut], JJ Allaire [aut], Carson Sievert [aut] (<https://orcid.org/0000-0002-4958-2844>), Barret Schloerke [aut] (<https://orcid.org/0000-0001-9986-114X>), Yihui Xie [aut], Jeff Allen [aut], Jonathan McPherson [aut], Alan Dipert [aut], Barbara Borges [aut], Posit Software, PBC [cph, fnd], jQuery Foundation [cph] (jQuery library and jQuery UI library), jQuery contributors [ctb, cph] (jQuery library; authors listed in inst/www/shared/jquery-AUTHORS.txt), jQuery UI contributors [ctb, cph] (jQuery UI library; authors listed in inst/www/shared/jqueryui/AUTHORS.txt), Mark Otto [ctb] (Bootstrap library), Jacob Thornton [ctb] (Bootstrap library), Bootstrap contributors [ctb] (Bootstrap library), Twitter, Inc [cph] (Bootstrap library), Prem Nawaz Khan [ctb] (Bootstrap accessibility plugin), Victor Tsaran [ctb] (Bootstrap accessibility plugin), Dennis Lembree [ctb] (Bootstrap accessibility plugin), Srinivasu Chakravarthula [ctb] (Bootstrap accessibility plugin), Cathy O'Connor [ctb] (Bootstrap accessibility plugin), PayPal, Inc [cph] (Bootstrap accessibility plugin), Stefan Petre [ctb, cph] (Bootstrap-datepicker library), Andrew Rowls [ctb, cph] (Bootstrap-datepicker library), Brian Reavis [ctb, cph] (selectize.js library), Salmen Bejaoui [ctb, cph] (selectize-plugin-a11y library), Denis Ineshin [ctb, cph] (ion.rangeSlider library), Sami Samhuri [ctb, cph] (Javascript strftime library), SpryMedia Limited [ctb, cph] (DataTables library), John Fraser [ctb, cph] (showdown.js library), John Gruber [ctb, cph] (showdown.js library), Ivan Sagalaev [ctb, cph] (highlight.js library), R Core Team [ctb, cph] (tar implementation from R)",
       "Maintainer": "Winston Chang <winston@posit.co>",
+      "Repository": "CRAN"
+    },
+    "shinyWidgets": {
+      "Package": "shinyWidgets",
+      "Version": "0.9.0",
+      "Source": "Repository",
+      "Title": "Custom Inputs Widgets for Shiny",
+      "Authors@R": "c( person(\"Victor\", \"Perrier\", email = \"victor.perrier@dreamrs.fr\", role = c(\"aut\", \"cre\", \"cph\")), person(\"Fanny\", \"Meyer\", role = \"aut\"), person(\"David\", \"Granjon\", role = \"aut\"), person(\"Ian\", \"Fellows\", role = \"ctb\", comment = \"Methods for mutating vertical tabs & updateMultiInput\"), person(\"Wil\", \"Davis\", role = \"ctb\", comment = \"numericRangeInput function\"), person(\"Spencer\", \"Matthews\", role = \"ctb\", comment = \"autoNumeric methods\"), person(family = \"JavaScript and CSS libraries authors\", role = c(\"ctb\", \"cph\"), comment = \"All authors are listed in LICENSE.md\") )",
+      "Description": "Collection of custom input controls and user interface components for 'Shiny' applications.  Give your applications a unique and colorful style !",
+      "URL": "https://github.com/dreamRs/shinyWidgets, https://dreamrs.github.io/shinyWidgets/",
+      "BugReports": "https://github.com/dreamRs/shinyWidgets/issues",
+      "License": "GPL-3",
+      "Encoding": "UTF-8",
+      "LazyData": "true",
+      "RoxygenNote": "7.3.2",
+      "Depends": [
+        "R (>= 3.1.0)"
+      ],
+      "Imports": [
+        "bslib",
+        "sass",
+        "shiny (>= 1.6.0)",
+        "htmltools (>= 0.5.1)",
+        "jsonlite",
+        "grDevices",
+        "rlang"
+      ],
+      "Suggests": [
+        "testthat",
+        "covr",
+        "ggplot2",
+        "DT",
+        "scales",
+        "shinydashboard",
+        "shinydashboardPlus"
+      ],
+      "NeedsCompilation": "no",
+      "Author": "Victor Perrier [aut, cre, cph], Fanny Meyer [aut], David Granjon [aut], Ian Fellows [ctb] (Methods for mutating vertical tabs & updateMultiInput), Wil Davis [ctb] (numericRangeInput function), Spencer Matthews [ctb] (autoNumeric methods), JavaScript and CSS libraries authors [ctb, cph] (All authors are listed in LICENSE.md)",
+      "Maintainer": "Victor Perrier <victor.perrier@dreamrs.fr>",
+      "Repository": "CRAN"
+    },
+    "shinybusy": {
+      "Package": "shinybusy",
+      "Version": "0.3.3",
+      "Source": "Repository",
+      "Title": "Busy Indicators and Notifications for 'Shiny' Applications",
+      "Authors@R": "c(person(\"Fanny\", \"Meyer\", role = \"aut\"), person(\"Victor\", \"Perrier\", email = \"victor.perrier@dreamrs.fr\", role = c(\"aut\", \"cre\")), person(\"Silex Technologies\", comment = \"https://www.silex-ip.com\", role = \"fnd\"))",
+      "Description": "Add indicators (spinner, progress bar, gif) in your 'shiny' applications to show the user that the server is busy. And other tools to let your users know something is happening (send notifications, reports, ...).",
+      "License": "GPL-3",
+      "Encoding": "UTF-8",
+      "Imports": [
+        "htmltools",
+        "shiny",
+        "jsonlite",
+        "htmlwidgets"
+      ],
+      "RoxygenNote": "7.3.1",
+      "URL": "https://github.com/dreamRs/shinybusy, https://dreamrs.github.io/shinybusy/",
+      "BugReports": "https://github.com/dreamRs/shinybusy/issues",
+      "Suggests": [
+        "testthat",
+        "covr",
+        "knitr",
+        "rmarkdown"
+      ],
+      "VignetteBuilder": "knitr",
+      "NeedsCompilation": "no",
+      "Author": "Fanny Meyer [aut], Victor Perrier [aut, cre], Silex Technologies [fnd] (https://www.silex-ip.com)",
+      "Maintainer": "Victor Perrier <victor.perrier@dreamrs.fr>",
       "Repository": "CRAN"
     },
     "showtext": {

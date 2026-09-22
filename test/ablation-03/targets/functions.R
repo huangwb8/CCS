@@ -280,7 +280,10 @@
     CCS_ABLATION_ALLOW_TEST_ENTRY = "1"
   )
   stage_env <- new.env(parent = globalenv())
-  sys.source(stage_path, envir = stage_env, encoding = "UTF-8")
+  # `sys.source()` in R 4.3.1 has no `encoding` argument. Use `source()`
+  # with an explicit UTF-8 encoding while preserving the isolated stage
+  # environment used by the targets command.
+  source(stage_path, local = stage_env, encoding = "UTF-8")
   .ablation03_stage_artifacts(stage_file, cache_root)
 }
 
