@@ -5,7 +5,9 @@ bootstrap <- c(file.path("scripts", "helpers", "workflow_helpers.R"),
 bootstrap <- bootstrap[file.exists(bootstrap)][1L]
 if (is.na(bootstrap)) stop("Run from ablation-03 or the repository root.", call. = FALSE)
 source(bootstrap, local = TRUE)
-source(.ablation03_path("02.03.00. 结构复现分析_functions.R"))
+source(.ablation03_path("02.03.00. 结构复现分析_functions.R"), local = TRUE)
+.ablation_scale_train_apply <- getFromNamespace(".ablation_scale_train_apply", "CCS")
+.ablation_module_balanced_transform <- getFromNamespace(".ablation_module_balanced_transform", "CCS")
 # Step 1: Freeze the reciprocal validation contract before inspecting results.
 seed <- 20260912L
 tail_fraction <- 1 / 3

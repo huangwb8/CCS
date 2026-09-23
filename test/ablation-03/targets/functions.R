@@ -107,6 +107,11 @@
     stop("ablation-03 report is missing: ", report_path, call. = FALSE)
   }
   output_file <- sub("\\.Rmd$", ".html", basename(report_path), ignore.case = TRUE)
+  staged_input <- tempfile("ablation03-report-", tmpdir = dirname(report_path), fileext = ".Rmd")
+  if (!file.copy(report_path, staged_input)) {
+    stop("ablation-03 cannot stage report input: ", report_path, call. = FALSE)
+  }
+  on.exit(unlink(staged_input), add = TRUE)
   preview_root <- file.path(cache_root, "logs", "report-previews")
   dir.create(preview_root, recursive = TRUE, showWarnings = FALSE)
   if (!dir.exists(preview_root)) {
@@ -126,7 +131,7 @@
   }, add = TRUE)
   Sys.setenv(CCS_ABLATION_CACHE_ROOT = cache_root)
   rendered <- rmarkdown::render(
-    input = normalizePath(report_path, winslash = "/", mustWork = TRUE),
+    input = normalizePath(staged_input, winslash = "/", mustWork = TRUE),
     output_file = output_file,
     output_dir = normalizePath(getwd(), winslash = "/", mustWork = TRUE),
     knit_root_dir = normalizePath(getwd(), winslash = "/", mustWork = TRUE),
@@ -419,9 +424,6 @@
     }
   }
   if (!is.null(inputs$structural_inputs)) {
-    dir.create(file.path(runtime_config$cache_root, "01-representations"), recursive = TRUE, showWarnings = FALSE)
-    saveRDS(inputs$structural_inputs,
-      file.path(runtime_config$cache_root, "01-representations", "structural-inputs.rds"), version = 3)
     if (!is.null(inputs$structural_inputs$structural_anchor_cache)) {
       dir.create(file.path(runtime_config$cache_root, "01-biology"), recursive = TRUE, showWarnings = FALSE)
       saveRDS(inputs$structural_inputs$structural_anchor_cache,
@@ -431,10 +433,41 @@
   invisible(data_target)
 }
 
+.ablation03_biology_cache_current <- function(cache, cache_root) {
+  if (!is.list(cache) || !identical(cache$schema_version, 2L) ||
+      !identical(cache$status, "complete") || !is.list(cache$source) ||
+      !is.list(cache$signature)) return(FALSE)
+  contract_path <- file.path(cache_root, "01-representations", "sample-contract.rds")
+  builder_path <- file.path(getwd(), "01.03.00. 生物输入准备.R")
+  if (!file.exists(contract_path) || !file.exists(builder_path)) return(FALSE)
+  contract <- readRDS(contract_path)
+  sample_ids <- sort(unique(c(contract$reference$sample_id, contract$query$sample_id)))
+  sample_hash <- digest::digest(paste(sample_ids, collapse = "\n"), algo = "md5", serialize = FALSE)
+  if (!identical(cache$sample_key_hash, sample_hash) ||
+      !identical(cache$sample_contract_md5, digest::digest(file = contract_path, algo = "md5")) ||
+      !identical(cache$builder_md5, digest::digest(file = builder_path, algo = "md5"))) {
+    return(FALSE)
+  }
+  expression_path <- Sys.getenv("CCS_FULL_EXPRESSION_RDS",
+    unset = "E:/Sync/@Analysis/PanCan_Data/Level 1/PanCan_CancerSample_DataListForCCS_GEO+cBioPortal+UCXCXenav20240809.rds")
+  signature_path <- Sys.getenv("CCS_GENE_SIGNATURE_RDS",
+    unset = "E:/RCloud/database/Signature/report/GeneSignature-HWB.rds")
+  config_path <- file.path(getwd(), "raw", "config", "biological-anchors.yml")
+  if (!all(file.exists(c(expression_path, signature_path, config_path)))) return(FALSE)
+  identical(cache$source$path, normalizePath(expression_path, winslash = "/")) &&
+    identical(cache$signature$path, normalizePath(signature_path, winslash = "/")) &&
+    identical(cache$signature$md5, digest::digest(file = signature_path, algo = "md5")) &&
+    identical(cache$signature$config_md5, digest::digest(file = config_path, algo = "md5")) &&
+    identical(cache$source$md5, digest::digest(file = expression_path, algo = "md5"))
+}
+
 .ablation03_biology_target <- function(data_target, representation_target, runtime_config) {
   invisible(data_target)
   inputs <- data_target$input
-  if (!is.null(inputs$biology_inputs)) {
+  has_structural_cache <- !is.null(inputs$biology_inputs$structural_anchor_cache) ||
+    !is.null(inputs$structural_inputs$structural_anchor_cache)
+  if (!is.null(inputs$biology_inputs) && has_structural_cache &&
+      .ablation03_biology_cache_current(inputs$biology_inputs, runtime_config$cache_root)) {
     .ablation03_materialize_optional_inputs(data_target, runtime_config)
     if (!file.exists(file.path(runtime_config$cache_root, "01-biology", "structural-anchor-cache.rds"))) {
       stop(

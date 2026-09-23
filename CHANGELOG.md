@@ -6,9 +6,24 @@
 
 ## [Unreleased]
 
+- 修复 ablation-03 报告在中断后无法重试渲染的问题：在项目目录临时使用无特殊字符的唯一 Rmd 名称以保留模板相对路径，仍以原名直出 HTML；保留并不覆盖既有的文件名净化副本，增加模拟冲突的渲染回归测试。
+
+- 修复 ablation-03 结构分析在隔离 targets worker 中无法解析 CCS 内部变换函数的问题；在结构分析脚本的本地环境显式绑定已安装包的变换函数，并增加作用域回归测试。
+
+- 在 ablation-03 正式 targets 图内核验预计算生物缓存的样本、构建脚本与源文件；
+  失效时从原始资源重新准备生物及结构锚点，避免小测未覆盖的正式分支复用旧缓存。
+
+- 修正 ablation-03 预计算生物输入与表示输入竞争写入同一结构 RDS 的问题；
+  生物 target 不再覆盖表示 target 的科学产物，并加入目标隔离回归测试。
+
+- 修正 ablation-03 表示分析阶段的 helper 作用域：在隔离的 target 环境加载分析函数，
+  避免已安装 CCS 包内部函数在全局环境无法解析，保留已完成的表示输入结果。
+
+- 修正 ablation-03 监控入口：持久运行 tar_watch 并自动打开浏览器，避免 launcher 退出时停止后台子进程。
+
 - ablation-03 隔离小测完成 2,000 例全图和四份 HTML 渲染；修复输入变更追踪、
   缺失数据 profile 的生成以及报告所需的分析 helper 加载。正式入口新增输入输出
-  自覆盖门禁，并保全独立的正式输入快照；正式分析尚未启动。
+  自覆盖门禁，并保全独立的正式输入快照。
 
 - 更新 `ablation-03/renv.lock`，使已安装的 R 4.3.1 包版本与项目锁文件一致，
   并纳入报告渲染依赖；建立独立的小样本 targets 验收目录与测试计划。
@@ -34,7 +49,7 @@
 - 为 `ablation-03` targets 流程接入 `crew::crew_controller_local()`：独立 target 可并行调度，
   worker-specific 日志、CPU/RAM 资源指标和 targets 主进程日志写入正式 cache root 的
   `logs/targets-crew/`，并通过 `resource_metrics`/`worker_health` target 及
-  `autometric::log_read()`/`log_plot()` 提供可追踪观测；未启动正式全量分析。
+  `autometric::log_read()`/`log_plot()` 提供可追踪观测。
 - 修正 ablation 节点缓存键的实现图边界：heartbeat、运行身份、进程内存采样和错误摘要等
   运行时可观测性 helper 不再使科学结果缓存失效；科学函数、传递科学 helper 以及缓存恢复契约
   的变化仍会触发重新计算。

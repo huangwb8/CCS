@@ -43,7 +43,7 @@ try {
   if ($Action -eq 'manifest') {
     & $Rscript --vanilla -e "source('renv/activate.R'); targets::tar_manifest(script = '_targets.R')"
   } elseif ($Action -eq 'watch') {
-    & $Rscript --vanilla -e "source('renv/activate.R'); targets::tar_watch(config = '_targets.yaml', project = 'main', browse = TRUE)"
+    & $Rscript --vanilla -e "source('renv/activate.R'); watcher <- targets::tar_watch(config = '_targets.yaml', project = 'main', browse = TRUE); watcher`$wait(); watcher`$get_result()"
   } else {
     & $Rscript --vanilla -e "source('renv/activate.R'); targets::tar_make(script = '_targets.R')"
   }

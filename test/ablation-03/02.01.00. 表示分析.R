@@ -5,7 +5,7 @@ bootstrap <- bootstrap[file.exists(bootstrap)][1L]
 if (is.na(bootstrap)) stop("Run from ablation-03 or the repository root.", call. = FALSE)
 source(bootstrap, local = TRUE)
 bundle <- .wf_read("01-representations", "representation-inputs.rds")
-source(.ablation03_path("02.01.00. 表示分析_functions.R"))
+source(.ablation03_path("02.01.00. 表示分析_functions.R"), local = TRUE)
 bundle$config <- .ae_apply_runtime_config(bundle$config, bundle$analysis)
 output_dir <- .wf_output("ablation-experiment")
 stage_parameters <- list(

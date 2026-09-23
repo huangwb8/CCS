@@ -1,0 +1,1655 @@
+---
+title: "CCS 消融实验：表示性能"
+author: "Bensz Conan"
+date: "`r Sys.Date()`"
+lang: zh-CN
+params:
+  display_k: 30
+  min_cohort_n: 20
+  interpret_top_n: 3
+  plot_language: "en"
+  plot_run_dir: ~
+  plot_preview_dpi: 200
+  inference_bootstrap: 2000
+  inference_seed: 20260829
+output:
+  html_document:
+    toc: true
+    toc_float: true
+    toc_depth: 3
+    number_sections: true
+    theme: default
+    highlight: tango
+    code_folding: show
+    includes:
+      after_body: "templates/liquid_glass_lightbox.html"
+    css: "templates/liquid_glass_theme.css"
+---
+
+```{r setup, include=FALSE}
+knitr::opts_knit$set(encoding = "UTF-8")
+if (.Platform$OS.type == "windows") {
+  utf8_locale <- Sys.setlocale("LC_CTYPE", "Chinese_China.utf8")
+  if (!nzchar(utf8_locale)) stop("A UTF-8 Windows locale is required to render this report.", call. = FALSE)
+}
+knitr::opts_chunk$set(
+  echo = TRUE,
+  warning = FALSE,
+  message = FALSE,
+  fig.align = "center"
+)
+bootstrap <- c(file.path("scripts", "helpers", "workflow_helpers.R"),
+  file.path("test", "ablation-03", "scripts", "helpers", "workflow_helpers.R"))
+bootstrap <- bootstrap[file.exists(bootstrap)][1L]
+if (is.na(bootstrap)) stop("Run from ablation-03 or the repository root.", call. = FALSE)
+source(bootstrap, local = TRUE)
+source(.ablation03_path('02.01.00. 表示分析_functions.R'), local = TRUE)
+source(.ablation03_path("scripts", "helpers", "nature_colors.R"))
+source(.ablation03_path("scripts", "helpers", "nature_theme.R"))
+source(.ablation03_path("scripts", "helpers", "plot_delivery_helpers.R"))
+source(.ablation03_path("scripts", "helpers", "datatables_helper.R"))
+
+fmt <- function(x, digits = 3L) formatC(x, digits = digits, format = "f")
+fmt_pct <- function(x, digits = 1L) paste0(fmt(100 * x, digits), "%")
+fmt_p <- function(x) ifelse(is.finite(x), format.pval(x, digits = 3, eps = 1e-3), "NA")
+fmt_ci <- function(x) paste0("[", fmt(x$ci_low), ", ", fmt(x$ci_high), "]")
+result_dir <- .wf_output("ablation-experiment")
+data_profile_path <- file.path(result_dir, "data-profile.rds")
+data_report_name <- "01.04.00. 数据概览.Rmd"
+data_report_html_name <- "01.04.00. 数据概览.html"
+representation_input_script_name <- "01.02.00. 表示输入准备.R"
+representation_functions_name <- "02.01.00. 表示分析_functions.R"
+biology_report_name <- "02.02.00. 生物锚点分析"
+structure_report_name <- "02.03.00. 结构复现分析"
+required_results <- c(
+  data_profile_path,
+  file.path(
+    result_dir,
+  c(
+    "manifest.rds",
+    "native_geometry.rds",
+    "retrieval.rds",
+    "readout.rds",
+    "learning_curve.rds",
+    "cohort_scaling.rds",
+    "tradeoffs.rds",
+    "ablation-result.rds"
+  )
+  )
+)
+if (!all(file.exists(required_results))) {
+  stop("The completed ablation result set is unavailable.", call. = FALSE)
+}
+.wf_validate(result_dir)
+
+data_profile <- readRDS(data_profile_path)
+manifest <- readRDS(file.path(result_dir, "manifest.rds"))
+native_geometry <- readRDS(file.path(result_dir, "native_geometry.rds"))
+retrieval <- readRDS(file.path(result_dir, "retrieval.rds"))
+readout <- readRDS(file.path(result_dir, "readout.rds"))
+learning_curve <- readRDS(file.path(result_dir, "learning_curve.rds"))
+cohort_scaling <- readRDS(file.path(result_dir, "cohort_scaling.rds"))
+tradeoffs <- readRDS(file.path(result_dir, "tradeoffs.rds"))
+ablation_result <- readRDS(file.path(result_dir, "ablation-result.rds"))
+metric_value <- function(name) {
+  native_geometry$metrics$metric_value[
+    match(name, native_geometry$metrics$metric_name)
+  ]
+}
+find_source_line <- function(pattern) .ae_find_source_line(
+  .ablation03_repo_path("R", "ablation.R"),
+  pattern
+)
+
+geometry_metrics <- native_geometry$metrics[
+  native_geometry$metrics$metric_name %in%
+    c("linear_cka", "distance_spearman", "knn_jaccard"),
+  ,
+  drop = FALSE
+]
+geometry_metrics$metric_label <- c(
+  linear_cka = "Linear CKA",
+  distance_spearman = "Distance Spearman",
+  knn_jaccard = "kNN Jaccard"
+)[geometry_metrics$metric_name]
+geometry_inference <- .ae_geometry_inference(native_geometry)
+
+retrieval_cohort_delta <- .ae_retrieval_cohort_delta(retrieval, params$display_k)
+table_dir <- .ablation03_report_path("tables")
+dir.create(table_dir, recursive = TRUE, showWarnings = FALSE)
+utils::write.csv(
+  retrieval_cohort_delta,
+  file.path(table_dir, "02.01.00. retrieval-cohort-delta.csv"),
+  row.names = FALSE
+)
+retrieval_delta_main <- retrieval_cohort_delta[
+  retrieval_cohort_delta$metric == "delta_top_k_label_rate" &
+    retrieval_cohort_delta$sample_count >= params$min_cohort_n,
+  ,
+  drop = FALSE
+]
+retrieval_top <- retrieval_delta_main[
+  order(retrieval_delta_main$estimate, decreasing = TRUE),
+  ,
+  drop = FALSE
+]
+retrieval_bottom <- retrieval_delta_main[
+  order(retrieval_delta_main$estimate),
+  ,
+  drop = FALSE
+]
+retrieval_overall <- retrieval$paired[
+  retrieval$paired$k == params$display_k,
+  ,
+  drop = FALSE
+]
+retrieval_mean_delta <- mean(
+  retrieval_overall$delta_top_k_label_rate,
+  na.rm = TRUE
+)
+retrieval_mrr_delta <- mean(retrieval_overall$delta_mrr, na.rm = TRUE)
+retrieval_sample_mean_delta <- retrieval_mean_delta
+retrieval_sample_mrr_delta <- retrieval_mrr_delta
+retrieval_direct_mrr <- mean(retrieval_overall$mrr_direct, na.rm = TRUE)
+retrieval_d1_mrr <- mean(retrieval_overall$mrr_d1, na.rm = TRUE)
+
+# Cohort-level inferential layer.  Direct and d1 are already paired in the
+# upstream artifacts; the helper resamples complete cohorts and records status.
+retrieval_inference <- .ae_retrieval_inference(
+  retrieval,
+  k = params$display_k,
+  n_boot = params$inference_bootstrap,
+  seed = params$inference_seed
+)
+retrieval_cohort_mean_delta <- retrieval_inference$estimate[
+  retrieval_inference$endpoint == "top_k_label_rate"
+]
+retrieval_cohort_mrr_delta <- retrieval_inference$estimate[
+  retrieval_inference$endpoint == "mrr"
+]
+
+readout_overall <- readout$overall
+readout_direct <- readout_overall[
+  readout_overall$representation == "Direct-GSClassifier",
+  ,
+  drop = FALSE
+]
+readout_d1 <- readout_overall[
+  readout_overall$representation == "Cohort-d1",
+  ,
+  drop = FALSE
+]
+readout_delta <- readout_d1$balanced_accuracy - readout_direct$balanced_accuracy
+readout_cohort <- readout$paired_by_cohort
+readout_cohort <- readout_cohort[
+  pmax(readout_cohort$sample_count_d1, readout_cohort$sample_count_direct) >=
+    params$min_cohort_n,
+  ,
+  drop = FALSE
+]
+readout_top <- readout_cohort[
+  order(readout_cohort$delta_accuracy, decreasing = TRUE),
+  ,
+  drop = FALSE
+]
+readout_bottom <- readout_cohort[
+  order(readout_cohort$delta_accuracy),
+  ,
+  drop = FALSE
+]
+readout_inference <- .ae_readout_inference(
+  readout,
+  n_boot = params$inference_bootstrap,
+  seed = params$inference_seed + 100L
+)
+readout_inference_delta <- readout_inference$estimate[
+  readout_inference$endpoint == "cohort_accuracy"
+]
+
+learning_summary <- .ae_learning_summary(learning_curve)
+learning_delta <- learning_curve$paired |>
+  dplyr::group_by(.data$requested_fraction) |>
+  dplyr::summarise(
+    estimate = mean(.data$delta_balanced_accuracy, na.rm = TRUE),
+    se = stats::sd(.data$delta_balanced_accuracy, na.rm = TRUE) /
+      sqrt(sum(is.finite(.data$delta_balanced_accuracy))),
+    .groups = "drop"
+  )
+learning_inference <- .ae_learning_inference(
+  learning_curve,
+  n_boot = params$inference_bootstrap,
+  seed = params$inference_seed + 200L
+)
+scaling_inference <- .ae_scaling_inference(
+  cohort_scaling,
+  n_boot = params$inference_bootstrap,
+  seed = params$inference_seed + 300L
+)
+learning_ci <- learning_inference[, c("requested_fraction", "ci_low", "ci_high")]
+learning_summary <- dplyr::left_join(
+  learning_summary,
+  learning_ci,
+  by = "requested_fraction"
+)
+learning_rep_ci <- learning_curve$metrics |>
+  dplyr::group_by(
+    .data$representation,
+    .data$requested_fraction,
+    .data$cohort_subset_hash
+  ) |>
+  dplyr::summarise(
+    balanced_accuracy = mean(.data$balanced_accuracy, na.rm = TRUE),
+    .groups = "drop"
+  )
+learning_rep_ci <- split(
+  learning_rep_ci,
+  interaction(
+    learning_rep_ci$representation,
+    learning_rep_ci$requested_fraction,
+    drop = TRUE
+  )
+)
+learning_rep_ci <- do.call(rbind, lapply(seq_along(learning_rep_ci), function(i) {
+  part <- learning_rep_ci[[i]]
+  out <- .ae_paired_inference(
+    part,
+    "balanced_accuracy",
+    cluster_column = "cohort_subset_hash",
+    n_boot = params$inference_bootstrap,
+    seed = params$inference_seed + 250L + i,
+    unit = "unique_training_cohort_design",
+    method = "representation_design_bootstrap",
+    min_clusters = 2L
+  )
+  data.frame(
+    representation = part$representation[1],
+    requested_fraction = part$requested_fraction[1],
+    ci_low_rep = out$ci_low,
+    ci_high_rep = out$ci_high,
+    stringsAsFactors = FALSE
+  )
+}))
+learning_summary <- dplyr::left_join(
+  learning_summary,
+  learning_rep_ci,
+  by = c("representation", "requested_fraction")
+)
+forest_data <- rbind(
+  data.frame(
+    endpoint = "Retrieval top-k label rate",
+    estimate = retrieval_inference$estimate[retrieval_inference$endpoint == "top_k_label_rate"],
+    ci_low = retrieval_inference$ci_low[retrieval_inference$endpoint == "top_k_label_rate"],
+    ci_high = retrieval_inference$ci_high[retrieval_inference$endpoint == "top_k_label_rate"],
+    p_value = retrieval_inference$p_value_adj[retrieval_inference$endpoint == "top_k_label_rate"],
+    unit = "cohort"
+  ),
+  data.frame(
+    endpoint = "Retrieval MRR",
+    estimate = retrieval_inference$estimate[retrieval_inference$endpoint == "mrr"],
+    ci_low = retrieval_inference$ci_low[retrieval_inference$endpoint == "mrr"],
+    ci_high = retrieval_inference$ci_high[retrieval_inference$endpoint == "mrr"],
+    p_value = retrieval_inference$p_value_adj[retrieval_inference$endpoint == "mrr"],
+    unit = "cohort"
+  ),
+  data.frame(
+    endpoint = "Readout cohort accuracy",
+    estimate = readout_inference$estimate[readout_inference$endpoint == "cohort_accuracy"],
+    ci_low = readout_inference$ci_low[readout_inference$endpoint == "cohort_accuracy"],
+    ci_high = readout_inference$ci_high[readout_inference$endpoint == "cohort_accuracy"],
+    p_value = readout_inference$p_value_adj[readout_inference$endpoint == "cohort_accuracy"],
+    unit = "query cohort"
+  ),
+  data.frame(
+    endpoint = "Learning curve at 100%",
+    estimate = learning_inference$estimate[learning_inference$requested_fraction == 1],
+    ci_low = learning_inference$ci_low[learning_inference$requested_fraction == 1],
+    ci_high = learning_inference$ci_high[learning_inference$requested_fraction == 1],
+    p_value = learning_inference$p_value_adj[learning_inference$requested_fraction == 1],
+    unit = "unique training-cohort design"
+  )
+)
+forest_data$endpoint <- factor(forest_data$endpoint, levels = rev(forest_data$endpoint))
+if (!identical(cohort_scaling$schema_version, 2L)) {
+  stop("The cohort scaling result must use schema version 2.", call. = FALSE)
+}
+scaling_metric_names <- c(
+  "normalized_effective_rank",
+  "module_covariance_redundancy",
+  "neighbor_stability"
+)
+scaling_metric_labels <- c(
+  normalized_effective_rank = "Effective rank",
+  module_covariance_redundancy = "Module redundancy",
+  neighbor_stability = "Neighbor stability"
+)
+scaling_sequence <- cohort_scaling$metrics |>
+  dplyr::filter(
+    .data$status == "evaluated",
+    .data$query_coverage == "all",
+    .data$design_family %in% c("breadth", "depth"),
+    .data$metric_name %in% scaling_metric_names
+  ) |>
+  dplyr::mutate(
+    scaling_axis = ifelse(
+      .data$design_family == "breadth",
+      .data$tissue_count,
+      .data$level
+    ),
+    design_label = dplyr::recode(
+      .data$design_family,
+      breadth = "Tissue breadth",
+      depth = "Within-tissue depth"
+    ),
+    metric_label = unname(scaling_metric_labels[.data$metric_name])
+  ) |>
+  dplyr::group_by(
+    .data$design_family,
+    .data$design_label,
+    .data$metric_name,
+    .data$metric_label,
+    .data$scaling_axis
+  ) |>
+  dplyr::summarise(
+    estimate = mean(.data$estimate, na.rm = TRUE),
+    se = stats::sd(.data$estimate, na.rm = TRUE) /
+      sqrt(sum(is.finite(.data$estimate))),
+    .groups = "drop"
+  )
+scaling_sequence_repeat <- cohort_scaling$metrics |>
+  dplyr::filter(
+    .data$status == "evaluated",
+    .data$query_coverage == "all",
+    .data$design_family %in% c("breadth", "depth"),
+    .data$metric_name %in% scaling_metric_names
+  ) |>
+  dplyr::mutate(
+    scaling_axis = ifelse(
+      .data$design_family == "breadth",
+      .data$tissue_count,
+      .data$level
+    ),
+    design_label = dplyr::recode(
+      .data$design_family,
+      breadth = "Tissue breadth",
+      depth = "Within-tissue depth"
+    )
+  ) |>
+  dplyr::group_by(
+    .data$design_label, .data$metric_name, .data$scaling_axis, .data$repeat_id
+  ) |>
+  dplyr::summarise(repeat_estimate = mean(.data$estimate), .groups = "drop")
+scaling_sequence_ci <- split(
+  scaling_sequence_repeat,
+  interaction(
+    scaling_sequence_repeat$design_label,
+    scaling_sequence_repeat$metric_name,
+    scaling_sequence_repeat$scaling_axis,
+    drop = TRUE
+  )
+)
+scaling_sequence_ci <- do.call(rbind, lapply(seq_along(scaling_sequence_ci), function(i) {
+  part <- scaling_sequence_ci[[i]]
+  out <- .ae_paired_inference(
+    part,
+    "repeat_estimate",
+    cluster_column = "repeat_id",
+    n_boot = params$inference_bootstrap,
+    seed = params$inference_seed + 350L + i,
+    unit = "design_repeat",
+    method = "scaling_cell_repeat_bootstrap",
+    min_clusters = 2L
+  )
+  data.frame(
+    design_label = part$design_label[1],
+    metric_name = part$metric_name[1],
+    scaling_axis = part$scaling_axis[1],
+    ci_low_seq = out$ci_low,
+    ci_high_seq = out$ci_high,
+    stringsAsFactors = FALSE
+  )
+}))
+scaling_sequence <- dplyr::left_join(
+  scaling_sequence,
+  scaling_sequence_ci,
+  by = c("design_label", "metric_name", "scaling_axis")
+)
+
+scaling_matched_raw <- cohort_scaling$metrics |>
+  dplyr::filter(
+    .data$status == "evaluated",
+    .data$query_coverage == "all",
+    .data$design_family == "matched",
+    .data$metric_name %in% scaling_metric_names
+  )
+scaling_matched_breadth <- scaling_matched_raw |>
+  dplyr::filter(.data$design_role == "breadth_heavy") |>
+  dplyr::select(
+    .data$repeat_id,
+    .data$pair_id,
+    .data$module_count,
+    .data$metric_name,
+    estimate_breadth = .data$estimate
+  )
+scaling_matched_depth <- scaling_matched_raw |>
+  dplyr::filter(.data$design_role == "depth_heavy") |>
+  dplyr::select(
+    .data$repeat_id,
+    .data$pair_id,
+    .data$module_count,
+    .data$metric_name,
+    estimate_depth = .data$estimate
+  )
+scaling_matched <- dplyr::inner_join(
+  scaling_matched_breadth,
+  scaling_matched_depth,
+  by = c("repeat_id", "pair_id", "module_count", "metric_name")
+) |>
+  dplyr::mutate(
+    delta = .data$estimate_breadth - .data$estimate_depth,
+    metric_label = unname(scaling_metric_labels[.data$metric_name])
+  ) |>
+  dplyr::group_by(.data$module_count, .data$metric_name, .data$metric_label) |>
+  dplyr::summarise(
+    estimate = mean(.data$delta, na.rm = TRUE),
+    se = stats::sd(.data$delta, na.rm = TRUE) /
+      sqrt(sum(is.finite(.data$delta))),
+    .groups = "drop"
+  )
+scaling_matched_repeat <- dplyr::inner_join(
+  scaling_matched_breadth,
+  scaling_matched_depth,
+  by = c("repeat_id", "pair_id", "module_count", "metric_name")
+) |>
+  dplyr::mutate(delta = .data$estimate_breadth - .data$estimate_depth) |>
+  dplyr::group_by(.data$module_count, .data$metric_name, .data$repeat_id) |>
+  dplyr::summarise(repeat_estimate = mean(.data$delta), .groups = "drop")
+scaling_matched_ci <- split(
+  scaling_matched_repeat,
+  interaction(
+    scaling_matched_repeat$module_count,
+    scaling_matched_repeat$metric_name,
+    drop = TRUE
+  )
+)
+scaling_matched_ci <- do.call(rbind, lapply(seq_along(scaling_matched_ci), function(i) {
+  part <- scaling_matched_ci[[i]]
+  out <- .ae_paired_inference(
+    part,
+    "repeat_estimate",
+    cluster_column = "repeat_id",
+    n_boot = params$inference_bootstrap,
+    seed = params$inference_seed + 450L + i,
+    unit = "design_repeat",
+    method = "matched_size_repeat_bootstrap",
+    min_clusters = 2L
+  )
+  data.frame(
+    module_count = part$module_count[1],
+    metric_name = part$metric_name[1],
+    ci_low_matched = out$ci_low,
+    ci_high_matched = out$ci_high,
+    stringsAsFactors = FALSE
+  )
+}))
+scaling_matched <- dplyr::left_join(
+  scaling_matched,
+  scaling_matched_ci,
+  by = c("module_count", "metric_name")
+)
+
+scaling_contrast <- function(type, metric) {
+  result <- cohort_scaling$contrasts[
+    cohort_scaling$contrasts$aggregation == "bootstrap_summary" &
+      cohort_scaling$contrasts$contrast_type == type &
+      cohort_scaling$contrasts$metric_name == metric,
+    ,
+    drop = FALSE
+  ]
+  if (nrow(result) == 0L) {
+    return(data.frame(estimate = NA_real_, ci_low = NA_real_, ci_high = NA_real_))
+  }
+  result[1, , drop = FALSE]
+}
+rank_breadth <- scaling_contrast("breadth_slope", "normalized_effective_rank")
+rank_depth <- scaling_contrast("depth_slope", "normalized_effective_rank")
+redundancy_breadth <- scaling_contrast(
+  "breadth_slope",
+  "module_covariance_redundancy"
+)
+redundancy_depth <- scaling_contrast(
+  "depth_slope",
+  "module_covariance_redundancy"
+)
+stability_breadth <- scaling_contrast("breadth_slope", "neighbor_stability")
+stability_depth <- scaling_contrast("depth_slope", "neighbor_stability")
+rank_matched <- scaling_contrast("matched_size", "normalized_effective_rank")
+redundancy_matched <- scaling_contrast(
+  "matched_size",
+  "module_covariance_redundancy"
+)
+stability_matched <- scaling_contrast("matched_size", "neighbor_stability")
+scaling_main_contract <- cohort_scaling$diagnostics$direct_contracts[
+  cohort_scaling$diagnostics$direct_contracts$contract_role == "main",
+  ,
+  drop = FALSE
+]
+scaling_sensitivity_contract <- cohort_scaling$diagnostics$direct_contracts[
+  cohort_scaling$diagnostics$direct_contracts$contract_role == "sensitivity",
+  ,
+  drop = FALSE
+]
+biology_scaling_status <- cohort_scaling$reasons[
+  cohort_scaling$reasons$evidence_layer == "external_biology",
+  ,
+  drop = FALSE
+]
+if (nrow(biology_scaling_status) == 0L) {
+  biology_scaling_status <- data.frame(
+    status = "evaluated",
+    reason = "configured_independent_anchors_available",
+    stringsAsFactors = FALSE
+  )
+}
+
+technical_columns <- manifest$config$anchors$technical
+technical_delta <- .ae_technical_delta(
+  retrieval,
+  params$display_k,
+  technical_columns
+)
+technical_inference <- .ae_technical_inference(
+  retrieval,
+  params$display_k,
+  technical_columns,
+  n_boot = params$inference_bootstrap,
+  seed = params$inference_seed + 400L,
+  multiplicity_method = "holm"
+)
+technical_inference_summary <- if (nrow(technical_inference) > 0L) {
+  paste(
+    technical_inference$technical_factor,
+    sprintf(
+      "d1\u2212Direct=%+.3f, 95%% CI [%+.3f, %+.3f], Holm P=%s",
+      technical_inference$estimate,
+      technical_inference$ci_low,
+      technical_inference$ci_high,
+      vapply(
+        technical_inference$p_value_adj,
+        fmt_p,
+        character(1L)
+      )
+    ),
+    sep = ": ",
+    collapse = "; "
+  )
+} else {
+  "not_estimable"
+}
+technical_inference_significant <- if (nrow(technical_inference) > 0L) {
+  paste(
+    technical_inference$technical_factor[
+      is.finite(technical_inference$p_value_adj) &
+        technical_inference$p_value_adj < 0.05 &
+        technical_inference$ci_high < 0
+    ],
+    collapse = ", "
+  )
+} else {
+  ""
+}
+technical_summary <- technical_delta |>
+  dplyr::group_by(.data$technical_factor) |>
+  dplyr::summarise(
+    mean_delta = mean(.data$estimate, na.rm = TRUE),
+    median_delta = stats::median(.data$estimate, na.rm = TRUE),
+    min_delta = min(.data$estimate, na.rm = TRUE),
+    max_delta = max(.data$estimate, na.rm = TRUE),
+    cohort_count = dplyr::n(),
+    .groups = "drop"
+  )
+technical_query_counts <- stats::aggregate(
+  sample_count ~ technical_factor,
+  data = technical_delta,
+  FUN = sum
+)
+
+module_diagnostics <- native_geometry$module_diagnostics
+module_top <- module_diagnostics[
+  order(module_diagnostics$variance_share, decreasing = TRUE),
+  ,
+  drop = FALSE
+] |>
+  utils::head(20L)
+module_concentration_top10 <- sum(module_top$variance_share[seq_len(10L)])
+module_equal_share <- 1 / manifest$module_count
+module_equal_top10_share <- 10 / manifest$module_count
+
+decoder_summary <- tradeoffs$decoder$summary
+annoy_recall_direct <- retrieval$search_validation$`Direct-GSClassifier`$recall
+annoy_recall_d1 <- retrieval$search_validation$`Cohort-d1`$recall
+null_perm_status <- ablation_result$controls$null_perm$status
+null_rp_k30 <- ablation_result$controls$null_rp$summary[
+  ablation_result$controls$null_rp$summary$k == params$display_k,
+  ,
+  drop = FALSE
+]
+null_rp_top_k_range <- range(null_rp_k30$top_k_label_rate)
+d1_top_k_rate <- retrieval$summary$top_k_label_rate[
+  retrieval$summary$k == params$display_k &
+    retrieval$summary$representation == "Cohort-d1"
+]
+direct_top_k_rate <- retrieval$summary$top_k_label_rate[
+  retrieval$summary$k == params$display_k &
+    retrieval$summary$representation == "Direct-GSClassifier"
+]
+primary_signal_table <- data.frame(
+  endpoint = c("retrieval top-k label rate", "readout cohort accuracy"),
+  estimate = c(retrieval_cohort_mean_delta, readout_inference_delta),
+  stringsAsFactors = FALSE
+)
+primary_top_signal <- primary_signal_table[
+  which.max(abs(primary_signal_table$estimate)),
+  ,
+  drop = FALSE
+]
+readout_cohort_row <- readout_inference[
+  readout_inference$endpoint == "cohort_accuracy",
+  ,
+  drop = FALSE
+]
+technical_top_signal <- technical_inference[
+  which.max(abs(technical_inference$estimate)),
+  ,
+  drop = FALSE
+]
+decoder_gene_pair_accuracy <- decoder_summary$balanced_accuracy[
+  decoder_summary$feature_type == "gene_pair"
+]
+if (cohort_scaling$status != "complete") stop("Incomplete representation scaling result.")
+figure_dir <- .ablation03_report_path("figures")
+dir.create(figure_dir, recursive = TRUE, showWarnings = FALSE)
+preview_dir <- bensz_run_dir(bensz_preview_root(params$plot_run_dir),
+  prefix = "02.01.00-representation")
+```
+
+本报告比较同一批样本的 Direct-GSClassifier 特征与 CCS 对象中**已经计算好的 d1 概率表示**。本次修订统一了 readout 的训练/测试尺度，扩展连续 anchor 到全部候选 query，并核验本模块的输入与结果指纹。报告没有重新训练 cohort 模型，也没有重新预测原始 d1。
+
+当前证据等级为 `r manifest$evidence_level`。reference d1 来源为 `r paste(ablation_result$evidence$reference_provenance, collapse = ", ")`，query d1 来源为 `r paste(ablation_result$evidence$query_provenance, collapse = ", ")`。由于 reference 表示包含 in-sample 生成路径，而 query 使用冻结外部预测，两侧来源不对称；因此本报告只作描述性外部评价，不把检索库或 readout 结果标为确认性证据。
+
+## 数据概览
+
+本次 reference 有 `r manifest$reference_sample_count` 个样本、`r manifest$reference_cohort_count` 个队列；external candidates 有 `r manifest$external_candidate_sample_count` 个样本、`r manifest$external_candidate_cohort_count` 个队列。癌种 readout 的可估计子集为 `r manifest$query_sample_count` 个样本、`r manifest$query_cohort_count` 个队列。**连续 anchor 的候选范围不再由癌种支持门槛决定**；最终有效范围还取决于表达覆盖和成对 top-`r 15L` 分数是否完整。
+
+```{r data-overview-table}
+# Purpose: Expose the exact data and representation contract used by all analyses.
+# Input: manifest.rds.
+# Parameters: Twelve visible rows; horizontal scrolling retained for audit fields.
+# Output: Interactive data overview table.
+overview_table <- data.frame(
+  item = c(
+    "Evidence level",
+    "Evidence limitation",
+    "Reference samples",
+    "External query samples",
+    "Reference cohorts",
+    "External filtered cohorts",
+    "Direct features",
+    "Gene signature size",
+    "Ordinary gene-pairs",
+    "d1 modules",
+    "d1 output columns",
+    "Direct / d1 distance"
+  ),
+  value = c(
+    manifest$evidence_level,
+    paste(manifest$evidence_reasons, collapse = "; "),
+    manifest$reference_sample_count,
+    manifest$query_sample_count,
+    manifest$reference_cohort_count,
+    manifest$query_cohort_count,
+    manifest$direct_feature_count,
+    manifest$gene_signature_count,
+    manifest$tsp_feature_count,
+    manifest$module_count,
+    manifest$d1_feature_count,
+    paste(manifest$direct_distance, manifest$d1_distance, sep = " / ")
+  ),
+  stringsAsFactors = FALSE
+)
+render_dt(overview_table, pageLength = 12)
+```
+
+解读：当前结果显示，表中 Direct 的 `r manifest$direct_feature_count` 个特征与 d1 的 `r manifest$d1_feature_count` 个输出列代表不同表示维度；维度多不等于性能更好。癌种可估计队列数 `r manifest$query_cohort_count` 与全部候选队列数 `r manifest$external_candidate_cohort_count` 分别对应不同分析总体，不能互换。这里展示的是两种表示在相同样本身份下的输入规模差异，提示后续比较必须保持样本对齐。癌种支持不足的队列仍可用于连续表达评价，所以不能根据分类子集的规模推断全部候选样本的分析覆盖。
+
+## 关键函数、参数与源代码位置
+
+| 过程 | 函数与关键参数 | 本次约定 | 源代码 |
+|---|---|---|---|
+| Direct 与 d1 输入 | `.ablation_prepare_representation_input()` | 由 `r representation_input_script_name` 准备冻结 Direct 特征和已有 d1；分析只读取缓存 | `R/ablation.R` |
+| 癌种检索 | `.ablation_query_reference_retrieval()`；k=`r params$display_k` | 仅使用癌种可估计 query，排除同队列邻居 | `R/ablation.R` |
+| 癌种 readout | `.ablation_linear_readout()`；`r manifest$config$validation$inner_folds` 折 grouped CV | 两臂均传入原始表示；每个训练折与最终模型各自拟合一次尺度 | `R/ablation.R` |
+| 来源一致性 | `.ae_validate_stage_receipt()` | 渲染前验证表示分析及其准备阶段的源代码与产物指纹，变化时停止 | `r representation_functions_name` |
+
+## 指标导读
+
+| 指标 | 本报告中怎样读 |
+|---|---|
+| CKA、距离 Spearman、kNN Jaccard | 比较两种表示的几何关系与邻居重叠；相似度低说明空间改变，不自动代表改善 |
+| Top-k label rate、MRR@k | 衡量旧癌种标签可恢复性；越高越容易找到同癌种邻居；不是新亚型发现能力 |
+| Cohort accuracy 与 pooled balanced accuracy | 前者对外部队列等权，后者对合并样本中的癌种召回率等权；权重不同可能产生不同方向 |
+| Technical excess | 同技术来源邻居比例减同癌种 reference 的基准比例；两臂相减时共同基准抵消，不能独立证明去技术噪声 |
+| d1−Direct | 正值表示该指标 d1 较大，负值表示 Direct 较大；好坏还取决于指标定义 |
+| `r "95%"` CI 与校正 P 值 | 表达效应不确定性与多重比较；CI 跨零不等于等价、非劣效或没有信息损失 |
+
+癌种 readout、retrieval、technical excess 的主要效应均以外部 query cohort 为单位，先算每队列的 d1−Direct 差，再对队列等权平均。区间采用 `r params$inference_bootstrap` 次 cohort bootstrap 的百分位区间。双侧 sign-flip 检验在队列数不超过 `r 18L` 时枚举全部符号组合，P 值直接取尾部比例；更多队列时使用 Monte Carlo，并按“尾部次数加一／模拟次数加一”校正。该检验依赖零假设下差值符号可交换的假设，不能替代随机实验。癌种指标和技术字段在各自检验族内使用 Holm 校正，具体采用的方法见表中 `p_method`。
+
+学习曲线和 bank scaling 的重复单位是训练或模块设计，固定了当前 query 人群；它们的区间描述设计敏感性。生物学与结构结果分别见同目录的 `r biology_report_name`、`r structure_report_name` 报告。
+
+## d1 对原生空间的改写
+
+本节检查冻结 reference 表示的几何变化；它不是外部验证。三种指标分别观察全局矩阵关系、距离排序和局部近邻。
+
+```{r figure-native-geometry, interp_check=TRUE}
+# ==== Figure 1: Native geometry agreement (user-adjustable parameters) ====
+fig1 <- list(
+  # Canvas size in inches. Wider canvases leave room for metric labels.
+  width_in = 6.2,
+  height_in = 3.8,
+  # Base font in pt. Values below 8 are avoided for print readability.
+  base_size = 12,
+  # Bar width and legend position; no in-panel title is used.
+  bar_width = 0.68,
+  legend_position = "none"
+)
+
+p1 <- ggplot2::ggplot(
+  geometry_metrics,
+  ggplot2::aes(x = .data$metric_label, y = .data$metric_value)
+) +
+  ggplot2::geom_col(
+    width = fig1$bar_width,
+    fill = nature_colors[["blue"]]
+  ) +
+  ggplot2::geom_text(
+    ggplot2::aes(label = sprintf("%.3f", .data$metric_value)),
+    vjust = -0.45,
+    size = 3.6
+  ) +
+  ggplot2::scale_y_continuous(
+    limits = c(0, 1.05),
+    breaks = seq(0, 1, 0.2),
+    expand = ggplot2::expansion(mult = c(0, 0.02))
+  ) +
+  ggplot2::labs(
+    x = NULL,
+    y = "Agreement",
+    caption = "One frozen geometry estimate; CI and p-value are not estimable."
+  ) +
+  theme_nature_readable(
+    base_size = fig1$base_size,
+    x_text_angle = 0,
+    legend_position = fig1$legend_position
+  )
+
+# Readability check: three short labels fit without rotation; values are printed
+# above bars, and the non-estimable inference note is moved to the caption so it
+# does not cover the data bars in PDF/JPG rendering.
+fig1_jpg <- .ae_save_plot(
+  p1, "02.01.00. native-geometry", figure_dir, preview_dir, fig1,
+  params$plot_preview_dpi
+)
+knitr::include_graphics(fig1_jpg)
+```
+
+解读：当前结果显示，当前 CKA 为 `r fmt(native_geometry$metrics$metric_value[native_geometry$metrics$metric_name == "linear_cka"])`，距离 Spearman 为 `r fmt(native_geometry$metrics$metric_value[native_geometry$metrics$metric_name == "distance_spearman"])`，kNN Jaccard 为 `r fmt(native_geometry$metrics$metric_value[native_geometry$metrics$metric_name == "knn_jaccard"])`。三个值共同描述 d1 如何重排 Direct 空间，不能单凭几何改变宣布生物学获益。图中展示的全局相似度与局部重叠并非同一种量纲，这些差异提示需要分层解释空间改写。一个空间可以保留大体距离排序，同时替换许多局部近邻；要判断这种改写是否有益，还需要与独立目标上的表现连接。
+
+```{r geometry-inference-table}
+geometry_inference_table <- geometry_inference[, c(
+  "endpoint", "estimate", "ci_low", "ci_high", "p_value", "n_sample",
+  "unit", "method", "status", "reason"
+)]
+render_dt(geometry_inference_table, pageLength = 3L)
+```
+
+解读：当前结果显示，这 `r nrow(geometry_inference)` 个几何估计来自一次冻结计算，没有独立 geometry repeats，所以 CI/P 值明确不可估计；不会把样本数当作重复次数。这些空区间不是计算遗漏，而是当前产物没有提供相应重复信息。表格展示估计值及不可估计原因，提示不能通过人为扩大样本量制造显著性；若需要几何层面的推断，应保存并重新计算按队列抽样的几何结果。
+
+## 外部癌种标签检索
+
+每个 query 只在 reference atlas 中寻找其它队列的邻居。MRR@k 只奖励前 k 名内首次命中的同癌种样本；k 外命中记为零。
+
+```{r retrieval-inference-table}
+retrieval_inference_table <- retrieval_inference[, c(
+  "endpoint", "estimate", "ci_low", "ci_high", "p_value", "p_value_adj",
+  "n_cohort", "n_sample", "resamples", "p_resamples", "p_method", "unit",
+  "multiplicity_method", "status"
+)]
+render_dt(retrieval_inference_table, pageLength = 3L)
+```
+
+解读：当前结果显示，k=`r params$display_k` 的 top-k 一致率与 MRR 的 cohort 等权 d1−Direct 差分别为 `r fmt(retrieval_cohort_mean_delta)` 和 `r fmt(retrieval_cohort_mrr_delta)`。方向表示旧癌种标签检索的相对变化，区间与 Holm 校正 P 值用于判断这批 query cohort 的不确定性。表中展示的差异只针对 reference 中有足够癌种支持的外部队列。即使差值达到显著性，也只能说明当前癌种标签检索任务的稳定方向；本次并没有把癌种准确率设为新亚型发现的充分成功标准。
+
+```{r figure-retrieval-cohort, interp_check=TRUE}
+# ==== Figure 2: External retrieval cohort deltas (user-adjustable parameters) ====
+fig2 <- list(
+  # Larger height protects cohort labels from overlap; adjust with cohort count.
+  width_in = 8.0,
+  height_in = 8.5,
+  base_size = 11,
+  point_size = 2.2,
+  zero_line_width = 0.55,
+  legend_position = "bottom"
+)
+plot_retrieval <- retrieval_cohort_delta[
+  retrieval_cohort_delta$sample_count >= params$min_cohort_n &
+    retrieval_cohort_delta$metric %in%
+      c("delta_top_k_label_rate", "delta_mrr"),
+  ,
+  drop = FALSE
+]
+plot_retrieval$metric <- factor(
+  plot_retrieval$metric,
+  levels = c("delta_top_k_label_rate", "delta_mrr"),
+  labels = c("Top-k label rate", "Mean reciprocal rank")
+)
+retrieval_overall_plot <- data.frame(
+  cohort = "Overall",
+  metric = factor(
+    c("Top-k label rate", "Mean reciprocal rank"),
+    levels = levels(plot_retrieval$metric)
+  ),
+  estimate = c(retrieval_cohort_mean_delta, retrieval_cohort_mrr_delta),
+  ci_low = c(
+    retrieval_inference$ci_low[retrieval_inference$endpoint == "top_k_label_rate"],
+    retrieval_inference$ci_low[retrieval_inference$endpoint == "mrr"]
+  ),
+  ci_high = c(
+    retrieval_inference$ci_high[retrieval_inference$endpoint == "top_k_label_rate"],
+    retrieval_inference$ci_high[retrieval_inference$endpoint == "mrr"]
+  ),
+  sample_count = NA_integer_,
+  stringsAsFactors = FALSE
+)
+plot_retrieval$ci_low <- NA_real_
+plot_retrieval$ci_high <- NA_real_
+retrieval_overall_plot <- retrieval_overall_plot[, names(plot_retrieval), drop = FALSE]
+plot_retrieval <- rbind(plot_retrieval, retrieval_overall_plot)
+retrieval_reference <- data.frame(
+  metric = factor(
+    c("Top-k label rate", "Mean reciprocal rank"),
+    levels = levels(plot_retrieval$metric)
+  ),
+  estimate = c(retrieval_cohort_mean_delta, retrieval_cohort_mrr_delta),
+  ci_low = c(
+    retrieval_inference$ci_low[retrieval_inference$endpoint == "top_k_label_rate"],
+    retrieval_inference$ci_low[retrieval_inference$endpoint == "mrr"]
+  ),
+  ci_high = c(
+    retrieval_inference$ci_high[retrieval_inference$endpoint == "top_k_label_rate"],
+    retrieval_inference$ci_high[retrieval_inference$endpoint == "mrr"]
+  )
+)
+cohort_order <- retrieval_delta_main$cohort[
+  order(retrieval_delta_main$estimate)
+]
+plot_retrieval$cohort <- factor(plot_retrieval$cohort, levels = c(cohort_order, "Overall"))
+
+p2 <- ggplot2::ggplot(
+  plot_retrieval,
+  ggplot2::aes(x = .data$estimate, y = .data$cohort, color = .data$metric)
+) +
+  ggplot2::geom_vline(
+    xintercept = 0,
+    linewidth = fig2$zero_line_width,
+    color = "grey55"
+  ) +
+  ggplot2::geom_vline(
+    data = retrieval_reference,
+    ggplot2::aes(xintercept = .data$estimate, color = .data$metric),
+    inherit.aes = FALSE,
+    linetype = "dashed",
+    linewidth = fig2$zero_line_width,
+    show.legend = FALSE
+  ) +
+  ggplot2::geom_errorbar(
+    data = plot_retrieval[plot_retrieval$cohort == "Overall", , drop = FALSE],
+    ggplot2::aes(xmin = .data$ci_low, xmax = .data$ci_high),
+    orientation = "y",
+    width = 0.22,
+    linewidth = fig2$zero_line_width,
+    position = ggplot2::position_dodge(width = 0.45),
+    show.legend = FALSE,
+    na.rm = TRUE
+  ) +
+  ggplot2::geom_point(size = fig2$point_size) +
+  ggplot2::scale_color_manual(
+    values = c(
+      "Top-k label rate" = nature_colors[["red"]],
+      "Mean reciprocal rank" = nature_colors[["blue"]]
+    )
+  ) +
+  ggplot2::labs(
+    x = "Cohort-d1 minus Direct-GSClassifier",
+    y = "External query cohort",
+    color = "Metric",
+    caption = "Overall row: cohort-equal mean and bootstrap 95% CI; dashed lines: cohort-equal means."
+  ) +
+  theme_nature_readable(
+    base_size = fig2$base_size,
+    x_text_angle = 0,
+    legend_position = fig2$legend_position
+  ) +
+  ggplot2::theme(
+    plot.caption = ggplot2::element_text(
+      hjust = 0, lineheight = 0.95, margin = ggplot2::margin(t = 6)
+    )
+  )
+
+# Readability check: cohort labels use a tall canvas, the zero line makes gain/loss
+# direction explicit, and the bottom legend does not cover data.
+fig2_jpg <- .ae_save_plot(
+  p2, "02.01.00. external-retrieval-cohort-delta", figure_dir,
+  preview_dir, fig2, params$plot_preview_dpi
+)
+knitr::include_graphics(fig2_jpg)
+```
+
+解读：当前结果显示，每个点代表一个外部 cohort，零线两侧表示 d1 与 Direct 的不同方向。总体 top-k 差为 `r fmt(retrieval_cohort_mean_delta)`；各队列的分散程度提示平均差不能代表每个队列。图中展示的队列差异提示外部泛化具有数据背景依赖。较大负差或正差的队列都需要结合可用 reference 池来理解；如果候选池缺少相近生物背景，邻居标签恢复困难可能同时影响两种表示。
+
+```{r retrieval-top-table}
+# Purpose: Expose the strongest external retrieval gains and losses with sample counts.
+# Input: Cohort-level paired top-k cancer-type agreement deltas.
+# Parameters: Top/bottom count from params$interpret_top_n.
+# Output: Interactive table of concrete cohorts and effect directions.
+retrieval_extremes <- rbind(
+  transform(utils::head(retrieval_top, params$interpret_top_n), direction = "gain"),
+  transform(utils::head(retrieval_bottom, params$interpret_top_n), direction = "loss")
+)
+render_dt(
+  retrieval_extremes[, c("direction", "cohort", "estimate", "sample_count")],
+  pageLength = 2L * params$interpret_top_n
+)
+```
+
+解读：当前结果显示，表中按当前差值列出最多 `r params$interpret_top_n` 个极端队列，用于定位异质性，不作为独立验证或事后选择结论的依据。优先核查这些队列的 reference 癌种支持及技术构成。极端值展示的是当前队列中差异最突出的部分，并不代表总体。若后续仅围绕这些队列选择参数，容易把描述性发现变成事后调优；因此应保留所有队列的完整结果，并在新队列上复核提出的机制。
+
+## 外部癌种线性 readout
+
+分类函数从原始 Direct 特征或既有 d1 概率出发，在 reference 内拟合尺度和调参，再把同一个变换应用到外部 query。**query 不再提前标准化。**
+
+```{r readout-inference-table}
+readout_inference_table <- readout_inference[, c(
+  "endpoint", "estimate", "ci_low", "ci_high", "p_value", "p_value_adj",
+  "n_cohort", "n_sample", "resamples", "p_resamples", "p_method", "unit",
+  "multiplicity_method", "status"
+)]
+render_dt(readout_inference_table, pageLength = 1L)
+```
+
+解读：当前结果显示，本次 cohort 等权 accuracy 差为 `r fmt(readout_inference_delta)`，95% CI 为 `r fmt_ci(readout_inference[readout_inference$endpoint == "cohort_accuracy", ])`。合并样本后的类别等权 balanced-accuracy 差为 `r fmt(readout_delta)`。二者的权重不同，应分别报告；不能用其中一个替代另一个。表格展示当前两种汇总口径的差异，提示论文需要明确估计对象。队列等权使大型队列不主导平均效应，而类别等权仍可能受到同一癌种内不同队列样本量的影响；两者均应与区间和实际效应量一起理解。
+
+```{r figure-readout-cohort, interp_check=TRUE}
+# ==== Figure 3: External linear readout cohort deltas (user-adjustable parameters) ====
+fig3 <- list(
+  width_in = 7.2,
+  height_in = 7.5,
+  base_size = 11,
+  point_size = 2.4,
+  zero_line_width = 0.55,
+  legend_position = "none"
+)
+readout_plot <- readout_cohort[
+  order(readout_cohort$delta_accuracy),
+  c("cohort", "delta_accuracy"),
+  drop = FALSE
+]
+readout_plot$ci_low <- NA_real_
+readout_plot$ci_high <- NA_real_
+readout_overall_plot <- data.frame(
+  cohort = "Overall",
+  delta_accuracy = readout_inference$estimate[
+    readout_inference$endpoint == "cohort_accuracy"
+  ],
+  ci_low = readout_inference$ci_low[
+    readout_inference$endpoint == "cohort_accuracy"
+  ],
+  ci_high = readout_inference$ci_high[
+    readout_inference$endpoint == "cohort_accuracy"
+  ],
+  stringsAsFactors = FALSE
+)
+readout_plot <- rbind(readout_plot, readout_overall_plot)
+readout_plot$cohort <- factor(
+  readout_plot$cohort,
+  levels = c(as.character(readout_plot$cohort[-nrow(readout_plot)]), "Overall")
+)
+p3 <- ggplot2::ggplot(
+  readout_plot,
+  ggplot2::aes(x = .data$delta_accuracy, y = .data$cohort)
+) +
+  ggplot2::geom_vline(
+    xintercept = 0,
+    linewidth = fig3$zero_line_width,
+    color = "grey55"
+  ) +
+  ggplot2::geom_errorbar(
+    data = readout_plot[readout_plot$cohort == "Overall", , drop = FALSE],
+    ggplot2::aes(xmin = .data$ci_low, xmax = .data$ci_high),
+    orientation = "y",
+    width = 0.22,
+    linewidth = fig3$zero_line_width,
+    color = nature_colors[["purple"]],
+    show.legend = FALSE,
+    na.rm = TRUE
+  ) +
+  ggplot2::geom_point(
+    size = fig3$point_size,
+    color = nature_colors[["purple"]]
+  ) +
+  ggplot2::labs(
+    x = "Cohort accuracy: Cohort-d1 minus Direct-GSClassifier",
+    y = "External query cohort",
+    caption = "Overall row: query-cohort mean and bootstrap 95% CI."
+  ) +
+  theme_nature_readable(
+    base_size = fig3$base_size,
+    x_text_angle = 0,
+    legend_position = fig3$legend_position
+  )
+
+# Readability check: one metric avoids a redundant legend; a tall canvas keeps
+# cohort names readable and the zero line exposes the sign of every paired effect.
+fig3_jpg <- .ae_save_plot(
+  p3, "02.01.00. external-readout-cohort-delta", figure_dir,
+  preview_dir, fig3, params$plot_preview_dpi
+)
+knitr::include_graphics(fig3_jpg)
+```
+
+解读：当前结果显示，本图逐队列展示两表示的分类表现，总体 cohort 等权差为 `r fmt(readout_inference_delta)`。它衡量旧癌种标签的可恢复性，不能直接等同个性化亚型或新生物状态的发现能力。逐队列结果展示了分类差异的分布，提示不能仅从一个总体准确率推断所有队列的变化。图中若同时出现两种方向，应重点检查队列构成与训练支持，而不应立即将异质性解释成统一的表示机制。
+
+## 癌种 readout 的样本效率
+
+每个比例使用相同的训练 cohort 子集比较两表示；预处理和调参只在该子集内完成。重复使用同一个训练设计不会增加独立设计数。
+
+```{r learning-inference-table}
+learning_inference_table <- learning_inference[, c(
+  "requested_fraction", "estimate", "ci_low", "ci_high", "p_value", "p_value_adj",
+  "n_run", "n_unique_design", "resamples", "p_resamples", "p_method", "unit",
+  "multiplicity_method", "status", "reason"
+)]
+render_dt(learning_inference_table, pageLength = nrow(learning_inference_table))
+```
+
+解读：当前结果显示，100% reference 的唯一训练设计数为 `r learning_inference$n_unique_design[learning_inference$requested_fraction == 1]`，因此其设计层 CI/P 值不可估计。不同训练比例的估计描述当前固定 query 集上的设计敏感性，不代表对新 query 人群的完整不确定性。表中展示各比例对应的有效设计数及估计状态，提示统计依据来自不同训练队列组合。重复调参可以观察拟合波动，却不能制造新的训练设计；这一区分尤其影响全训练集终点是否具备可解释的设计层显著性。
+
+```{r figure-learning-curve, interp_check=TRUE}
+# ==== Figure 4: Paired learning curves (user-adjustable parameters) ====
+fig4 <- list(
+  width_in = 6.8,
+  height_in = 4.4,
+  base_size = 12,
+  line_size = 0.9,
+  point_size = 2.5,
+  point_alpha = 0.9,
+  legend_position = "bottom"
+)
+p4 <- ggplot2::ggplot(
+  learning_summary,
+  ggplot2::aes(
+    x = .data$requested_fraction,
+    y = .data$estimate,
+    color = .data$representation,
+    group = .data$representation
+  )
+) +
+  ggplot2::geom_ribbon(
+    ggplot2::aes(
+      ymin = .data$ci_low_rep,
+      ymax = .data$ci_high_rep,
+      fill = .data$representation
+    ),
+    alpha = 0.14,
+    color = NA
+  ) +
+  ggplot2::geom_line(linewidth = fig4$line_size) +
+  ggplot2::geom_point(size = fig4$point_size, alpha = fig4$point_alpha) +
+  ggplot2::scale_x_continuous(
+    breaks = manifest$config$validation$learning_fractions,
+    labels = scales::label_percent(accuracy = 1)
+  ) +
+  ggplot2::scale_color_manual(
+    values = c(
+      "Direct-GSClassifier" = nature_colors[["blue"]],
+      "Cohort-d1" = nature_colors[["red"]]
+    )
+  ) +
+  ggplot2::scale_fill_manual(
+    values = c(
+      "Direct-GSClassifier" = nature_colors[["blue"]],
+      "Cohort-d1" = nature_colors[["red"]]
+    )
+  ) +
+  ggplot2::labs(
+    x = "Fraction of reference cohorts",
+    y = "External balanced accuracy",
+    color = "Representation",
+    fill = "Representation",
+    caption = "Bands: 95% CI across unique training-cohort designs; no CI at 100% (one unique design)."
+  ) +
+  theme_nature_readable(
+    base_size = fig4$base_size,
+    x_text_angle = 0,
+    legend_position = fig4$legend_position
+  )
+
+# Readability check: four x ticks remain sparse, ribbons carry cohort/design-repeat
+# bootstrap uncertainty, and the external legend avoids covering either curve.
+fig4_jpg <- .ae_save_plot(
+  p4, "02.01.00. paired-learning-curve", figure_dir,
+  preview_dir, fig4, params$plot_preview_dpi
+)
+knitr::include_graphics(fig4_jpg)
+```
+
+解读：当前结果显示，使用全部 reference 时，d1−Direct balanced-accuracy 差为 `r fmt(learning_delta$estimate[match(1, learning_delta$requested_fraction)])`。应结合不同训练比例的曲线形状判断变化，不能把重复拟合次数当作独立外部验证次数。曲线展示的是训练资源变化与任务表现之间的关系，提示小样本与全样本条件可能具有不同差异。判断样本效率应同时检查实际纳入的队列比例与性能量级；曲线趋平也不能单独证明当前表示已经达到信息上限。
+
+## 主要终点的效应量与不确定性
+
+森林图把不同终点的方向与 CI 放在同一处；终点含义与统计单位仍须分别理解。
+
+```{r figure-inference-forest, interp_check=TRUE}
+# ==== Figure 10: Inference summary forest plot (user-adjustable parameters) ====
+fig10 <- list(
+  # Canvas size in inches. Increase height if endpoint labels become crowded.
+  width_in = 8.0,
+  height_in = 5.2,
+  base_size = 11,
+  point_size = 2.8,
+  line_size = 0.75,
+  zero_line_width = 0.55,
+  legend_position = "none"
+)
+p10 <- ggplot2::ggplot(
+  forest_data,
+  ggplot2::aes(y = .data$endpoint, x = .data$estimate)
+) +
+  ggplot2::geom_vline(
+    xintercept = 0,
+    linewidth = fig10$zero_line_width,
+    linetype = "dashed",
+    color = "grey55"
+  ) +
+  ggplot2::geom_errorbar(
+    ggplot2::aes(xmin = .data$ci_low, xmax = .data$ci_high),
+    orientation = "y",
+    linewidth = fig10$line_size,
+    na.rm = TRUE
+  ) +
+  ggplot2::geom_point(
+    size = fig10$point_size,
+    color = nature_colors[["purple"]],
+    na.rm = TRUE
+  ) +
+  ggplot2::labs(
+    x = "d1 minus Direct estimate (endpoint-specific units)",
+    y = NULL,
+    caption = "Points: estimates; lines: 95% bootstrap CI where estimable; dashed line: zero difference."
+  ) +
+  theme_nature_readable(
+    base_size = fig10$base_size,
+    x_text_angle = 0,
+    legend_position = fig10$legend_position
+  )
+
+# Readability check: endpoints are short and ordered by analysis module; the
+# horizontal intervals expose zero-crossing directly without overlapping labels.
+fig10_jpg <- .ae_save_plot(
+  p10, "02.01.00. inference-summary", figure_dir, preview_dir, fig10,
+  params$plot_preview_dpi
+)
+knitr::include_graphics(fig10_jpg)
+```
+
+解读：当前结果显示，readout cohort accuracy 的效应为 `r fmt(readout_inference_delta)`，检索 top-k 的效应为 `r fmt(retrieval_cohort_mean_delta)`。100% 学习曲线没有独立设计 CI，因此不能与 cohort-level 区间视为相同类型的证据。图中展示效应及不确定性，重点是差异方向、区间宽度和统计单位。不同终点即使数值相近，也不代表相同科学意义；一项指标的显著性不能传递给另外一项没有独立重复或采用不同权重的指标。
+
+## cohort evidence 的二维 scaling
+
+本次 bank design 使用审计恢复后的真实 tissue 字段，保留冻结 module ID。Breadth 表示扩大 tissue 覆盖，depth 表示在固定 tissue 中增加 cohort。它们回答不同的证据分配问题。
+
+```{r figure-cohort-evidence-sequences, interp_check=TRUE}
+# ==== Figure 8: Breadth and depth scaling (user-adjustable parameters) ====
+fig8 <- list(
+  # A wide canvas keeps the 3 x 2 facet labels readable without abbreviation.
+  width_in = 8.2,
+  height_in = 6.4,
+  base_size = 11,
+  # Lines carry repeat means; points keep sparse feasible grid cells visible.
+  line_size = 0.85,
+  point_size = 2.2,
+  point_alpha = 0.90,
+  ribbon_alpha = 0.14,
+  legend_position = "none"
+)
+p8 <- ggplot2::ggplot(
+  scaling_sequence,
+  ggplot2::aes(
+    x = .data$scaling_axis,
+    y = .data$estimate,
+    color = .data$design_label,
+    fill = .data$design_label,
+    group = .data$design_label
+  )
+) +
+  ggplot2::geom_ribbon(
+    ggplot2::aes(
+      ymin = .data$ci_low_seq,
+      ymax = .data$ci_high_seq
+    ),
+    alpha = fig8$ribbon_alpha,
+    color = NA
+  ) +
+  ggplot2::geom_line(linewidth = fig8$line_size) +
+  ggplot2::geom_point(
+    size = fig8$point_size,
+    alpha = fig8$point_alpha
+  ) +
+  ggplot2::facet_grid(
+    rows = ggplot2::vars(.data$metric_label),
+    cols = ggplot2::vars(.data$design_label),
+    scales = "free_y"
+  ) +
+  ggplot2::scale_color_manual(values = c(
+    "Tissue breadth" = nature_colors[["blue"]],
+    "Within-tissue depth" = nature_colors[["red"]]
+  )) +
+  ggplot2::scale_fill_manual(values = c(
+    "Tissue breadth" = nature_colors[["blue"]],
+    "Within-tissue depth" = nature_colors[["red"]]
+  )) +
+  ggplot2::labs(
+    x = "Added tissues or cohort-depth level",
+    y = "Estimate",
+    color = "Bank design",
+    fill = "Bank design",
+    caption = "Bands: exploratory 95% CI across bank-design repeats."
+  ) +
+  theme_nature_readable(
+    base_size = fig8$base_size,
+    x_text_angle = 0,
+    legend_position = fig8$legend_position
+  )
+
+# Readability check: each scientific property receives its own y scale while the
+# x scale is shared across breadth/depth panels; panel heights are not interpreted
+# as cross-metric effect sizes.
+fig8_jpg <- .ae_save_plot(
+  p8, "02.01.00. cohort-evidence-sequences", figure_dir,
+  preview_dir, fig8, params$plot_preview_dpi
+)
+knitr::include_graphics(fig8_jpg)
+```
+
+解读：当前结果显示，normalized effective rank 的 breadth/depth 每 module 数翻倍斜率分别为 `r fmt(rank_breadth$estimate)` / `r fmt(rank_depth$estimate)`。这些斜率描述固定 atlas 下的设计变化；增加维度、冗余降低或邻居稳定都不是临床效用的替代指标。图中展示 bank 扩展过程的差异，提示覆盖范围与同背景重复证据应分别评价。有效秩还受到特征数和数据几何约束，因此斜率适合描述本次冻结设计，不宜被解释为增加任意队列都会带来相同收益。
+
+```{r scaling-inference-table}
+scaling_inference_table <- scaling_inference[, c(
+  "contrast_type", "metric_name", "estimate", "ci_low", "ci_high",
+  "p_value", "p_value_adj", "n_cohort", "p_resamples", "p_method", "unit",
+  "status", "reason"
+)]
+render_dt(scaling_inference_table, pageLength = nrow(scaling_inference_table))
+```
+
+解读：当前结果显示，本次 scaling 使用 `r manifest$config$scaling$sequences` 个设计序列，重复数较少的结果按 exploratory 报告。表中 CI/P 值反映设计重复间的变化，不应当解释为新 cohort 人群的确认性推断。这张表展示不同设计对比的统计状态，提示少量序列不足以支撑宽泛的人群外推。若某个差异值得进一步研究，应增加预先定义的独立 bank 设计，并检查效应是否主要由某些组织容量较大的模块组驱动。
+
+```{r figure-cohort-evidence-matched, interp_check=TRUE}
+# ==== Figure 9: Matched-size breadth versus depth (user-adjustable parameters) ====
+fig9 <- list(
+  width_in = 8.2,
+  height_in = 5.2,
+  base_size = 11,
+  line_size = 0.85,
+  point_size = 2.3,
+  point_alpha = 0.92,
+  ribbon_alpha = 0.15,
+  zero_line_width = 0.55,
+  legend_position = "none"
+)
+p9 <- ggplot2::ggplot(
+  scaling_matched,
+  ggplot2::aes(x = .data$module_count, y = .data$estimate)
+) +
+  ggplot2::geom_hline(
+    yintercept = 0,
+    linewidth = fig9$zero_line_width,
+    color = "grey55"
+  ) +
+  ggplot2::geom_ribbon(
+    ggplot2::aes(
+      ymin = .data$ci_low_matched,
+      ymax = .data$ci_high_matched
+    ),
+    fill = nature_colors[["green"]],
+    alpha = fig9$ribbon_alpha
+  ) +
+  ggplot2::geom_line(
+    linewidth = fig9$line_size,
+    color = nature_colors[["green"]]
+  ) +
+  ggplot2::geom_point(
+    size = fig9$point_size,
+    alpha = fig9$point_alpha,
+    color = nature_colors[["green"]]
+  ) +
+  ggplot2::facet_wrap(ggplot2::vars(.data$metric_label), scales = "free_y") +
+  ggplot2::scale_x_continuous(
+    breaks = sort(unique(scaling_matched$module_count))
+  ) +
+  ggplot2::labs(
+    x = "Matched frozen cohort modules (linear scale)",
+    y = "Breadth-heavy minus depth-heavy",
+    caption = "Bands: exploratory 95% CI across matched bank-design repeats."
+  ) +
+  theme_nature_readable(
+    base_size = fig9$base_size,
+    x_text_angle = 0,
+    legend_position = fig9$legend_position
+  )
+
+# Readability check: the zero reference line makes direction explicit, free y
+# scales prevent small stability differences being flattened, and 45-degree x
+# labels separate the dense 75/100/125-module ticks without hiding grid cells.
+fig9_jpg <- .ae_save_plot(
+  p9, "02.01.00. cohort-evidence-matched", figure_dir,
+  preview_dir, fig9, params$plot_preview_dpi
+)
+knitr::include_graphics(fig9_jpg)
+```
+
+解读：当前结果显示，相同 module 预算下，breadth-heavy 减 depth-heavy 的 effective-rank、redundancy 和 stability 总体差分别为 `r fmt(rank_matched$estimate)`、`r fmt(redundancy_matched$estimate)`、`r fmt(stability_matched$estimate)`。三项指标方向不同，不能合并成一个没有预先定义的“总体胜者”。图中展示相同预算下的差异，提示控制模块数量之后，组织组成仍然会影响几何和稳定性。邻居更稳定可能来自重复信息，也可能来自更可靠的证据；需要结合冗余指标及外部任务表现区分这两种解释。
+
+## 技术来源与癌种锚点的联合评估
+
+Observed rate 来自实际近邻，expected rate 来自同癌种 reference pool。两表示使用同一个 expected，因此 d1−Direct excess 差在代数上等于 observed-rate 差。它不是已经控制所有癌种混杂后的独立去技术偏差效应。
+
+```{r figure-technical-excess, interp_check=TRUE}
+# ==== Figure 5: Technical-neighbor excess deltas (user-adjustable parameters) ====
+fig5 <- list(
+  width_in = 6.8,
+  height_in = 4.2,
+  base_size = 11,
+  point_size = 1.8,
+  point_alpha = 0.72,
+  inference_point_size = 3.0,
+  inference_line_width = 0.75,
+  jitter_width = 0.12,
+  jitter_seed = 20260807L,
+  zero_line_width = 0.55,
+  legend_position = "none"
+)
+p5 <- ggplot2::ggplot(
+  technical_delta,
+  ggplot2::aes(
+    x = .data$technical_factor,
+    y = .data$estimate,
+    color = .data$technical_factor
+  )
+) +
+  ggplot2::geom_hline(
+    yintercept = 0,
+    linewidth = fig5$zero_line_width,
+    color = "grey55"
+  ) +
+  ggplot2::geom_boxplot(outlier.shape = NA, width = 0.5, alpha = 0.2) +
+  ggplot2::geom_jitter(
+    position = ggplot2::position_jitter(
+      width = fig5$jitter_width,
+      height = 0,
+      seed = fig5$jitter_seed
+    ),
+    size = fig5$point_size,
+    alpha = fig5$point_alpha
+  ) +
+  ggplot2::geom_errorbar(
+    data = technical_inference,
+    ggplot2::aes(
+      x = .data$technical_factor,
+      ymin = .data$ci_low,
+      ymax = .data$ci_high
+    ),
+    inherit.aes = FALSE,
+    width = 0.12,
+    linewidth = fig5$inference_line_width,
+    color = "black"
+  ) +
+  ggplot2::geom_point(
+    data = technical_inference,
+    ggplot2::aes(x = .data$technical_factor, y = .data$estimate),
+    inherit.aes = FALSE,
+    shape = 23,
+    size = fig5$inference_point_size,
+    fill = "white",
+    color = "black",
+    stroke = 0.8
+  ) +
+  ggplot2::scale_color_manual(
+    values = unname(nature_colors[seq_along(technical_columns)])
+  ) +
+  ggplot2::scale_x_discrete(
+    labels = c(
+      assay_type = "Assay type",
+      platform_id = "Platform",
+      source_system = "Source system"
+    )
+  ) +
+  ggplot2::labs(
+    x = "Technical factor",
+    y = "Delta in same-technology excess",
+    color = "Technical factor",
+    caption = "Black diamonds and bars: cohort-equal means and bootstrap 95% CI."
+  ) +
+  theme_nature_readable(
+    base_size = fig5$base_size,
+    x_text_angle = 0,
+    legend_position = fig5$legend_position
+  )
+
+# Readability check: factor labels are short, jitter exposes cohort heterogeneity,
+# and a horizontal zero line separates reduced from increased technical clustering;
+# the redundant color legend is removed because the x-axis already names each factor.
+fig5_jpg <- .ae_save_plot(
+  p5, "02.01.00. technical-neighbor-excess", figure_dir,
+  preview_dir, fig5, params$plot_preview_dpi
+)
+knitr::include_graphics(fig5_jpg)
+```
+
+解读：当前结果显示，本次比较 `r nrow(technical_inference)` 个技术字段，cohort 等权差及 Holm 校正结果见下表。下降仅说明同技术来源近邻比例相对较低；在癌种构成变化同时存在时，还需同癌种条件化比较才能判断变化是否主要来自技术噪声。图中展示各队列的技术来源差异，提示总体下降也可能伴随癌种检索组成变化。若同癌种候选池与实际邻居池不同，扣除一个共同基准并不能让这两个总体自动可比；因此这里保持描述性解释。
+
+```{r technical-inference-table, echo=FALSE}
+technical_inference_table <- technical_inference[, c(
+  "technical_factor", "estimate", "ci_low", "ci_high", "p_value",
+  "p_value_adj", "n_cohort", "n_sample", "resamples", "p_resamples",
+  "p_method",
+  "multiplicity_method", "status"
+)]
+technical_inference_table$n_query_sample <- technical_query_counts$sample_count[
+  match(
+    technical_inference_table$technical_factor,
+    technical_query_counts$technical_factor
+  )
+]
+technical_inference_table <- technical_inference_table[, c(
+  "technical_factor", "estimate", "ci_low", "ci_high", "p_value",
+  "p_value_adj", "n_cohort", "n_query_sample", "n_sample", "resamples",
+  "p_resamples", "p_method", "multiplicity_method", "status"
+)]
+render_dt(technical_inference_table, pageLength = 3L)
+```
+
+解读：当前结果显示，这些技术字段可能彼此相关，`r nrow(technical_inference)` 个同方向结果不能当作同样数量的独立机制证据。后续应固定癌种和候选池构成，再检查效应方向是否保持。表格展示经过多重比较校正的统计结果，提示推断处理的是这组预先列出的字段。即使差异显著，仍需要条件化设计来区分技术噪声和生物背景；统计精度提高不会自动消除估计对象中的混杂。
+
+## module 贡献的集中程度
+
+本节展示 reference 中各 module 输出列的平均方差份额。它是原始 d1 的描述性诊断，不是每个 module 对最终分类预测的因果贡献。
+
+```{r figure-module-concentration, interp_check=TRUE}
+# ==== Figure 6: d1 module variance concentration (user-adjustable parameters) ====
+fig6 <- list(
+  width_in = 7.2,
+  height_in = 5.8,
+  base_size = 11,
+  bar_width = 0.72,
+  legend_position = "none"
+)
+module_top$module_label <- .ae_resolve_module_labels(
+  module_top$module_id,
+  data_profile$resolution_audit
+)
+module_top$module_label <- factor(
+  module_top$module_label,
+  levels = rev(module_top$module_label)
+)
+p6 <- ggplot2::ggplot(
+  module_top,
+  ggplot2::aes(x = .data$variance_share, y = .data$module_label)
+) +
+  ggplot2::geom_col(
+    width = fig6$bar_width,
+    fill = nature_colors[["green"]]
+  ) +
+  ggplot2::scale_x_continuous(labels = scales::label_percent(accuracy = 0.1)) +
+  ggplot2::labs(x = "Share of module-level variance", y = "Frozen cohort module") +
+  theme_nature_readable(
+    base_size = fig6$base_size,
+    x_text_angle = 0,
+    legend_position = fig6$legend_position
+  )
+
+# Readability check: only the top 20 modules are labeled, horizontal bars protect
+# tissue|cohort names from clipping, and the vector PDF preserves small text.
+fig6_jpg <- .ae_save_plot(
+  p6, "02.01.00. module-variance-concentration", figure_dir,
+  preview_dir, fig6, params$plot_preview_dpi
+)
+knitr::include_graphics(fig6_jpg)
+```
+
+解读：当前结果显示，当前 bank 有 `r manifest$module_count` 个 modules。方差份额较集中的模块值得检查其输出分布，但后续距离还使用了逐列标准化与 block 权重，因此原始方差集中不等于最终距离被相同模块主导。图中展示各模块输出波动的集中程度，提示不同模块的原始概率分布并不相同。这种差异可用于检查异常或饱和输出，但不提供模块删除实验的结果，因此不能据此声称某个模块对生物状态发现最重要。
+
+## 输入信息压缩与可恢复性
+
+Decoder 在 reference 上拟合 PCA 加 ridge linear mapping，再重建 query 的 Direct 特征。不同特征类型使用不同损失；图中的指标只能在各自定义下解读。
+
+```{r figure-decoder, interp_check=TRUE}
+# ==== Figure 7: Feature-type reconstruction metrics (user-adjustable parameters) ====
+fig7 <- list(
+  width_in = 8.2,
+  height_in = 4.4,
+  base_size = 11,
+  point_size = 3.0,
+  value_text_size = 3.5,
+  legend_position = "none"
+)
+decoder_plot <- rbind(
+  data.frame(
+    feature_type = "gene_pair",
+    metric = c("Balanced\naccuracy", "1 - Brier\nscore"),
+    value = c(
+      decoder_summary$balanced_accuracy[decoder_summary$feature_type == "gene_pair"],
+      1 - decoder_summary$brier[decoder_summary$feature_type == "gene_pair"]
+    )
+  ),
+  data.frame(
+    feature_type = "single_bin",
+    metric = c("Spearman", "1 / (1 +\nMAE)"),
+    value = c(
+      decoder_summary$spearman[decoder_summary$feature_type == "single_bin"],
+      1 / (1 + decoder_summary$mae[decoder_summary$feature_type == "single_bin"])
+    )
+  ),
+  data.frame(
+    feature_type = "set_pair",
+    metric = c("Spearman", "1 / (1 +\nRMSE)"),
+    value = c(
+      decoder_summary$spearman[decoder_summary$feature_type == "set_pair"],
+      1 / (1 + decoder_summary$rmse[decoder_summary$feature_type == "set_pair"])
+    )
+  )
+)
+p7 <- ggplot2::ggplot(
+  decoder_plot,
+  ggplot2::aes(x = .data$metric, y = .data$value, color = .data$metric)
+) +
+  ggplot2::geom_segment(
+    ggplot2::aes(xend = .data$metric, y = 0, yend = .data$value),
+    linewidth = 0.7,
+    color = "grey75"
+  ) +
+  ggplot2::geom_point(
+    size = fig7$point_size
+  ) +
+  ggplot2::geom_text(
+    ggplot2::aes(label = sprintf("%.3f", .data$value)),
+    vjust = -0.8,
+    size = fig7$value_text_size,
+    color = "black"
+  ) +
+  ggplot2::facet_wrap(
+    ggplot2::vars(.data$feature_type),
+    labeller = ggplot2::as_labeller(c(
+      gene_pair = "Gene pair",
+      single_bin = "Single bin",
+      set_pair = "Set pair"
+    )),
+    scales = "free_x"
+  ) +
+  ggplot2::scale_color_manual(
+    values = unname(nature_colors[seq_len(length(unique(decoder_plot$metric)))]),
+    drop = FALSE
+  ) +
+  ggplot2::scale_y_continuous(limits = c(0, 1.08), breaks = seq(0, 1, 0.2)) +
+  ggplot2::labs(
+    x = NULL,
+    y = "Direction-harmonized score",
+    color = "Metric",
+    caption = "Metrics retain distinct definitions; dot height is not a cross-metric ranking."
+  ) +
+  theme_nature_readable(
+    base_size = fig7$base_size,
+    x_text_angle = 0,
+    legend_position = fig7$legend_position
+  )
+
+# Readability check: facets isolate the three feature contracts, direct metric
+# labels replace a five-item legend, and values remain readable at print size.
+fig7_jpg <- .ae_save_plot(
+  p7, "02.01.00. feature-type-reconstruction", figure_dir,
+  preview_dir, fig7, params$plot_preview_dpi
+)
+knitr::include_graphics(fig7_jpg)
+```
+
+解读：当前结果显示，gene-pair 的 balanced accuracy 为 `r fmt(decoder_summary$balanced_accuracy[decoder_summary$feature_type == "gene_pair"])`，single-bin 的 Spearman 为 `r fmt(decoder_summary$spearman[decoder_summary$feature_type == "single_bin"])`。它们表明当前受限 decoder 的可恢复程度；非零误差也可能来自 PCA rank 或线性模型容量，不能证明 d1 在信息论上不可逆。图中展示不同特征类型的重建表现，提示信息恢复能力依赖目标量纲与模型限制。排序相关高仍可伴随绝对误差，二分类准确率也不能与连续相关系数直接排名；比较更强解码器后才能进一步讨论表示容量。
+
+## 讨论与分析
+
+**当前结果回答的是表示改变了什么，以及这些改变在不同评估任务中的代价或收益。** 本次结果显示，在癌种检索上，top-k 的 cohort 等权差为 `r fmt(retrieval_cohort_mean_delta)`。本次结果显示，在分类上，cohort accuracy 差为 `r fmt(readout_inference_delta)`，其 `r "95%"` CI 为 `r fmt_ci(readout_cohort_row)`。这两类结果均围绕已有癌种标签，不能直接评价新的个性化亚型。
+
+本次结果显示，两个主要癌种端点中的最强信号是 `r primary_top_signal$endpoint`，d1−Direct 差为 `r fmt(primary_top_signal$estimate)`；这里的“最强”仅按当前两个预设端点的绝对差排序，不扩展为确认性结论。
+
+本次修复消除了 query 重复标准化、癌种资格向连续 anchor 的传递、非配对缺失导致的组成差、历史组织名用于 bank 设计及不同结果批次混用等路径。原始 d1 仍直接来自冻结 CCS 对象。修复后的结果取代旧 readout、learning curve 和 anchor 数值；旧报告的方向性结论不应继续引用。
+
+**局限主要是 reference d1 的 in-sample 来源与 query 冻结外部预测之间的不对称、`r manifest$query_cohort_count` 个外部可估计 cohort、表达 anchor 与表示输入的共同来源，以及固定 atlas 下的设计敏感性。** 在获得 reference out-of-fold 或 leave-own-cohort-model-out d1 前，所有比较均维持描述性等级。Technical excess 中绝对差最大的字段为 `r technical_top_signal$technical_factor`，效应为 `r fmt(technical_top_signal$estimate)`，但这不是去技术噪声的因果证据；反向结构检查也不是所有特征选择环节均外部化的对称验证。当前 readout cohort accuracy CI 为 `r fmt_ci(readout_cohort_row)`，其稳定性边界不能证明等价或非劣效；gene-pair decoder 的 balanced accuracy 为 `r fmt(decoder_gene_pair_accuracy)`，且尚未进行更强 decoder 的敏感性分析，因此该误差不能证明信息不可逆。
+
+下一步适合在预先选定的独立 pathway、治疗反应或 outcome 目标上验证效用，固定癌种与技术构成后检查共享结构能否迁移。若要评价生物结构是否基本保留，应先给出科学上可接受的损失界值，再以独立 cohort 的区间作非劣效判断，避免事后按当前结果选择标准。
+
+## 数字准确性验证
+
+| 核查 | 当前证据 |
+|---|---|
+| 表示来源 | Direct 采用冻结 GSClassifier 特征；d1 使用 CCS 中已计算的概率矩阵 |
+| 预处理 | reference 与 query 以同一种原始表示进入 readout；query 不重复变换 |
+| 分析总体 | 癌种可估计 `r manifest$query_cohort_count` 队列；全部候选 `r manifest$external_candidate_cohort_count` 队列；anchor 有效范围逐项报告 |
+| 数字来源 | 正文数值动态来自当前 RDS/CSV；本模块及准备阶段内容指纹在渲染前逐项核验 |
+| 统计边界 | 小设计重复、全量训练学习曲线伪重复、临床效用与非劣效判断均单独说明 |
