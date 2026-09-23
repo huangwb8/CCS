@@ -14,7 +14,12 @@ stopifnot(
   any(grepl("tar_make", launcher_lines, fixed = TRUE)),
   any(grepl("tar_option_set", target_lines, fixed = TRUE)),
   any(grepl("CCS_ABLATION_INPUT_RDS", launcher_lines, fixed = TRUE)),
-  !any(grepl("profile", launcher_lines, ignore.case = TRUE)),
+  any(grepl(".local\\bin", launcher_lines, fixed = TRUE)),
+  !any(grepl(
+    "CCS_ABLATION_PROFILE|[-]Profile|profile[ ]*=",
+    launcher_lines,
+    ignore.case = TRUE
+  )),
   !any(grepl("system2", target_lines, fixed = TRUE))
 )
 

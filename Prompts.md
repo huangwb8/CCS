@@ -16,6 +16,24 @@
 
 ---
 
+请：
+- 停止所有 ablation-03 的主程序。
+- 处理好 renv/targets/crew 的依赖问题，确保依赖完全没有问题，为正式跑通流程奠定基础
+- 在 test\ablation-03\tmp\exam-20260923-01 里做严谨的测试
+  - copy必要的ablation-03的主分析的代码
+  - ablation-03的数据截取一点，大致是reference 1000例、 query 1000例左右。 
+  - 在这个小测试中， 缓存文件夹是  test\ablation-03\tmp\exam-20260923-01\cache 。不要和主分析共用cache
+  - 完全按照和 ablation-03 的主分析代码，用小数据从头到尾跑一下。你可以认为我就是要用一些小数据实际地跑一下，确认ablation-03的主分析确实没有问题、也没有renv/targets/crew或任何其它R的环境或依赖问题。 
+  - 这个过程也许有bug；你把它们修好。 直到所有的分析跑完，rmd/html的渲染也成功为止。
+- 如果exam-20260923-01 这个小测试可以通过，基本上这个代码可以给ablation-03的正式流程用了。 你就调好正式流程的代码，把数据、缓存目录换成真实的主分析的设置即可
+- 调好主分析的代码后不要跑，让我先审查一下。
+
+---
+
+请正式启动 ablation-03 的分析。 目前的代码已经通过分析，你直接运行。 有问题再排bug后再继续。使用 targets 自动监控进程，自动打开浏览器窗口。最后，要把全部流程跑完，各个分析的Rmd/Html要直出。
+
+---
+
 R CMD build 正在递归复制历史 .bensz-api 大目录  ，这肯定是不对的。  .bensz-api 是一个中间文件的托管，是一个“垃圾场”。 它一定要在 .Rbuildignore  里。E:\RCloud\RFactory\ccs\test 是测试类目录，并不属于 ccs 包， 它一定要在 .Rbuildignore  里。E:\RCloud\RFactory\ccs\.ccs-cache 、E:\RCloud\RFactory\ccs\renv 不应该被需要，因为E:\RCloud\RFactory\ccs是包的根目录；如果有其它地方引用它，这肯定是不对的；我怀疑是不是和 ablation-03 有关；如果是，应该都要挪到 ablation-03 里，不要污染根目录。 
 
 ---

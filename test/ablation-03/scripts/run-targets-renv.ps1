@@ -27,8 +27,17 @@ try {
     throw "InputRds does not exist: $InputRds"
   }
   $env:CCS_ABLATION_INPUT_RDS = (Resolve-Path -LiteralPath $inputCandidate).Path
+  $outputPath = [IO.Path]::GetFullPath((Join-Path $CacheRoot '01-data/inputs.rds'))
+  if ([string]::Equals($env:CCS_ABLATION_INPUT_RDS, $outputPath,
+      [StringComparison]::OrdinalIgnoreCase)) {
+    throw 'The input RDS must not be the generated 01-data/inputs.rds file.'
+  }
   $env:CCS_ABLATION_CACHE_ROOT = $CacheRoot
   $env:CCS_ABLATION_TARGET_WORKERS = [string]([Math]::Max(1, $Workers))
+  $localBin = Join-Path $env:USERPROFILE '.local\bin'
+  if (Test-Path -LiteralPath (Join-Path $localBin 'pandoc.exe')) {
+    $env:PATH = $localBin + [IO.Path]::PathSeparator + $env:PATH
+  }
   & $Rscript --vanilla 'scripts/renv-ablation03.R' --command check
   if ($LASTEXITCODE -ne 0) { throw "ablation-03 renv check failed with exit code $LASTEXITCODE." }
   if ($Action -eq 'manifest') {

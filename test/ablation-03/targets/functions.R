@@ -94,6 +94,52 @@
   resource_metrics[, fields, drop = FALSE]
 }
 
+.ablation03_render_report <- function(
+    report_file,
+    dependency = NULL,
+    cache_root = .ablation03_cache_root()) {
+  if (!is.null(dependency)) invisible(dependency)
+  if (!requireNamespace("rmarkdown", quietly = TRUE)) {
+    stop("ablation-03 requires rmarkdown to render HTML reports.", call. = FALSE)
+  }
+  report_path <- file.path(getwd(), report_file)
+  if (!file.exists(report_path)) {
+    stop("ablation-03 report is missing: ", report_path, call. = FALSE)
+  }
+  output_file <- sub("\\.Rmd$", ".html", basename(report_path), ignore.case = TRUE)
+  preview_root <- file.path(cache_root, "logs", "report-previews")
+  dir.create(preview_root, recursive = TRUE, showWarnings = FALSE)
+  if (!dir.exists(preview_root)) {
+    stop(
+      "ablation-03: cannot create report preview directory: ",
+      preview_root,
+      call. = FALSE
+    )
+  }
+  old_cache_root <- Sys.getenv("CCS_ABLATION_CACHE_ROOT", unset = NA_character_)
+  on.exit({
+    if (is.na(old_cache_root)) {
+      Sys.unsetenv("CCS_ABLATION_CACHE_ROOT")
+    } else {
+      Sys.setenv(CCS_ABLATION_CACHE_ROOT = old_cache_root)
+    }
+  }, add = TRUE)
+  Sys.setenv(CCS_ABLATION_CACHE_ROOT = cache_root)
+  rendered <- rmarkdown::render(
+    input = normalizePath(report_path, winslash = "/", mustWork = TRUE),
+    output_file = output_file,
+    output_dir = normalizePath(getwd(), winslash = "/", mustWork = TRUE),
+    knit_root_dir = normalizePath(getwd(), winslash = "/", mustWork = TRUE),
+    params = list(plot_run_dir = preview_root),
+    envir = new.env(parent = globalenv()),
+    quiet = FALSE
+  )
+  if (!file.exists(rendered)) {
+    stop("ablation-03 report produced no HTML: ", rendered, call. = FALSE)
+  }
+  normalizePath(rendered, winslash = "/", mustWork = TRUE)
+}
+
 .ablation03_assert_writable <- function(path) {
   dir.create(path, recursive = TRUE, showWarnings = FALSE)
   if (!dir.exists(path)) {
@@ -310,17 +356,46 @@
 }
 
 .ablation03_prepare_data_target <- function(runtime_config) {
+  output_path <- file.path(runtime_config$cache_root, '01-data', 'inputs.rds')
+  if (identical(tolower(normalizePath(runtime_config$input_rds, winslash = '/')),
+      tolower(normalizePath(output_path, winslash = '/', mustWork = FALSE)))) {
+    stop('ablation-03 input must not be its generated 01-data/inputs.rds output.', call. = FALSE)
+  }
   inputs <- .ablation03_read_inputs(runtime_config)
   root <- file.path(runtime_config$cache_root, "01-data")
   dir.create(root, recursive = TRUE, showWarnings = FALSE)
   saveRDS(inputs, file.path(root, "inputs.rds"), version = 3)
   profile <- inputs$data_profile
   if (is.null(profile)) {
-    profile <- list(
-      schema_version = 1L,
-      source = runtime_config$input_rds,
-      sample_count = nrow(inputs$metadata),
-      cohort_count = length(unique(inputs$metadata$cohort))
+    profile_helpers <- new.env(parent = globalenv())
+    source(file.path(getwd(), '01.01.00. 数据准备_functions.R'),
+      local = profile_helpers, encoding = 'UTF-8')
+    resolved_index <- profile_helpers$.atd_cohort_index(inputs$data)
+    original_index <- resolved_index
+    cohort_tissues <- unique(inputs$metadata[, c('cohort', 'bank_tissue')])
+    if (anyDuplicated(cohort_tissues$cohort)) {
+      stop('ablation-03: cohort-to-bank-tissue mapping is ambiguous.', call. = FALSE)
+    }
+    original_index$tissue <- cohort_tissues$bank_tissue[
+      match(original_index$cohort, cohort_tissues$cohort)
+    ]
+    if (anyNA(original_index$tissue)) {
+      stop('ablation-03: bank tissue is missing from input metadata.', call. = FALSE)
+    }
+    original_index$cohort_key <- paste(
+      original_index$tissue, original_index$cohort, sep = '/'
+    )
+    query_keys <- unique(inputs$metadata[
+      inputs$metadata$analysis_set == 'external_query',
+      c('bank_cohort_key', 'cohort_key'), drop = FALSE
+    ])
+    profile <- profile_helpers$.atd_build_data_profile(
+      raw_cohort_index = original_index,
+      resolved_cohort_index = resolved_index,
+      metadata = inputs$metadata,
+      tissue_resolution_audit = inputs$tissue_resolution_audit,
+      filtered_model_cohorts = query_keys$bank_cohort_key,
+      filtered_cohorts = query_keys$cohort_key
     )
   }
   saveRDS(profile, file.path(root, "data-profile.rds"), version = 3)

@@ -1,7 +1,7 @@
 # ablation-03: one targets graph for formal analysis and input-subset tests.
 #
-# The input RDS is the only intended difference between runs. All scientific
-# stages use the same targets graph, package API and parameter contract.
+# Runs use independent input RDS files and cache roots. All scientific stages
+# share the same targets graph, package API and parameter contract.
 
 renv_activation <- file.path(getwd(), "renv", "activate.R")
 if (!file.exists(renv_activation)) {
@@ -40,14 +40,25 @@ if (targets::tar_active()) {
 }
 
 list(
-  targets::tar_target(runtime_config, .ablation03_runtime_config()),
+  targets::tar_target(
+    input_rds,
+    Sys.getenv('CCS_ABLATION_INPUT_RDS'),
+    format = 'file'
+  ),
+  targets::tar_target(runtime_config, {
+    input_rds
+    .ablation03_runtime_config()
+  }),
   targets::tar_target(
     observability_config,
     .ablation03_observability_config(runtime_config$cache_root)
   ),
   targets::tar_target(
     data_preparation,
-    .ablation03_prepare_data_target(runtime_config)
+    {
+      input_rds
+      .ablation03_prepare_data_target(runtime_config)
+    }
   ),
   targets::tar_target(
     representation_inputs,
@@ -113,5 +124,41 @@ list(
       resource_metrics = resource_metrics,
       worker_health = worker_health
     )
+  ),
+  targets::tar_target(
+    data_overview_report,
+    .ablation03_render_report(
+      "01.04.00. 数据概览.Rmd",
+      dependency = biology_inputs,
+      cache_root = runtime_config$cache_root
+    ),
+    format = "file"
+  ),
+  targets::tar_target(
+    representation_report,
+    .ablation03_render_report(
+      "02.01.00. 表示分析.Rmd",
+      dependency = representation_analysis,
+      cache_root = runtime_config$cache_root
+    ),
+    format = "file"
+  ),
+  targets::tar_target(
+    biology_report,
+    .ablation03_render_report(
+      "02.02.00. 生物锚点分析.Rmd",
+      dependency = biology_analysis,
+      cache_root = runtime_config$cache_root
+    ),
+    format = "file"
+  ),
+  targets::tar_target(
+    structural_report,
+    .ablation03_render_report(
+      "02.03.00. 结构复现分析.Rmd",
+      dependency = structural_analysis,
+      cache_root = runtime_config$cache_root
+    ),
+    format = "file"
   )
 )

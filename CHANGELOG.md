@@ -6,6 +6,21 @@
 
 ## [Unreleased]
 
+- ablation-03 隔离小测完成 2,000 例全图和四份 HTML 渲染；修复输入变更追踪、
+  缺失数据 profile 的生成以及报告所需的分析 helper 加载。正式入口新增输入输出
+  自覆盖门禁，并保全独立的正式输入快照；正式分析尚未启动。
+
+- 更新 `ablation-03/renv.lock`，使已安装的 R 4.3.1 包版本与项目锁文件一致，
+  并纳入报告渲染依赖；建立独立的小样本 targets 验收目录与测试计划。
+
+- 为 `ablation-03` README 增加可直接复制的正式 targets store、crew worker
+  与 autometric 心跳检查命令，并说明 `dispatched`、单核满载和 store 暂不刷新
+  的判读边界，便于在不干扰正式运行的前提下定位长时间 target。
+
+- 将 ablation-03 的四份 Rmd/HTML 接入正式 targets 依赖图：新增四个 HTML file target，
+  报告只消费已完成的科学 target，并把渲染预览写入正式 cache root 的日志边界；
+  正式 launcher 同步接入用户级 Pandoc；禁止在 `tar_make()` 之外旁路生成正式报告。
+
 - 为 `ablation-03` 的 `targets::tar_watch()` 监控面板补齐并锁定 `shiny`、
   `shinybusy` 与 `shinyWidgets` 依赖，保持与正式运行中的 `promises 1.2.1`
   兼容，避免监控入口因缺少可选依赖而中止。
