@@ -303,6 +303,8 @@ reference 与 external bank 分别包含 `r structural_reference_modules` 和 `r
 
 可以把四类表达锚点各自的“高”和“低”想成八个地图地标。每个目标 cohort 内分别取 anchor 分数两端三分之一，形成相对高低状态；因此“乳腺癌队列中的免疫高”和“肺癌队列中的免疫高”都只表示各自队列内较高，不要求两者达到同一绝对表达值。每个状态至少有 `r structural_result$method$min_entity_n` 个样本；常量分数或分位边界并列时不强行切分。Direct 和 d1 各自计算地标的质心距离，再比较不同 cohort 中**地标远近的排序**是否一致。排序越相似，说明这套较粗的生物关系越容易跨队列复现；它不表示患者逐一相同。
 
+计算可以拆成三步：先对状态 $e$ 在队列 $c$ 中的样本坐标取均值，得到质心 $\boldsymbol\mu_{c,e}^{(m)}$；再算任意两个状态质心的欧氏距离 $D_{c,e,f}^{(m)}=\|\boldsymbol\mu_{c,e}^{(m)}-\boldsymbol\mu_{c,f}^{(m)}\|_2$；最后对两个队列共同拥有的状态，只取距离矩阵的上三角，计算 $S_{a,b}^{(m)}=\operatorname{Spearman}(D_a^{(m)},D_b^{(m)})$。同一对队列的效应是 $\Delta_{a,b}=S_{a,b}^{(d1)}-S_{a,b}^{(Direct)}$。好比先量八个地标两两相距多远，再问换一座城市后“哪些地标更近、哪些更远”的排序能否保留。Spearman 接近 1 表示排序较一致，接近 0 表示没有稳定的排序关系；它不比较绝对距离，也不能证明高低状态的临床定义跨队列相同。
+
 正向使用 reference d1 modules 投影 external targets，反向使用 external d1 modules 投影 reference targets。这样做像用两套不同学校的阅卷经验去看另一侧的答卷，用于检查结论是否过度依赖某一套模型。**反向 Direct 仍沿用正向的冻结特征合同**，只交换尺度拟合侧；所以反向是固定 Direct 基准下的敏感性检查，不能写成两臂所有学习步骤均完全对称地重新外部化。
 
 ```{r structural-directional-summary, echo=FALSE, interp_check=TRUE}
@@ -320,6 +322,8 @@ render_dt(
 ```
 
 解读：先读 `bank_role` 和 `target_role`：前者是谁提供冻结模型，后者是谁接受投影；再看 `fit_sample_count` 与 `target_sample_count`，确认模型拟合样本没有混入目标侧。正向和反向的平均 d1−Direct 结构差分别为 `r fmt(structural_forward_all$mean_delta, 4L)` 和 `r fmt(structural_reverse_all$mean_delta, 4L)`。两方向同时换了模型库和目标人群，不能拿两行数字直接比较哪一个方向“天生更好”。它们共同检查：换一种外部投影方式后，大体结构差是否仍在相近的量级；反向因共用冻结 Direct 特征合同，仍保留设计上的不对称。
+
+这两行数值应与后面的配对图一起读：若方向相同，说明当前结论对投影方向较少敏感；若方向相反，优先查 bank 与目标队列的组成差异。方向重复属于设计敏感性检查，不能把两行当成两次独立人群验证。
 
 ```{r structural-entity-audit, echo=FALSE, interp_check=TRUE}
 render_dt(structural_entity_audit, pageLength = 12)
@@ -425,6 +429,8 @@ knitr::include_graphics(fig11_jpg)
 ```
 
 解读：配对图中每条细线连接同一个队列对在 Direct 与 d1 下的相似度，白色菱形标记两侧的总体位置。正向的 Direct 与 d1 平均值分别为 `r fmt(structural_all$mean_direct_similarity)` 和 `r fmt(structural_all$mean_d1_similarity)`，平均配对差为 `r fmt(structural_all$mean_delta, 4L)`，cohort 节点重采样 95% 区间为 `r fmt(structural_all$mean_delta_ci_low, 4L)` 至 `r fmt(structural_all$mean_delta_ci_high, 4L)`。这说明当前平均位置很接近，但许多线仍向不同方向倾斜，不能把“总体差很小”理解为“每个队列对都不变”。区间跨零表示现有证据同时容许一定幅度的改善和下降；没有事先规定可接受的损失幅度，就不能把它改写成已证明等价或无损。
+
+这里之所以按 cohort 节点重采样，是因为同一队列会出现在许多队列对里。例如 A–B 与 A–C 共同使用 A；把这两条线当作两次完全独立实验，会夸大精度。图上单条线说明具体哪一对发生重排，总体区间回答“换一组队列节点后，平均差可能怎样变化”；二者不能互相替代。
 
 ```{r figure-structural-direct-heatmap, interp_check=TRUE}
 # ==== Figure 12: Direct structural-similarity heatmap (user-adjustable parameters) ====
@@ -543,6 +549,10 @@ render_dt(
 ```
 
 解读：全体队列对包含不同癌种之间的比较；同癌种子集则把“乳腺癌对肺癌本来就不同”这一解释尽量排开，只问相同癌种、不同队列的地标排序。当前有 `r structural_same_cancer_pair_count` 对有效同癌种队列；结果为 `r structural_same_cancer_summary`。若该子集方向与全体接近，说明总体结果不只由跨癌种组成造成；若分歧较大，应先排查具体癌种和队列。它仍不能消除平台、取样和疾病阶段差异，也不能替代完全独立的生物终点；节点 bootstrap 用 cohort 而非共享节点的队列对作为重复单位。
+
+把同癌种分析想成只在同一科目中比较不同学校的成绩：它减少了“科目本来不同”的解释，却没有让学校的设备和学生构成一致。表中的 `cohort_count` 是独立节点数，`cohort_pair_count` 是这些节点组成的比较数；后者更大不代表多出了同样多份独立生物证据。
+
+完整 reference bank 与 external bank 的模块数和组织来源不同，所以还需检查结论是否只由“哪一侧模块更多”造成。Matched-bank 在相同 tissue 组成和相同模块预算下反复抽取 bank，比较每次的平均 $\Delta$；零线仍是 d1 与 Direct 没有观察到平均结构差。它像比较两支人数相同、专业构成相同但成员不同的团队：若换成员后结论常常变号，完整 bank 的单一点估计就很脆弱。这里固定目标数据，重复的是模块设计；散点范围不含新队列抽样的不确定性。
 
 ```{r figure-structural-matched-bank, interp_check=TRUE}
 # ==== Figure 14: Reciprocal matched-bank sensitivity (user-adjustable parameters) ====

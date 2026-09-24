@@ -194,7 +194,11 @@ plot_label <- function(en, zh) if (plot_zh) zh else en
 
 四个 anchor 按配置中的 signature 名称精确选取；它们独立于癌种标签，却仍来自表达数据，不能视为独立测量的临床结局。完整 reference 样本先为每个基因确定共同的 z-score 标尺，再应用到两种表示找到的邻居：像先固定一把尺子，再量两组人，避免每组重新定义“一厘米”。每个 query 只有在两臂 top-`r 15L` 邻居的锚点分数都完整时才进入配对比较；这样差值才是在**同一个 query** 上换表示造成的，而非两批不同患者造成的。
 
+具体地，基因 $g$ 在样本 $i$ 中的标准化值为 $z_{gi}=(x_{gi}-\mu_g^{\rm ref})/\sigma_g^{\rm ref}$，一个 anchor 的分数是该样本可用签名基因 $z_{gi}$ 的平均。对 query $q$ 与邻居 $j$，先算 $u_{qj}=\exp(-|s_q-s_j|)$，再把前 `r 15L` 位邻居的 $u_{qj}$ 取平均作为该 query 的 utility。比如两个分数相同，$u=1$；相差 1 个标准化分数单位时，$u\approx0.37$。它把“表达状态有多近”压到 0 与 1 之间，但不是预测正确率或患者获益。先逐邻居求 $u$ 再平均，也不能误写成对平均分数差取指数。
+
 ### 锚点基因覆盖
+
+在比较邻居之前，先核对每个队列能否算出同一套签名分数。对 anchor $a$ 和 cohort $c$，覆盖率 $h_{a,c}=|G_a\cap G_c|/|G_a|$，分母是预设基因集，分子是当前队列可用的基因；100% 表示基因齐全，部分覆盖表示分数依赖较少的基因。好比用同一张菜谱比较各家菜品：先看每家拿到了多少原料，才能解释味道差异。覆盖率决定结果的可解释范围，不能直接当作效用或独立验证。
 
 ```{r figure-biology-anchor-coverage, echo=FALSE, interp_check=TRUE}
 fig_coverage <- list(width_in = 8.4, height_in = 5.8, base_size = 10,
@@ -269,7 +273,11 @@ biology_utility_widget
 
 解读：当前结果显示，表中 `r nrow(biology_utility)` 行给出同一批完整配对 query 的分臂 utility。较高值表示连续表达分数更接近。此处分臂样本均值及样本重采样的 95% 置信区间用于描述，两臂差异的正式比较使用下面 cohort 等权差及其区间。这里展示连续锚点的一致程度，而非旧癌种标签的一致程度。样本较多的队列会影响单臂样本均值；其区间没有处理队列内依赖，不能用来判断向新队列推广的精度，主要结论应以配对后队列等权的推断为准。
 
+读这张表时，可以先在同一 anchor 下对照两行分臂 utility：这回答“各自找到的邻居有多近”，尚未回答“换表示后平均改变多少”。后一个问题必须回到每个 query 的成对差 $u_{q,d1}-u_{q,Direct}$；若一个队列患者很多，不能让它仅凭人数盖过其他外部队列。
+
 ### 配对效应与不确定性
+
+本节为什么改用配对效应？因为同一患者的基础表达状态固定，换的是选邻居的表示。对 cohort $c$ 先算 $\bar\Delta_c=n_c^{-1}\sum_{q\in c}(u_{q,d1}-u_{q,Direct})$，再对可估计 cohort 等权平均 $\bar\Delta=C^{-1}\sum_c\bar\Delta_c$。零表示两臂在这一连续签名上的平均邻居接近程度相同；正值偏向 d1，负值偏向 Direct。cohort bootstrap 重新抽取的是整组 cohort，而非把同队列的患者当成互不相关的重复；因此区间反映当前外部队列之间的波动。
 
 ```{r figure-biology-anchor-inference, echo=FALSE, interp_check=TRUE}
 fig_inference <- list(width_in = 9.2, height_in = 4.7, base_size = 10,
@@ -323,6 +331,8 @@ knitr::include_graphics(inference_jpg)
 解读：读这张配对效应图时，先看竖向零线，再看每个锚点的圆点及横线。圆点是把同一 query 的 d1−Direct 效用差先在各 cohort 内平均、再对 cohort 等权平均；横线是重抽完整 cohort 得到的 95% 区间。圆点在左侧表示 Direct 找到的邻居在该表达签名上更接近；在右侧才表示 d1 更接近。当前四项结果为 `r biology_inference_summary`。这些负差是当前局部表达任务中的实测代价，不应因为 Direct 的输入更靠近表达就忽略，也不应误写成 d1 在所有生物任务上都差。P 值采用配对 sign-flip 并对可推断锚点做 BH 校正；Monte Carlo P 值受 `r biology_inference$n_boot[1L]` 次模拟的分辨率限制，图中只显示到 `<0.001`，不以星号替代效应大小。
 
 ### 队列间效应分布
+
+总体平均可能掩盖方向相反的队列，因此热图保留每个 cohort 的 $\bar\Delta_c$。它像看全班平均分之后再看每个班：多数班同向比单个超大班拉动均值更有说服力；但每个格子仍是描述值，没有单独的置信区间或显著性结论。若某格特别深，应连同该队列的有效 query 数、签名基因覆盖和测量来源一起核查。
 
 ```{r figure-biology-cohort-heterogeneity, echo=FALSE, interp_check=TRUE}
 fig_cohort <- list(width_in = 9.1, height_in = 11.2, base_size = 9)

@@ -216,6 +216,8 @@ render_dt(
 
 这一步要回答“模型从谁身上学习，又拿谁来接受检验”。先看各组织中 reference 与 query 的数量，是为了避免某个组织因参照样本特别多而看起来天然更好，也避免把样本量优势误当成方法优势。
 
+对组织 $t$，图中的两段横条分别是 $N_{t,\mathrm{reference}}$ 和 $N_{t,\mathrm{query}}$；二者相加才是该组织在当前数据画像中的人数。就像考试前先数清“题库”和“新试卷”各有多少份：人数决定哪些比较有机会进行，却不决定答题成绩。它能揭示组织覆盖与角色失衡，不能替代后续各终点的有效样本数或外部效应估计。
+
 ```{r figure-data-tissue-composition, interp_check=TRUE}
 # ==== Data Figure 1: Tissue composition (user-adjustable parameters) ====
 fig_data1 <- list(
@@ -267,6 +269,8 @@ knitr::include_graphics(fig_data1_jpg)
 ## cohort 规模与来源异质性
 
 样本数很多并不等于独立证据很多，因此这里同时查看每个 tissue 的样本数、cohort 数和最大 cohort 规模。纵轴采用对数尺度，使小 cohort 不会被大 cohort 完全遮住，从而同时审查多个数量级的数据。
+
+对组织 $t$，样本总数是 $N_t=\sum_{c\in t}n_c$，队列数是 $C_t=|\{c:c\in t\}|$。例如同样有 1,000 人，一家医院贡献 1,000 人和十家医院各贡献 100 人，对“换一家医院能否复现”提供的证据不同。对数轴只是改变画法：图上等长的距离对应相同倍数，不能把柱高差当成样本数的线性差，也不能由 $C_t$ 直接推断队列互相独立。
 
 ```{r figure-data-cohort-scale, interp_check=TRUE}
 # ==== Data Figure 2: Cohort scale heterogeneity (user-adjustable parameters) ====
@@ -335,6 +339,8 @@ knitr::include_graphics(fig_data2_jpg)
 
 还需要查看数据来源，因为同一平台或数据库的样本可能共享测量偏差。下面的热图按 tissue 内部归一化，帮助识别是否存在单一 source 主导；这类 tissue 的差异可能同时包含生物差异和来源差异，不能直接视为多次独立重复。
 
+热图每格是 $p_{t,s}=N_{t,s}/\sum_u N_{t,u}$，即组织 $t$ 中来自来源 $s$ 的样本份额；同一行合计为 1。把来源想成拍摄同一类物体的不同相机：若某组织几乎只由一台相机记录，后续模型即使认出该组织，也可能部分认出了相机。这个比例能定位需要做来源分层的地方，却不能估计来源效应的大小，更不能证明存在或不存在批次偏差。
+
 ```{r figure-data-source-composition, interp_check=TRUE}
 # ==== Data Figure 3: Source-system composition (user-adjustable parameters) ====
 fig_data3 <- list(
@@ -396,6 +402,8 @@ knitr::include_graphics(fig_data3_jpg)
 ### Anchor 基因覆盖
 
 下表按 anchor 汇总所需基因数、参与的 cohort 数和实际基因覆盖率。覆盖率越低，表示该 anchor 在部分 cohort 中缺少更多 signature 基因；`estimable` 表示至少找到两个基因，可以计算该 cohort 的 anchor 分数。
+
+对锚点 $a$ 与队列 $c$，覆盖率为 $\mathrm{coverage}_{a,c}=|G_a\cap G_c|/|G_a|$，分母是预先规定的签名基因集，分子是该队列实际可用的基因。好比菜谱要求十种原料，找齐八种意味着覆盖率 80%，却无法保证做出的味道与原配方相同。覆盖率回答“能用多少基因计算”，不回答“这个签名是否能预测疾病或证明 d1 有用”。
 
 ```{r biology-anchor-summary, interp_check=TRUE}
 biology_anchor_summary_display <- biology_profile$anchor_summary
