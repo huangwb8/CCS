@@ -672,7 +672,11 @@ preview_dir <- bensz_run_dir(bensz_preview_root(params$plot_run_dir),
   prefix = "02.01.00-representation")
 ```
 
-本报告比较同一批样本的 Direct-GSClassifier 特征与 CCS 对象中**已经计算好的 d1 概率表示**。本次修订统一了 readout 的训练/测试尺度，扩展连续 anchor 到全部候选 query，并核验本模块的输入与结果指纹。报告没有重新训练 cohort 模型，也没有重新预测原始 d1。
+本报告比较同一批样本的 Direct-GSClassifier 特征与 CCS 对象中**已经计算好的 d1 概率表示**。可以把 Direct 想成一份保留原始线索的详细笔记：每个基因及基因对特征仍可单独查看；d1 则像让 `r manifest$module_count` 位熟悉不同队列的评委阅读同一份笔记，保存他们各自给出的概率判断。新样本的 cohort 名称不作为这些模型的输入标签，d1 也不是要把样本硬塞回某个已知队列。本次分析没有重新训练 cohort 模型或重新预测原始 d1。
+
+这项消融首先问**重编码改变了什么**，再问改变是否符合跨癌种表示的目的。癌种标签能否找回，是检查重要生物差异有没有被过度模糊的一把尺子，却不是 d1 的总成绩；平台和来源是否仍把邻居拉到一起，是另一把尺子；连续表达状态与跨队列结构则补充检查生物关系。若冻结模型只读取同一份 Direct 特征，d1 不会凭空增加单个样本的信息，但可能把已有线索组织得更适合多队列比较。要证明“更适合”，还需要在预先选定的独立跨癌种任务上看到可迁移的收益。
+
+本次修订统一了 readout 的训练/测试尺度，扩展连续 anchor 到全部候选 query，并核验本模块的输入与结果指纹。下文按“数据范围—空间改写—旧癌种标签—队列证据与技术来源—可恢复信息”阅读，每一层只回答它实际测到的问题。
 
 当前证据等级为 `r manifest$evidence_level`。reference d1 来源为 `r paste(ablation_result$evidence$reference_provenance, collapse = ", ")`，query d1 来源为 `r paste(ablation_result$evidence$query_provenance, collapse = ", ")`。由于 reference 表示包含 in-sample 生成路径，而 query 使用冻结外部预测，两侧来源不对称；因此本报告只作描述性外部评价，不把检索库或 readout 结果标为确认性证据。
 
@@ -745,6 +749,20 @@ render_dt(overview_table, pageLength = 12)
 
 学习曲线和 bank scaling 的重复单位是训练或模块设计，固定了当前 query 人群；它们的区间描述设计敏感性。生物学与结构结果分别见同目录的 `r biology_report_name`、`r structure_report_name` 报告。
 
+## d1 与癌种标签的判读边界
+
+对同一个新样本，Direct 直接呈现输入特征；d1 汇集冻结队列模型对这些特征的判断。若把“能否立即认出原来的癌种”当成唯一考试，擅长保留原始细节的 Direct 本来就有优势。d1 的研究问题更具体：重新组织多队列证据后，是否减弱与技术来源捆绑的捷径，同时保留可跨队列重现的生物关系，并让有用的癌种内与跨癌种状态都能表达出来。
+
+因此，旧癌种标签恢复率下降有两种尚待区分的解释：d1 可能淡化了妨碍泛癌比较的来源或旧标签边界，也可能丢掉了重要的癌种生物信息。二者会在同一张检索图上表现为负差。癌种分类在这里是**保护性参照**：提醒我们检查损失，却不能单独证明 d1 成功或失败；真正的下游价值需要独立 pathway、微环境、治疗反应或结局任务，以及未见队列上的稳定性来判断。
+
+把“批次效应”拆开看会更清楚：
+
+| 可能让样本抱团的标签 | 本轮怎样检查 | 当前能回答的问题 |
+|---|---|---|
+| 原 cohort | 检索时排除同 cohort 的 reference 样本 | 避免同队列自我匹配，却不能据此声称 d1 已消除同 cohort 效应 |
+| 癌种 | 比较跨 cohort 同癌种检索和线性 readout | 看旧癌种差异保留多少；下降既可能是去掉旧边界，也可能是生物信息损失 |
+| 检测方式、平台、数据来源 | 比较跨 cohort 邻居中同技术标签的比例 | 负差表示这类标签的邻居聚集较少；仍需在相同癌种和候选池内复核，才能更明确地区分技术因素与癌种组成 |
+
 ## d1 对原生空间的改写
 
 本节检查冻结 reference 表示的几何变化；它不是外部验证。三种指标分别观察全局矩阵关系、距离排序和局部近邻。
@@ -801,7 +819,7 @@ fig1_jpg <- .ae_save_plot(
 knitr::include_graphics(fig1_jpg)
 ```
 
-解读：当前结果显示，当前 CKA 为 `r fmt(native_geometry$metrics$metric_value[native_geometry$metrics$metric_name == "linear_cka"])`，距离 Spearman 为 `r fmt(native_geometry$metrics$metric_value[native_geometry$metrics$metric_name == "distance_spearman"])`，kNN Jaccard 为 `r fmt(native_geometry$metrics$metric_value[native_geometry$metrics$metric_name == "knn_jaccard"])`。三个值共同描述 d1 如何重排 Direct 空间，不能单凭几何改变宣布生物学获益。图中展示的全局相似度与局部重叠并非同一种量纲，这些差异提示需要分层解释空间改写。一个空间可以保留大体距离排序，同时替换许多局部近邻；要判断这种改写是否有益，还需要与独立目标上的表现连接。
+解读：这张图先回答“d1 是不是只给原来的空间换了名字”。CKA 比较整张样本关系图，距离 Spearman 比较远近排序，kNN Jaccard 则只问每个样本身边的人有多少重合；三者从全局逐步缩小到局部。当前 CKA 为 `r fmt(native_geometry$metrics$metric_value[native_geometry$metrics$metric_name == "linear_cka"])`，距离 Spearman 为 `r fmt(native_geometry$metrics$metric_value[native_geometry$metrics$metric_name == "distance_spearman"])`，kNN Jaccard 为 `r fmt(native_geometry$metrics$metric_value[native_geometry$metrics$metric_name == "knn_jaccard"])`。这意味着大体远近关系仍有相似之处，但许多具体邻居已被重新排列。对于想跨越旧癌种与来源边界的表示，这种改写是值得继续检查的现象；它本身还不能说明新邻居更有生物意义，后面的标签、技术与锚点结果负责回答这一点。
 
 ```{r geometry-inference-table}
 geometry_inference_table <- geometry_inference[, c(
@@ -815,7 +833,7 @@ render_dt(geometry_inference_table, pageLength = 3L)
 
 ## 外部癌种标签检索
 
-每个 query 只在 reference atlas 中寻找其它队列的邻居。MRR@k 只奖励前 k 名内首次命中的同癌种样本；k 外命中记为零。
+每个 query 只在 reference atlas 中寻找**其它队列**的邻居，避免“找回自己所在队列”让结果看起来过于容易。这里把癌种当作旧标签：top-k 一致率看前 `r params$display_k` 个邻居中同癌种者的比例，MRR@k 看第一个同癌种邻居出现得有多靠前；第 k 名之外才命中记为零。这两项不是新亚型发现能力，而是在检查 d1 重排邻居时，旧癌种信息被保留或弱化到什么程度。
 
 ```{r retrieval-inference-table}
 retrieval_inference_table <- retrieval_inference[, c(
@@ -826,7 +844,7 @@ retrieval_inference_table <- retrieval_inference[, c(
 render_dt(retrieval_inference_table, pageLength = 3L)
 ```
 
-解读：当前结果显示，k=`r params$display_k` 的 top-k 一致率与 MRR 的 cohort 等权 d1−Direct 差分别为 `r fmt(retrieval_cohort_mean_delta)` 和 `r fmt(retrieval_cohort_mrr_delta)`。方向表示旧癌种标签检索的相对变化，区间与 Holm 校正 P 值用于判断这批 query cohort 的不确定性。表中展示的差异只针对 reference 中有足够癌种支持的外部队列。即使差值达到显著性，也只能说明当前癌种标签检索任务的稳定方向；本次并没有把癌种准确率设为新亚型发现的充分成功标准。
+解读：在 `r manifest$query_cohort_count` 个有足够 reference 癌种支持的外部队列中，k=`r params$display_k` 的 top-k 一致率与 MRR 的 cohort 等权 d1−Direct 差分别为 `r fmt(retrieval_cohort_mean_delta)` 和 `r fmt(retrieval_cohort_mrr_delta)`。负值表示旧癌种标签在 d1 邻域中较难找回；表内的区间和 Holm 校正 P 值说明这批队列上方向有多稳定。读者应先看效应量，再看区间是否跨零和校正 P 值，不能把两项指标的统计状态混成一个“癌种能力下降”的结论。这个结果说明 d1 并非 Direct 的无损副本；若被弱化的是与平台捆绑的旧边界，可能符合设计意图，若是可迁移的癌种生物学，则可能是代价。现有标签检索无法区分这两种解释。
 
 ```{r figure-retrieval-cohort, interp_check=TRUE}
 # ==== Figure 2: External retrieval cohort deltas (user-adjustable parameters) ====
@@ -953,7 +971,7 @@ fig2_jpg <- .ae_save_plot(
 knitr::include_graphics(fig2_jpg)
 ```
 
-解读：当前结果显示，每个点代表一个外部 cohort，零线两侧表示 d1 与 Direct 的不同方向。总体 top-k 差为 `r fmt(retrieval_cohort_mean_delta)`；各队列的分散程度提示平均差不能代表每个队列。图中展示的队列差异提示外部泛化具有数据背景依赖。较大负差或正差的队列都需要结合可用 reference 池来理解；如果候选池缺少相近生物背景，邻居标签恢复困难可能同时影响两种表示。
+解读：图中每个点是一个外部 cohort 的 top-k 同癌种比例差，竖向零线左右分别表示 d1 较高或 Direct 较高；总体 cohort 等权差为 `r fmt(retrieval_cohort_mean_delta)`。点分布在零线两侧时，不能把总体差套在每个队列身上。一个队列差值很负，可能与该癌种在 reference 中的覆盖、平台与来源组成或 d1 的真实重排有关；差值很正也需同样核对。优先对照下方极端队列表的样本数与可用 reference 池，再在新的独立队列验证，而不根据最极端的几个点调参。
 
 ```{r retrieval-top-table}
 # Purpose: Expose the strongest external retrieval gains and losses with sample counts.
@@ -974,7 +992,7 @@ render_dt(
 
 ## 外部癌种线性 readout
 
-分类函数从原始 Direct 特征或既有 d1 概率出发，在 reference 内拟合尺度和调参，再把同一个变换应用到外部 query。**query 不再提前标准化。**
+分类函数从原始 Direct 特征或既有 d1 概率出发，只在 reference 内拟合尺度和调参，再把同一个变换应用到外部 query。**query 不再提前标准化。**这像先用参考题确定评分规则，再给新题打分；如果新题被另外标准化一次，两种表示就不再接受公平的同尺度考试。线性 readout 问的是“用简单模型还能从表示中读出多少旧癌种标签”，并不等于 CCS 最终个性化分型的表现。
 
 ```{r readout-inference-table}
 readout_inference_table <- readout_inference[, c(
@@ -1210,11 +1228,11 @@ fig10_jpg <- .ae_save_plot(
 knitr::include_graphics(fig10_jpg)
 ```
 
-解读：当前结果显示，readout cohort accuracy 的效应为 `r fmt(readout_inference_delta)`，检索 top-k 的效应为 `r fmt(retrieval_cohort_mean_delta)`。100% 学习曲线没有独立设计 CI，因此不能与 cohort-level 区间视为相同类型的证据。图中展示效应及不确定性，重点是差异方向、区间宽度和统计单位。不同终点即使数值相近，也不代表相同科学意义；一项指标的显著性不能传递给另外一项没有独立重复或采用不同权重的指标。
+解读：这张汇总图把不同的“考试”放在同一页，虚线是 d1−Direct 等于零；点在左边表示该考试的 d1 数值较低。当前 readout cohort accuracy 为 `r fmt(readout_inference_delta)`，检索 top-k 为 `r fmt(retrieval_cohort_mean_delta)`。先沿每一行单独看点与区间是否跨零，再读左侧端点名称；这些指标虽然都写成差值，却分别测量分类、检索和训练设计，不能把点的绝对高度当作统一的生物价值评分。100% 学习曲线只有一个独立训练设计，未画出的区间不是“非常精确”，而是当前设计层 CI 不可估计。
 
 ## cohort evidence 的二维 scaling
 
-本次 bank design 使用审计恢复后的真实 tissue 字段，保留冻结 module ID。Breadth 表示扩大 tissue 覆盖，depth 表示在固定 tissue 中增加 cohort。它们回答不同的证据分配问题。
+本次 bank design 使用审计恢复后的真实 tissue 字段，保留冻结 module ID。Breadth 像请来更多不同专科的评委，扩大 tissue 覆盖；depth 像在同一专科再请几家医院，增加相似背景下的独立检查。两者回答“新增模块带来新视角，还是重复已有视角”，并不自动等于哪种设计更能改善临床任务。先沿两条扩展路线看变化，再在相同 module 数的预算下比较，才能避免把“请的人更多”误当作“证据更好”。
 
 ```{r figure-cohort-evidence-sequences, interp_check=TRUE}
 # ==== Figure 8: Breadth and depth scaling (user-adjustable parameters) ====
@@ -1289,7 +1307,7 @@ fig8_jpg <- .ae_save_plot(
 knitr::include_graphics(fig8_jpg)
 ```
 
-解读：当前结果显示，normalized effective rank 的 breadth/depth 每 module 数翻倍斜率分别为 `r fmt(rank_breadth$estimate)` / `r fmt(rank_depth$estimate)`。这些斜率描述固定 atlas 下的设计变化；增加维度、冗余降低或邻居稳定都不是临床效用的替代指标。图中展示 bank 扩展过程的差异，提示覆盖范围与同背景重复证据应分别评价。有效秩还受到特征数和数据几何约束，因此斜率适合描述本次冻结设计，不宜被解释为增加任意队列都会带来相同收益。
+解读：图中横轴按 module 数增加，分别沿 breadth 与 depth 路线观察有效秩、冗余和近邻稳定性。有效秩可以想成“输出中真正不同的方向占多少”，冗余看评委是否重复说同一句话，稳定性看换一组评委后邻居名单是否仍相似。当前 normalized effective rank 在 breadth/depth 路线上每翻倍 module 数的斜率分别为 `r fmt(rank_breadth$estimate)` 和 `r fmt(rank_depth$estimate)`。斜率描述本次冻结 atlas 的设计变化，且受特征数与几何尺度影响；不能把增加任何新 cohort 都会产生同样变化，或某条曲线较高就直接解释为更好的临床效用。
 
 ```{r scaling-inference-table}
 scaling_inference_table <- scaling_inference[, c(
@@ -1366,11 +1384,13 @@ fig9_jpg <- .ae_save_plot(
 knitr::include_graphics(fig9_jpg)
 ```
 
-解读：当前结果显示，相同 module 预算下，breadth-heavy 减 depth-heavy 的 effective-rank、redundancy 和 stability 总体差分别为 `r fmt(rank_matched$estimate)`、`r fmt(redundancy_matched$estimate)`、`r fmt(stability_matched$estimate)`。三项指标方向不同，不能合并成一个没有预先定义的“总体胜者”。图中展示相同预算下的差异，提示控制模块数量之后，组织组成仍然会影响几何和稳定性。邻居更稳定可能来自重复信息，也可能来自更可靠的证据；需要结合冗余指标及外部任务表现区分这两种解释。
+解读：这里把两条路线的 module 数调到相同，再计算 breadth-heavy 减 depth-heavy；零线意味着同预算下没有观察到差。当前有效秩、冗余和近邻稳定性的差分别为 `r fmt(rank_matched$estimate)`、`r fmt(redundancy_matched$estimate)` 和 `r fmt(stability_matched$estimate)`。三项是不同性质的结果，不能相加选一个“总冠军”：更多不同方向可能提高覆盖，却也可能降低邻居名单的稳定性；稳定性上升则可能来自可靠重复或无益冗余。应先指定目标是覆盖新背景、稳住相似背景的判断，还是改善外部生物任务，再决定哪种资源分配值得增加。
 
 ## 技术来源与癌种锚点的联合评估
 
-Observed rate 来自实际近邻，expected rate 来自同癌种 reference pool。两表示使用同一个 expected，因此 d1−Direct excess 差在代数上等于 observed-rate 差。它不是已经控制所有癌种混杂后的独立去技术偏差效应。
+这一步问：样本找邻居时，是否优先认出“用哪种相机拍的”，而不是识别它的生物状态？图中分别检查检测类型、平台和数据来源。对每个 query，observed rate 是前 `r params$display_k` 个实际邻居中同技术标签者的比例；expected rate 是其它队列、同癌种 reference 池中的背景比例。单臂 technical excess 等于 observed 减 expected，正值表示实际邻居比该背景更爱按技术标签聚集。
+
+**两臂差值的解释要更谨慎。**Direct 与 d1 对同一个 query 扣掉相同的 expected rate，因此 d1−Direct 的 excess 差在代数上正好等于两臂实际同技术近邻比例之差。如果 d1 同时改变了邻居的癌种组成，技术标签比例也可能跟着变化；共同背景值不会自动消除这种混杂。所以负差可以说“技术标签聚集减少”，还不能直接说“技术噪声已被选择性移除”。同 cohort 邻居在两臂中本来就被排除，图也不直接测量同 cohort 聚集是否下降。
 
 ```{r figure-technical-excess, interp_check=TRUE}
 # ==== Figure 5: Technical-neighbor excess deltas (user-adjustable parameters) ====
@@ -1464,7 +1484,7 @@ fig5_jpg <- .ae_save_plot(
 knitr::include_graphics(fig5_jpg)
 ```
 
-解读：当前结果显示，本次比较 `r nrow(technical_inference)` 个技术字段，cohort 等权差及 Holm 校正结果见下表。下降仅说明同技术来源近邻比例相对较低；在癌种构成变化同时存在时，还需同癌种条件化比较才能判断变化是否主要来自技术噪声。图中展示各队列的技术来源差异，提示总体下降也可能伴随癌种检索组成变化。若同癌种候选池与实际邻居池不同，扣除一个共同基准并不能让这两个总体自动可比；因此这里保持描述性解释。
+解读：图上的每个彩色点代表一个外部 query cohort 内的平均 d1−Direct 差，箱体帮助看队列分散程度；黑色菱形和误差线分别是 cohort 等权均值与 cohort bootstrap 区间，横向零线表示两臂相同。本次比较 `r nrow(technical_inference)` 个技术字段，队列等权结果为 `r technical_inference_summary`。负值表示同检测方式、同平台或同来源的邻居比例下降；三个字段的方向及其区间应逐一读，而不能因为点落在零线下方就宣称所有平台上的批次效应已经消失。尤其是检测方式、平台和来源可能互相关联，三项同向也不等于三次独立机制验证。
 
 ```{r technical-inference-table, echo=FALSE}
 technical_inference_table <- technical_inference[, c(
@@ -1487,7 +1507,7 @@ technical_inference_table <- technical_inference_table[, c(
 render_dt(technical_inference_table, pageLength = 3L)
 ```
 
-解读：当前结果显示，这些技术字段可能彼此相关，`r nrow(technical_inference)` 个同方向结果不能当作同样数量的独立机制证据。后续应固定癌种和候选池构成，再检查效应方向是否保持。表格展示经过多重比较校正的统计结果，提示推断处理的是这组预先列出的字段。即使差异显著，仍需要条件化设计来区分技术噪声和生物背景；统计精度提高不会自动消除估计对象中的混杂。
+解读：表中 `n_query_sample` 是有技术标签的配对 query 数，`n_cohort` 才是置信区间和配对检验使用的独立单位；不能把数千个同队列样本当作同样多次外部重复。当前绝对差最大的字段为 `r technical_top_signal$technical_factor`（d1−Direct = `r fmt(technical_top_signal$estimate)`），但“最大”只描述这三个预设字段的量级。要检验技术聚集下降是否超出癌种组成变化，应在相同癌种和相同候选 reference 池内重算邻居差，并用留一队列或留一来源的外部数据复核；若负方向仍稳定且独立生物任务不下降，才更支持有目的的技术捷径削弱。
 
 ## module 贡献的集中程度
 
@@ -1630,19 +1650,17 @@ fig7_jpg <- .ae_save_plot(
 knitr::include_graphics(fig7_jpg)
 ```
 
-解读：当前结果显示，gene-pair 的 balanced accuracy 为 `r fmt(decoder_summary$balanced_accuracy[decoder_summary$feature_type == "gene_pair"])`，single-bin 的 Spearman 为 `r fmt(decoder_summary$spearman[decoder_summary$feature_type == "single_bin"])`。它们表明当前受限 decoder 的可恢复程度；非零误差也可能来自 PCA rank 或线性模型容量，不能证明 d1 在信息论上不可逆。图中展示不同特征类型的重建表现，提示信息恢复能力依赖目标量纲与模型限制。排序相关高仍可伴随绝对误差，二分类准确率也不能与连续相关系数直接排名；比较更强解码器后才能进一步讨论表示容量。
+解读：这里反过来问“只拿到 d1，还能读回多少 Direct 的原始线索”。受限 decoder 从 d1 预测不同类型的 Direct 特征：gene-pair 是二分类，以 balanced accuracy 读；single-bin 是连续量，以 Spearman 读。当前两者分别为 `r fmt(decoder_summary$balanced_accuracy[decoder_summary$feature_type == "gene_pair"])` 和 `r fmt(decoder_summary$spearman[decoder_summary$feature_type == "single_bin"])`。两种分数单位不同，不能比较柱高宣布哪类生物信息更重要；较高相关也不保证绝对数值准确。它们说明当前线性、有限 rank 的读取方式可以恢复相当一部分原始信息，同时并非所有细节都被同样保留。误差也可能来自 decoder 容量和正则化，不能据此判定信息论上的不可逆性，更不能断定丢失的恰好都是无用噪声。
 
 ## 讨论与分析
 
-**当前结果回答的是表示改变了什么，以及这些改变在不同评估任务中的代价或收益。** 本次结果显示，在癌种检索上，top-k 的 cohort 等权差为 `r fmt(retrieval_cohort_mean_delta)`。本次结果显示，在分类上，cohort accuracy 差为 `r fmt(readout_inference_delta)`，其 `r "95%"` CI 为 `r fmt_ci(readout_cohort_row)`。这两类结果均围绕已有癌种标签，不能直接评价新的个性化亚型。
+**这一轮更像给新地图做体检，而不是给 CCS 判定总成绩。** Direct 保留原始线索，d1 汇集队列模型判断。本次 CKA 与距离排序显示两张地图的大体形状仍有关联，局部近邻却明显重排；癌种检索 top-k 的 cohort 等权差为 `r fmt(retrieval_cohort_mean_delta)`，癌种 readout 的 cohort accuracy 差为 `r fmt(readout_inference_delta)`，后者 95% CI 为 `r fmt_ci(readout_cohort_row)`。这些旧标签任务提示 d1 不是原表示的无损副本，却没有直接测量新的个性化亚型。当前两项主要癌种端点中按绝对差最大的为 `r primary_top_signal$endpoint`（`r fmt(primary_top_signal$estimate)`）；“最大”不是跨癌种效用的排名。
 
-本次结果显示，两个主要癌种端点中的最强信号是 `r primary_top_signal$endpoint`，d1−Direct 差为 `r fmt(primary_top_signal$estimate)`；这里的“最强”仅按当前两个预设端点的绝对差排序，不扩展为确认性结论。
+最值得并列阅读的是技术与生物两侧。本次检测方式、平台和来源的同标签近邻差均向下，最大为 `r technical_top_signal$technical_factor` 的 `r fmt(technical_top_signal$estimate)`；这说明旧技术边界在当前跨队列邻居任务中弱化。与此同时，癌种恢复也有负向结果，二者可能共享同一组由癌种与测量来源共同决定的方向。不能把“技术标签少了”直接解释成“去掉的恰好是技术噪声”，也不能因为癌种标签较难读出就宣布发现了跨癌种共享状态。生物锚点报告进一步检查局部表达邻居，结构报告检查跨队列的大体状态地图：前者与后者回答的尺度不同，应一起判断重编码的代价与可能收益。
 
-本次修复消除了 query 重复标准化、癌种资格向连续 anchor 的传递、非配对缺失导致的组成差、历史组织名用于 bank 设计及不同结果批次混用等路径。原始 d1 仍直接来自冻结 CCS 对象。修复后的结果取代旧 readout、learning curve 和 anchor 数值；旧报告的方向性结论不应继续引用。
+增加 cohort 证据也不是单调的加法。Breadth 增加组织背景，depth 增加同背景重复，matched-size 对照才尝试在相同 module 预算下比较；当前只有 `r manifest$config$scaling$sequences` 条设计序列，区间主要描述这些冻结设计的敏感性。本次受限 decoder 的 gene-pair balanced accuracy 为 `r fmt(decoder_gene_pair_accuracy)`，说明一部分 Direct 线索仍能读回；受限 decoder 的误差不足以断言哪些信息必然消失。这些检查共同约束了“多队列重编码”的解释，但还没有给出独立下游任务的胜负。
 
-**局限主要是 reference d1 的 in-sample 来源与 query 冻结外部预测之间的不对称、`r manifest$query_cohort_count` 个外部可估计 cohort、表达 anchor 与表示输入的共同来源，以及固定 atlas 下的设计敏感性。** 在获得 reference out-of-fold 或 leave-own-cohort-model-out d1 前，所有比较均维持描述性等级。Technical excess 中绝对差最大的字段为 `r technical_top_signal$technical_factor`，效应为 `r fmt(technical_top_signal$estimate)`，但这不是去技术噪声的因果证据；反向结构检查也不是所有特征选择环节均外部化的对称验证。当前 readout cohort accuracy CI 为 `r fmt_ci(readout_cohort_row)`，其稳定性边界不能证明等价或非劣效；gene-pair decoder 的 balanced accuracy 为 `r fmt(decoder_gene_pair_accuracy)`，且尚未进行更强 decoder 的敏感性分析，因此该误差不能证明信息不可逆。
-
-下一步适合在预先选定的独立 pathway、治疗反应或 outcome 目标上验证效用，固定癌种与技术构成后检查共享结构能否迁移。若要评价生物结构是否基本保留，应先给出科学上可接受的损失界值，再以独立 cohort 的区间作非劣效判断，避免事后按当前结果选择标准。
+**证据边界必须保留。** reference d1 含 in-sample 生成路径，query d1 来自冻结外部预测；两侧来源不对称，本报告维持 `r manifest$evidence_level` 等级。本次修复了 query 重复标准化、资格范围传递和非配对组成等历史路径，旧 readout、learning curve 与 anchor 数值不应继续引用。下一轮宜先预定独立 pathway、微环境或治疗反应目标，在未见队列中比较两臂，判据是跨队列方向稳定且有意义的癌种内差异仍可重现；再固定癌种、平台和候选池检查技术聚集是否持续下降。若要正式宣称生物结构基本保留，应先给出科学上可接受的损失界值，并用独立队列区间检验，而不是见到区间跨零就宣布等价。
 
 ## 数字准确性验证
 

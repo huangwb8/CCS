@@ -184,7 +184,7 @@ render_dt(
 
 #### 结果解读
 
-观察：下面的明细表逐条保留历史 `Undefined` cohort 的来源、恢复组织和样本数。The table displays each mapping and its sample count, so any difference in totals is visible. 结论：恢复过程只改变组织标签，不应改变样本或表达值；任何无法对应的 cohort 都应在这里暴露。
+这张表是本研究的“花名册核对”：每行写明历史 `Undefined` cohort 原来叫什么、经证据核验后属于哪个组织，以及涉及多少样本。读表时先检查这些行的样本数是否能与上方总数对上，再检查是否仍有未解析项。当前恢复只更正组织标签，不增删样本，也不改动表达值；若把同一组织误拆成两类，后面比较 tissue breadth 时会凭空多出一种背景，若把不同组织误并，则可能把技术或组织差异误读成泛癌规律。
 
 恢复规模最大的三个 tissue 是 `r paste(mapping_tissue_summary$resolved_tissue[seq_len(3L)], mapping_tissue_summary$sample_count[seq_len(3L)], sep = " = ", collapse = "; ")` 个样本。冻结 CCS bank 仍保留历史 `bank_tissue/bank_cohort_key` 作为 module provenance，真实 `tissue/cohort_key` 则用于数据分层。**双键并存避免了把历史存储标签误当成未知组织，同时保留 `r external_cohort_count` 个 external filtered cohort 的模型追溯能力。**
 
@@ -262,7 +262,7 @@ knitr::include_graphics(fig_data1_jpg)
 
 #### 结果解读
 
-当前数据结果显示，`r tissue_totals$tissue[1]` 样本量最高（`r tissue_totals$sample_count[1]` 个样本、`r tissue_totals$cohort_count[1]` 个 cohort），其次为 `r tissue_totals$tissue[2]`（`r tissue_totals$sample_count[2]`）和 `r tissue_totals$tissue[3]`（`r tissue_totals$sample_count[3]`）。external query 由冻结模型记录的 filtered cohort 决定，原始层面包含 `r external_sample_count` 个样本。**这不是随机训练测试切分；第二阶段仍按独立锚点和重复样本合同重新判定确认性 query。** 这种组织覆盖差异表明样本量只能描述数据规模，不能替代独立 cohort 证据；实验报告会并列给出独立 cohort 数与最终纳入样本数。
+图中蓝色 reference 像供检索的“参考书库”，橙色 external query 像后来拿来提问的新样本；横条长短表示样本数，不表示模型效果。当前 `r tissue_totals$tissue[1]` 最多（`r tissue_totals$sample_count[1]` 个样本、`r tissue_totals$cohort_count[1]` 个 cohort），其次为 `r tissue_totals$tissue[2]`（`r tissue_totals$sample_count[2]`）和 `r tissue_totals$tissue[3]`（`r tissue_totals$sample_count[3]`）。同样长的横条可能来自一家很大的队列，也可能来自许多独立队列；后一种情况才提供更多跨队列检验机会。external query 由冻结模型记录的 filtered cohort 决定，原始层面有 `r external_sample_count` 个样本。**这不是随机训练测试切分**：后续每项任务仍按癌种支持、表达覆盖和样本对齐分别确定可估计 query，所以这张图不能被误读为所有外部样本都进入每项检验。
 
 ## cohort 规模与来源异质性
 
@@ -331,7 +331,7 @@ knitr::include_graphics(fig_data2_jpg)
 
 #### 结果解读
 
-当前数据结果显示，各 tissue 的 cohort 数与样本数存在跨量级差异；最大单一 cohort 为 `r largest_cohort$tissue` / `r largest_cohort$cohort`，含 `r largest_cohort$sample_count` 个样本。该差异表明样本多不等于独立外部证据更充分，一个大 cohort 可能在样本级汇总中压过多个较小 cohort。当前画像包含 `r raw_cohort_count` 个 cohort，主分析采用 cohort 等权汇总与 cohort-level bootstrap；尚未实施 leave-one-cohort-out，因此不能声称已验证移除最大 cohort 后的方向稳定性，该检查应作为后续独立敏感性分析。
+当前数据结果显示，各 tissue 的 cohort 数与样本数存在跨量级差异；最大单一 cohort 为 `r largest_cohort$tissue` / `r largest_cohort$cohort`，含 `r largest_cohort$sample_count` 个样本。该差异表明样本多不等于独立外部证据更充分，一个大 cohort 可能在样本级汇总中压过多个较小 cohort。当前画像包含 `r raw_cohort_count` 个 cohort，主分析采用 cohort 等权汇总与 cohort-level bootstrap；尚未实施 leave-one-cohort-out，因此不能声称已验证移除最大 cohort 后的方向稳定性，该问题仍需独立的留一队列敏感性分析。
 
 还需要查看数据来源，因为同一平台或数据库的样本可能共享测量偏差。下面的热图按 tissue 内部归一化，帮助识别是否存在单一 source 主导；这类 tissue 的差异可能同时包含生物差异和来源差异，不能直接视为多次独立重复。
 
@@ -477,7 +477,7 @@ knitr::include_graphics(fig_data4_jpg)
 
 #### 结果解读
 
-观察：四类 anchor 在当前缓存中共有 `r nrow(biology_profile$coverage)` 条 cohort-anchor 审计记录，其中 `r sum(biology_profile$coverage$status == "estimable")` 条达到可计算条件。最强信号按覆盖率中位数排序，前3类为 `r biology_top_anchor_signal`。The table displays coverage differences across anchors and indicates which cohorts are estimable. 结论：这里的基因覆盖率审计回答的是“完整表达矩阵中是否找得到 signature 基因”，不是模型效果评价；跨来源敏感性分析当前完成 `r 0L` 轮，因此较高覆盖率不能单独证明 anchor 在不同来源或不同组织中的生物学解释完全一致。
+四类 anchor 在当前缓存中共有 `r nrow(biology_profile$coverage)` 条 cohort-anchor 审计记录，其中 `r sum(biology_profile$coverage$status == "estimable")` 条满足当前基因数门槛；按覆盖率中位数排序的前三类为 `r biology_top_anchor_signal`。图上每个点相当于问“这一队列能找到多少签名基因”，而不是问“d1 能否找到正确生物邻居”。即使箱体靠近 100%，也还需确认两臂邻居的分数完整，且同一签名在不同来源的测量含义可比；本阶段跨来源敏感性分析完成 `r 0L` 轮，不能把高覆盖率写成生物学效用已通过外部验证。
 
 ### Cohort 级覆盖明细
 
@@ -492,13 +492,13 @@ biology_coverage_display$coverage <- scales::label_percent(accuracy = 0.1)(
 render_dt(biology_coverage_display, pageLength = 15)
 ```
 
-观察：该明细表保留每个 tissue/cohort/anchor 的原始覆盖证据，便于定位某个 anchor 是否因缺少基因而不可估计。The table displays the source evidence and indicates where coverage is lower. 结论：它与上方 `r main_feature_count` 特征数据表是互补关系，前者检查 biology 输入是否足够，后者检查主消融数据的组织、来源和 reference-query 构成。
+该表把组织、队列和锚点逐项列出；如果后续某个队列的锚点效应特别大或无法估计，可回到相应行核对所需基因是否齐全。它与前面的 `r main_feature_count` 特征主输入是两份不同用途的清单：主输入描述 Direct 与 d1 所比较的样本和来源，锚点清单描述用于评价邻居生物状态的表达签名能否计算。两份清单的样本范围和基因范围不能直接互换。
 
 ## 讨论与分析
 
-第一阶段确认了 tissue 恢复没有改变样本总数或 cohort 总数，`r remapped_cohort_count` 个历史 `Undefined` cohort 均可追溯到已核验组织，剩余未解析样本为 `r unresolved_sample_count`。同时，reference-query 构成与 source system 明显不均衡，因此第二阶段不能把样本级重复当作独立 cohort 证据，也不能把 filtered cohort 直接等同于最终确认性 query。
+本次数据审计确认了 `r remapped_cohort_count` 个历史 `Undefined` cohort 可以追溯到已核验的组织，未解析样本为 `r unresolved_sample_count`，且恢复前后样本与 cohort 总数不变。它为各项比较画出边界：共有 `r raw_cohort_count` 个原始 cohort，但 reference/query 的组织、队列大小和来源分布并不均衡。若把同队列内数百名患者当成数百次独立重复，或把某种来源占主导的组织当成多种独立测量，置信区间会显得过于可靠。因此主要效应按 cohort 汇总，来源与大队列的影响应继续用分层或留一敏感性分析检查。
 
-该审计不评价 d1 的优劣。消融实验的输入边界覆盖 `r raw_cohort_count` 个原始 cohort：保留历史 bank key 以复现冻结模型、使用恢复后的 tissue key 做分层，并对来源占主导和 cohort 规模失衡进行显式敏感性分析。biology anchor 另以完整表达矩阵派生的 `r biology_profile$required_gene_count` 个基因作为输入，当前缓存覆盖 `r biology_profile$sample_count` 个目标样本；`r experiment_report_name` 将在相同数据画像上报告真正进入外部比较的样本、cohort 和表示合同。
+该审计不评价 d1 的优劣。冻结 bank 继续使用历史 key 追溯模型，恢复后的 tissue key 用于真实组织分层；两套名称各有用途，不能互换。biology anchor 另外从完整表达矩阵中提取 `r biology_profile$required_gene_count` 个基因，当前缓存覆盖 `r biology_profile$sample_count` 个目标样本。读者进入 `r experiment_report_name` 时，应先核对**每个终点实际纳入多少外部 cohort 和样本**，再解释其结果，而不能直接把本报告中的全量数据画像当作每张结果图的分析总体。
 
 ## 数字准确性验证
 

@@ -146,21 +146,48 @@ list(
     )
   ),
   targets::tar_target(
+    data_overview_report_sources,
+    c("01.04.00. 数据概览.Rmd",
+      "01.01.00. 数据准备_functions.R",
+      "02.01.00. 表示分析_functions.R",
+      "scripts/helpers/nature_colors.R",
+      "scripts/helpers/nature_theme.R",
+      "scripts/helpers/plot_delivery_helpers.R",
+      "scripts/helpers/datatables_helper.R"),
+    format = "file"
+  ),
+  targets::tar_target(
     data_overview_report,
-    .ablation03_render_report(
-      "01.04.00. 数据概览.Rmd",
-      dependency = biology_inputs,
-      cache_root = runtime_config$cache_root
-    ),
+    {
+      data_overview_report_sources
+      .ablation03_render_report(
+        "01.04.00. 数据概览.Rmd",
+        dependency = biology_inputs,
+        cache_root = runtime_config$cache_root
+      )
+    },
+    format = "file"
+  ),
+  targets::tar_target(
+    representation_report_sources,
+    c("02.01.00. 表示分析.Rmd",
+      "02.01.00. 表示分析_functions.R",
+      "scripts/helpers/nature_colors.R",
+      "scripts/helpers/nature_theme.R",
+      "scripts/helpers/plot_delivery_helpers.R",
+      "scripts/helpers/datatables_helper.R"),
     format = "file"
   ),
   targets::tar_target(
     representation_report,
-    .ablation03_render_report(
-      "02.01.00. 表示分析.Rmd",
-      dependency = representation_analysis,
-      cache_root = runtime_config$cache_root
-    ),
+    {
+      representation_report_sources
+      .ablation03_render_report(
+        "02.01.00. 表示分析.Rmd",
+        dependency = representation_analysis,
+        cache_root = runtime_config$cache_root
+      )
+    },
     format = "file"
   ),
   targets::tar_target(
@@ -169,7 +196,8 @@ list(
       "02.01.00. 表示分析_functions.R",
       "scripts/helpers/nature_colors.R",
       "scripts/helpers/nature_theme.R",
-      "scripts/helpers/plot_delivery_helpers.R"),
+      "scripts/helpers/plot_delivery_helpers.R",
+      "scripts/helpers/datatables_helper.R"),
     format = "file"
   ),
   targets::tar_target(
@@ -185,12 +213,26 @@ list(
     format = "file"
   ),
   targets::tar_target(
+    structural_report_sources,
+    c("02.03.00. 结构复现分析.Rmd",
+      "02.01.00. 表示分析_functions.R",
+      "02.03.00. 结构复现分析_functions.R",
+      "scripts/helpers/nature_colors.R",
+      "scripts/helpers/nature_theme.R",
+      "scripts/helpers/plot_delivery_helpers.R",
+      "scripts/helpers/datatables_helper.R"),
+    format = "file"
+  ),
+  targets::tar_target(
     structural_report,
-    .ablation03_render_report(
-      "02.03.00. 结构复现分析.Rmd",
-      dependency = structural_analysis,
-      cache_root = runtime_config$cache_root
-    ),
+    {
+      structural_report_sources
+      .ablation03_render_report(
+        "02.03.00. 结构复现分析.Rmd",
+        dependency = structural_analysis,
+        cache_root = runtime_config$cache_root
+      )
+    },
     format = "file"
   )
 )

@@ -15,13 +15,17 @@ expected <- c(
   "biology_report",
   "structural_report"
 )
+source_targets <- paste0(expected, "_sources")
 stopifnot(
-  all(expected %in% manifest$name),
+  all(c(expected, source_targets) %in% manifest$name),
   all(grepl(
     ".ablation03_render_report",
     manifest$command[match(expected, manifest$name)],
     fixed = TRUE
-  ))
+  )),
+  all(vapply(seq_along(expected), function(i) {
+    grepl(source_targets[i], manifest$command[match(expected[i], manifest$name)], fixed = TRUE)
+  }, logical(1)))
 )
 
 target_lines <- readLines("_targets.R", warn = FALSE, encoding = "UTF-8")
@@ -31,7 +35,8 @@ launcher_lines <- readLines(
   encoding = "UTF-8"
 )
 stopifnot(
-  sum(grepl('format = "file"', target_lines, fixed = TRUE)) == length(expected),
+  sum(grepl('format = "file"', target_lines, fixed = TRUE)) >=
+    length(c(expected, source_targets)),
   !any(grepl("rmarkdown::render", launcher_lines, fixed = TRUE))
 )
 

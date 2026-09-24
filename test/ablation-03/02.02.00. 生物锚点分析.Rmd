@@ -164,7 +164,9 @@ plot_zh <- identical(params$plot_language, "zh")
 plot_label <- function(en, zh) if (plot_zh) zh else en
 ```
 
-本报告是 `r analysis_name` 实验的生物学分析模块；只读取已经完成的邻居检索与 anchor 评估结果。
+本报告是 `r analysis_name` 实验的生物学分析模块，只读取已经完成的邻居检索与 anchor 评估结果。前一份表示报告问“邻居的癌种或技术标签是否相同”；这里换一把尺子，问**邻居的连续表达状态是否接近**。例如，两位患者即使同属一个癌种，免疫活性也可能相差很远；仅凭癌种标签无法发现这类局部差异。
+
+这里的四类锚点是增殖、免疫微环境、基质微环境与 IFN/IL6 相关表达签名。Direct 更贴近原始表达排序，d1 则经过多个队列模型重编码；因此 d1 的局部表达邻居不必天然胜过 Direct。需要弄清的是损失有多大、是否跨队列一致，以及这种局部损失是否也出现在独立队列的较大尺度生物状态结构中。后一个问题由结构报告回答，本报告不把同一批表达数据衍生的锚点称为独立临床结局。
 
 ## 数据概览
 
@@ -182,7 +184,7 @@ plot_label <- function(en, zh) if (plot_zh) zh else en
 
 | 指标 | 定义与边界 |
 |---|---|
-| Anchor utility | `exp(-绝对分数差)`，越高表示邻居的连续表达分数越接近；不是临床效用 |
+| Anchor utility | `exp(-绝对分数差)`；同分数时为 1，差距越大越靠近 0，越高表示邻居表达状态越接近；不是临床效用 |
 | d1−Direct | cohort 等权的配对差；正值表示 d1 的 utility 较高 |
 | `r "95%"` CI 与 BH 校正 P 值 | cohort bootstrap 区间与组内多重比较；CI 跨零不证明等价 |
 
@@ -190,7 +192,7 @@ plot_label <- function(en, zh) if (plot_zh) zh else en
 
 ## 连续表达锚点 readout
 
-四个 anchor 按配置中的 signature 名称精确选取；它们独立于癌种标签，但来自表达数据，不能视为独立测量的临床结局。完整 reference 样本拟合 gene-wise z-score，再应用到两侧。每个 query 在两臂均有完整 top-`r 15L` 分数时才进入配对比较。
+四个 anchor 按配置中的 signature 名称精确选取；它们独立于癌种标签，却仍来自表达数据，不能视为独立测量的临床结局。完整 reference 样本先为每个基因确定共同的 z-score 标尺，再应用到两种表示找到的邻居：像先固定一把尺子，再量两组人，避免每组重新定义“一厘米”。每个 query 只有在两臂 top-`r 15L` 邻居的锚点分数都完整时才进入配对比较；这样差值才是在**同一个 query** 上换表示造成的，而非两批不同患者造成的。
 
 ### 锚点基因覆盖
 
@@ -318,7 +320,7 @@ inference_jpg <- .ae_save_plot(p_inference,
 knitr::include_graphics(inference_jpg)
 ```
 
-解读：`r biology_inference_summary`。正值表示 d1 的邻居锚点分数更接近，负值表示 Direct 更接近。区间基于 cohort bootstrap；P 值采用 paired sign-flip 并对可推断锚点做 BH 校正。Monte Carlo P 值受 `r biology_inference$n_boot[1L]` 次模拟的分辨率限制，因此图中只显示到 `<0.001`，不用星号代替效应大小。
+解读：读这张配对效应图时，先看竖向零线，再看每个锚点的圆点及横线。圆点是把同一 query 的 d1−Direct 效用差先在各 cohort 内平均、再对 cohort 等权平均；横线是重抽完整 cohort 得到的 95% 区间。圆点在左侧表示 Direct 找到的邻居在该表达签名上更接近；在右侧才表示 d1 更接近。当前四项结果为 `r biology_inference_summary`。这些负差是当前局部表达任务中的实测代价，不应因为 Direct 的输入更靠近表达就忽略，也不应误写成 d1 在所有生物任务上都差。P 值采用配对 sign-flip 并对可推断锚点做 BH 校正；Monte Carlo P 值受 `r biology_inference$n_boot[1L]` 次模拟的分辨率限制，图中只显示到 `<0.001`，不以星号替代效应大小。
 
 ### 队列间效应分布
 
@@ -362,7 +364,7 @@ cohort_jpg <- .ae_save_plot(p_cohort,
 knitr::include_graphics(cohort_jpg)
 ```
 
-解读：热图每格纳入 `r min(biology_cohort$query_count)` 至 `r max(biology_cohort$query_count)` 个配对 query，`r fmt_pct(cohort_negative_fraction)` 的可估计格子为负值。颜色展示队列内平均差，不给单个格子做显著性判断；完整队列名称、两臂均值、差值与 query 数保存在同批次的 `anchor_cohort_deltas.csv` 中。
+解读：森林图是四类锚点的总体答案，热图则回答“这个答案是否只由少数队列造成”。一行是一个外部 cohort，一列是一类锚点；每格纳入 `r min(biology_cohort$query_count)` 至 `r max(biology_cohort$query_count)` 个两臂配对的 query，颜色对应该 cohort 的平均 d1−Direct 差。当前 `r fmt_pct(cohort_negative_fraction)` 的可估计格子为负值，说明负向并非只在一个锚点或一个队列出现；仍应查看正向或幅度异常的格子，核对其基因覆盖、样本数与来源。单格没有独立显著性检验，颜色深浅不能当作 P 值；完整数值在同批次的 `anchor_cohort_deltas.csv` 中。
 
 ```{r biology-anchor-inference, echo=FALSE}
 biology_inference_widget <- htmltools::tagList()
@@ -379,17 +381,17 @@ if (identical(biology_status, "complete")) {
 biology_inference_widget
 ```
 
-解读：当前结果显示，`r biology_inference_summary`。每个 query 先与自身的另一臂配对，然后计算 cohort 均值，避免缺失样本组成改变效应；BH 校正仅覆盖达到门槛的 anchor。未达门槛的行保留描述性点估计，但区间和 P 值为 NA。表中展示每个锚点的效应、区间与多重比较结果，提示统计显著性和生物学意义需要分开判断。较小但稳定的差异仍可能只是表达排序的局部代价；它是否影响生物状态识别，需要在明确的独立任务上检验。
+解读：这张数值表供逐项核对森林图：`estimate` 是 cohort 等权配对差，`ci_low/ci_high` 给出区间，`cohort_count/query_count` 说明证据覆盖，`p_value_adj` 是四项可推断锚点范围内的 BH 校正结果。每个 query 先与自身的另一臂配对，再计算 cohort 均值，避免缺失样本组成改变效应。未达预设 cohort 门槛的锚点只保留描述性点估计，区间与 P 值为 NA。即使某项统计证据稳定，也只说明当前连续表达邻居任务的差异；其是否影响生物状态识别，仍要在明确的独立任务上检验。
 
 ## 讨论与分析
 
-当前结果显示，表达覆盖审计包含 `r nrow(biology_coverage)` 行，实际 utility 表包含 `r nrow(biology_utility)` 行完整配对结果；两者共同限定可解释样本范围。
+这项分析把“有无足够基因可计算”与“算出来的邻居是否相近”分开。本次表达覆盖审计有 `r nrow(biology_coverage)` 行 cohort-anchor 记录，分臂 utility 表有 `r nrow(biology_utility)` 行完整配对结果；前者限定能测什么，后者描述两臂各自的水平，真正的比较则是同一 query 的 cohort 等权差。本次四项锚点的结果为 `r biology_inference_summary`。当前按绝对点估计差最大的为 `r biology_top_signal$anchor`：d1−Direct = `r fmt(biology_top_signal$estimate)`，涉及 `r biology_top_signal$cohort_count` 个 cohort，95% CI 为 `r paste0("[", fmt(biology_top_signal$ci_low), ", ", fmt(biology_top_signal$ci_high), "]")`。这里“最大”只是在预设四项中的排序，不是全部生物效用的排名。
 
-当前结果显示，`r biology_inference_summary`。这些结果衡量局部邻居的表达接近程度，不能直接推出整体结构保留或临床效用；跨队列的状态结构另见 `r structure_report_name` 报告。
+本次有 `r nrow(biology_inference)` 类预设锚点进入效应汇总，但它们仍只代表四种表达签名的局部邻居关系。
 
-当前结果显示，最强信号为 `r biology_top_signal$anchor`，cohort 等权 d1−Direct 差为 `r fmt(biology_top_signal$estimate)`，参与 `r biology_top_signal$cohort_count` 个 cohort；这里的“最强”仅按当前可用点估计绝对值排序。该信号的 CI 为 `r paste0("[", fmt(biology_top_signal$ci_low), ", ", fmt(biology_top_signal$ci_high), "]")`，并由 `r params$inference_bootstrap` 次 cohort bootstrap 描述不确定性；若未达到推断门槛，区间为 NA，点估计仍只作描述。
+一种可检验的解释是：队列模型的概率输出保留了较粗的状态边界，却没有原始特征那样精细地排列连续表达分数。它与当前局部负差相容，但仍只是机制假说；若八个高低状态在独立队列间的相对结构仍可复现，便说明局部与整体不能混为一谈，详见 `r structure_report_name`。反过来，若预先选定的独立 pathway、微环境或治疗反应任务也持续下降，就需要重新评估 d1 的生物表示用途。
 
-表达 anchor 与模型输入具有共同的数据来源，且缺失覆盖会限制有效样本范围。后续应在预先选定的独立 pathway、治疗反应或结局上检验效用，并报告每个 anchor 的有效 cohort 和 query 范围。
+下一轮应先在未见 cohort 中测量与模型输入来源不同的 pathway、治疗反应或结局：固定每个 anchor 的有效 query 和基因覆盖，判据是 d1 在跨队列迁移上有稳定收益或至少落在事先定义的可接受损失范围内。再按癌种、平台和来源分层重算当前局部效应，检查负差是否集中在少数测量条件。现有表达锚点与 Direct/d1 输入有共同来源，不承担独立临床效用的证明责任。
 
 ## 数字准确性验证
 
