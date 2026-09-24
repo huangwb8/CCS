@@ -166,6 +166,7 @@ for (anchor in names(anchors)) {
 utility <- do.call(rbind, utility_rows)
 per_query_utility <- do.call(rbind, per_query_rows)
 missing_pairs <- do.call(rbind, missing_rows)
+cohort_deltas <- .biology_cohort_deltas(per_query_utility)
 anchor_inference <- .biology_paired_contrast(
   per_query_utility,
   n_boot = 2000L,
@@ -183,9 +184,10 @@ write.csv(coverage, file.path(out_dir, "anchor_coverage.csv"), row.names = FALSE
 write.csv(utility, file.path(out_dir, "anchor_utility.csv"), row.names = FALSE)
 write.csv(missing_pairs, file.path(out_dir, "anchor_missing_pairs.csv"), row.names = FALSE)
 write.csv(contrasts, file.path(out_dir, "anchor_contrasts.csv"), row.names = FALSE)
+write.csv(cohort_deltas, file.path(out_dir, "anchor_cohort_deltas.csv"), row.names = FALSE)
 write.csv(anchor_inference, file.path(out_dir, "anchor_inference.csv"), row.names = FALSE)
 saveRDS(list(anchors = anchors, coverage = coverage, utility = utility, contrasts = contrasts,
-             inference = anchor_inference,
+             cohort_deltas = cohort_deltas, inference = anchor_inference,
              retrieval_rows_top15 = nrow(neighbours), source_signature = sig_path,
              cache_path = cache_path, cache_schema_version = cache$schema_version,
              cache_source_md5 = cache$source$md5, cache_sample_key_hash = cache$sample_key_hash,
@@ -205,4 +207,5 @@ cat(sprintf("anchors=%d coverage_rows=%d utility_rows=%d output=%s\n", length(an
     .wf_output("01-biology", "stage-receipt.rds"),
     file.path(.ablation03_dir, "02.02.00. 生物锚点分析_functions.R")),
   outputs = file.path(out_dir, c("anchor_coverage.csv", "anchor_utility.csv",
-    "anchor_contrasts.csv", "anchor_inference.csv", "anchor_missing_pairs.csv", "ablation03-biology.rds")))
+    "anchor_contrasts.csv", "anchor_cohort_deltas.csv", "anchor_inference.csv",
+    "anchor_missing_pairs.csv", "ablation03-biology.rds")))

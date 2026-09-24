@@ -43,6 +43,7 @@ bootstrap <- c(file.path("scripts", "helpers", "workflow_helpers.R"),
 bootstrap <- bootstrap[file.exists(bootstrap)][1L]
 if (is.na(bootstrap)) stop("Run from ablation-03 or the repository root.", call. = FALSE)
 source(bootstrap, local = TRUE)
+source(.ablation03_path("02.01.00. 表示分析_functions.R"), local = TRUE)
 source(.ablation03_path("scripts", "helpers", "nature_colors.R"))
 source(.ablation03_path("scripts", "helpers", "nature_theme.R"))
 source(.ablation03_path("scripts", "helpers", "plot_delivery_helpers.R"))
@@ -65,14 +66,22 @@ biology_dir <- .wf_output("ablation-biology")
 biology_files <- file.path(
   biology_dir,
   c("anchor_coverage.csv", "anchor_utility.csv", "anchor_contrasts.csv",
-    "anchor_inference.csv")
+    "anchor_inference.csv", "anchor_cohort_deltas.csv",
+    "anchor_missing_pairs.csv", "ablation03-biology.rds")
 )
 biology_available <- all(file.exists(biology_files))
+if (!biology_available) {
+  stop("Biology report requires all completed target products, including cohort deltas.",
+    call. = FALSE)
+}
 if (biology_available) {
   biology_coverage <- read.csv(biology_files[1L], check.names = FALSE)
   biology_utility <- read.csv(biology_files[2L], check.names = FALSE)
   biology_contrasts <- read.csv(biology_files[3L], check.names = FALSE)
   biology_inference <- read.csv(biology_files[4L], check.names = FALSE)
+  biology_cohort <- read.csv(biology_files[5L], check.names = FALSE)
+  biology_missing <- read.csv(biology_files[6L], check.names = FALSE)
+  biology_result <- readRDS(biology_files[7L])
   table_dir <- .ablation03_report_path("tables")
   dir.create(table_dir, recursive = TRUE, showWarnings = FALSE)
   utils::write.csv(
@@ -80,11 +89,18 @@ if (biology_available) {
     file.path(table_dir, "02.02.00. anchor-inference.csv"),
     row.names = FALSE
   )
+  utils::write.csv(
+    biology_cohort,
+    file.path(table_dir, "02.02.00. anchor-cohort-deltas.csv"),
+    row.names = FALSE
+  )
 } else {
   biology_coverage <- data.frame()
   biology_utility <- data.frame()
   biology_contrasts <- data.frame()
   biology_inference <- data.frame()
+  biology_cohort <- data.frame()
+  biology_missing <- data.frame()
 }
 biology_status <- if (biology_available && nrow(biology_utility) > 0L &&
   nrow(biology_inference) > 0L) {
@@ -119,6 +135,33 @@ biology_top_signal <- biology_signal_pool[
 ]
 preview_dir <- bensz_run_dir(bensz_preview_root(params$plot_run_dir),
   prefix = "02.02.00-biology")
+figure_dir <- .ablation03_report_path("figures")
+dir.create(figure_dir, recursive = TRUE, showWarnings = FALSE)
+anchor_order <- names(biology_result$anchors)
+if (!setequal(anchor_order, biology_inference$anchor) ||
+    !setequal(anchor_order, biology_cohort$anchor)) {
+  stop("Biology report anchor sets differ across target products.", call. = FALSE)
+}
+cohort_means <- stats::aggregate(delta_d1_minus_direct ~ anchor,
+  data = biology_cohort, FUN = mean)
+matched_estimates <- biology_inference$estimate[
+  match(cohort_means$anchor, biology_inference$anchor)]
+if (!isTRUE(all.equal(cohort_means$delta_d1_minus_direct,
+    matched_estimates, tolerance = 1e-10))) {
+  stop("Cohort deltas do not reproduce the inference estimates.", call. = FALSE)
+}
+if (anyNA(biology_cohort$query_count) ||
+    any(biology_cohort$query_count < 1L)) {
+  stop("Biology cohort cells must contain paired queries.", call. = FALSE)
+}
+external_coverage <- biology_coverage[
+  biology_coverage$external_query_cohort, , drop = FALSE]
+external_cohort_count <- length(unique(external_coverage$cohort_key))
+partial_external_count <- sum(external_coverage$coverage < 1)
+missing_pair_count <- sum(biology_missing$missing_score_pairs)
+cohort_negative_fraction <- mean(biology_cohort$delta_d1_minus_direct < 0)
+plot_zh <- identical(params$plot_language, "zh")
+plot_label <- function(en, zh) if (plot_zh) zh else en
 ```
 
 本报告是 `r analysis_name` 实验的生物学分析模块；只读取已经完成的邻居检索与 anchor 评估结果。
@@ -149,6 +192,61 @@ preview_dir <- bensz_run_dir(bensz_preview_root(params$plot_run_dir),
 
 四个 anchor 按配置中的 signature 名称精确选取；它们独立于癌种标签，但来自表达数据，不能视为独立测量的临床结局。完整 reference 样本拟合 gene-wise z-score，再应用到两侧。每个 query 在两臂均有完整 top-`r 15L` 分数时才进入配对比较。
 
+### 锚点基因覆盖
+
+```{r figure-biology-anchor-coverage, echo=FALSE, interp_check=TRUE}
+fig_coverage <- list(width_in = 8.4, height_in = 5.8, base_size = 10,
+  point_size = 1.6, median_size = 2.8)
+coverage_plot <- biology_coverage
+coverage_plot$anchor <- factor(coverage_plot$anchor, levels = anchor_order)
+coverage_plot$analysis_set <- factor(
+  ifelse(coverage_plot$external_query_cohort, "External query", "Reference"),
+  levels = c("External query", "Reference")
+)
+coverage_plot$coverage_state <- ifelse(
+  coverage_plot$status != "estimable", "Not estimable",
+  ifelse(coverage_plot$coverage < 1, "Partial gene set", "Full gene set")
+)
+coverage_plot$coverage_state <- factor(coverage_plot$coverage_state,
+  levels = c("Full gene set", "Partial gene set", "Not estimable"))
+coverage_median <- stats::aggregate(coverage ~ anchor + analysis_set,
+  data = coverage_plot, FUN = median)
+p_coverage <- ggplot2::ggplot(coverage_plot,
+  ggplot2::aes(x = .data$coverage, y = .data$analysis_set)) +
+  ggplot2::geom_point(
+    ggplot2::aes(color = .data$analysis_set, shape = .data$coverage_state),
+    position = ggplot2::position_jitter(width = 0, height = 0.14, seed = 20260924L),
+    size = fig_coverage$point_size, alpha = 0.62
+  ) +
+  ggplot2::geom_point(data = coverage_median,
+    shape = 18, size = fig_coverage$median_size, color = "black") +
+  ggplot2::facet_wrap(~anchor, ncol = 2) +
+  ggplot2::scale_x_continuous(limits = c(0, 1.02),
+    breaks = c(0, 0.25, 0.5, 0.75, 1),
+    labels = scales::label_percent(accuracy = 1)) +
+  ggplot2::scale_color_manual(values = c(
+    "External query" = nature_colors[["navy"]], "Reference" = "grey65"
+  ), guide = "none") +
+  ggplot2::scale_shape_manual(values = c(
+    "Full gene set" = 16, "Partial gene set" = 1, "Not estimable" = 4
+  )) +
+  ggplot2::labs(
+    x = plot_label("Signature gene coverage", "签名基因覆盖率"), y = NULL,
+    color = plot_label("Analysis set", "分析集合"),
+    shape = plot_label("Coverage state", "覆盖状态"),
+    caption = plot_label("Dots: cohorts; black diamonds: medians.",
+      "圆点：队列；黑色菱形：中位数。")
+  ) +
+  theme_nature_readable(base_size = fig_coverage$base_size,
+    legend_position = "bottom")
+coverage_jpg <- .ae_save_plot(p_coverage,
+  "02.02.00. anchor-gene-coverage", figure_dir, preview_dir,
+  fig_coverage, params$plot_preview_dpi)
+knitr::include_graphics(coverage_jpg)
+```
+
+解读：外部 query 包含 `r external_cohort_count` 个 cohort × `r length(anchor_order)` 个锚点组合，其中 `r partial_external_count` 个组合的基因覆盖率未达到 100%；缺失分数邻居对共 `r missing_pair_count` 个。覆盖率只说明签名基因在表达数据中是否可用，不代表邻居效用，也不能证明锚点与模型输入独立。
+
 ```{r biology-anchor-coverage, echo=FALSE}
 biology_coverage_widget <- htmltools::tagList()
 if (identical(biology_status, "complete")) {
@@ -168,6 +266,103 @@ biology_utility_widget
 ```
 
 解读：当前结果显示，表中 `r nrow(biology_utility)` 行给出同一批完整配对 query 的分臂 utility。较高值表示连续表达分数更接近。此处分臂样本均值及样本重采样的 95% 置信区间用于描述，两臂差异的正式比较使用下面 cohort 等权差及其区间。这里展示连续锚点的一致程度，而非旧癌种标签的一致程度。样本较多的队列会影响单臂样本均值；其区间没有处理队列内依赖，不能用来判断向新队列推广的精度，主要结论应以配对后队列等权的推断为准。
+
+### 配对效应与不确定性
+
+```{r figure-biology-anchor-inference, echo=FALSE, interp_check=TRUE}
+fig_inference <- list(width_in = 9.2, height_in = 4.7, base_size = 10,
+  point_size = 2.8, line_size = 0.8)
+inference_plot <- biology_inference
+inference_plot$anchor <- factor(inference_plot$anchor,
+  levels = rev(anchor_order))
+inference_plot$summary <- paste0(
+  "n=", inference_plot$cohort_count,
+  " | q=", format(inference_plot$query_count, big.mark = ",", trim = TRUE),
+  " | BH p", ifelse(is.na(inference_plot$p_value_adj), "=NA",
+    ifelse(inference_plot$p_value_adj < 0.001, "<0.001",
+      paste0("=", formatC(inference_plot$p_value_adj,
+        digits = 3L, format = "f"))))
+)
+effect_limits <- range(c(inference_plot$estimate,
+  inference_plot$ci_low, inference_plot$ci_high, 0), na.rm = TRUE)
+label_x <- effect_limits[2L] + max(0.012, diff(effect_limits) * 0.12)
+right_padding <- max(0.10, diff(effect_limits) * 1.1)
+p_inference <- ggplot2::ggplot(inference_plot,
+  ggplot2::aes(x = .data$estimate, y = .data$anchor)) +
+  ggplot2::geom_vline(xintercept = 0, linetype = "dashed",
+    color = "grey50", linewidth = 0.55) +
+  ggplot2::geom_errorbar(ggplot2::aes(xmin = .data$ci_low,
+    xmax = .data$ci_high), orientation = "y",
+    linewidth = fig_inference$line_size, na.rm = TRUE) +
+  ggplot2::geom_point(ggplot2::aes(shape = .data$inference_status),
+    size = fig_inference$point_size, color = nature_colors[["navy"]]) +
+  ggplot2::geom_text(ggplot2::aes(x = label_x, label = .data$summary),
+    hjust = 0, size = 3, color = "grey25") +
+  ggplot2::scale_shape_manual(values = c(
+    "estimable" = 16, "not_estimable" = 1
+  ), guide = "none") +
+  ggplot2::coord_cartesian(xlim = c(effect_limits[1L] - 0.01,
+    label_x + right_padding), clip = "off") +
+  ggplot2::labs(
+    x = plot_label("Cohort-equal paired utility difference (d1 - Direct)",
+      "队列等权配对效用差（d1 − Direct）"), y = NULL,
+    caption = plot_label(
+      "Points: cohort-equal estimates; lines: 95% cohort bootstrap CI; dashed line: zero.",
+      "圆点：队列等权估计；线段：95% 队列 bootstrap 区间；虚线：零差值。")
+  ) +
+  theme_nature_readable(base_size = fig_inference$base_size,
+    legend_position = "none")
+inference_jpg <- .ae_save_plot(p_inference,
+  "02.02.00. anchor-paired-effect", figure_dir, preview_dir,
+  fig_inference, params$plot_preview_dpi)
+knitr::include_graphics(inference_jpg)
+```
+
+解读：`r biology_inference_summary`。正值表示 d1 的邻居锚点分数更接近，负值表示 Direct 更接近。区间基于 cohort bootstrap；P 值采用 paired sign-flip 并对可推断锚点做 BH 校正。Monte Carlo P 值受 `r biology_inference$n_boot[1L]` 次模拟的分辨率限制，因此图中只显示到 `<0.001`，不用星号代替效应大小。
+
+### 队列间效应分布
+
+```{r figure-biology-cohort-heterogeneity, echo=FALSE, interp_check=TRUE}
+fig_cohort <- list(width_in = 9.1, height_in = 11.2, base_size = 9)
+cohort_levels <- sort(unique(biology_cohort$query_cohort))
+cohort_grid <- expand.grid(
+  query_cohort = cohort_levels, anchor = anchor_order,
+  stringsAsFactors = FALSE
+)
+cohort_plot <- merge(cohort_grid, biology_cohort,
+  by = c("query_cohort", "anchor"), all.x = TRUE, sort = FALSE)
+cohort_plot$query_cohort <- factor(cohort_plot$query_cohort,
+  levels = rev(cohort_levels))
+cohort_plot$anchor <- factor(cohort_plot$anchor, levels = anchor_order)
+color_limit <- max(abs(biology_cohort$delta_d1_minus_direct))
+if (!is.finite(color_limit) || color_limit == 0) color_limit <- 0.01
+p_cohort <- ggplot2::ggplot(cohort_plot,
+  ggplot2::aes(x = .data$anchor, y = .data$query_cohort,
+    fill = .data$delta_d1_minus_direct)) +
+  ggplot2::geom_tile(color = "white", linewidth = 0.25) +
+  ggplot2::scale_fill_gradient2(
+    low = nature_colors[["navy"]], mid = "white",
+    high = nature_colors[["orange"]], midpoint = 0,
+    limits = c(-color_limit, color_limit), na.value = "grey85",
+    name = plot_label("d1 - Direct", "d1 − Direct")
+  ) +
+  ggplot2::labs(x = NULL,
+    y = plot_label("External query cohort", "外部 query 队列")
+  ) +
+  theme_nature_readable(base_size = fig_cohort$base_size,
+    legend_position = "right") +
+  ggplot2::theme(
+    axis.text.y = ggplot2::element_text(size = 8),
+    axis.text.x = ggplot2::element_text(size = 9, angle = 20, hjust = 1),
+    panel.grid = ggplot2::element_blank()
+  )
+cohort_jpg <- .ae_save_plot(p_cohort,
+  "02.02.00. anchor-cohort-heterogeneity", figure_dir, preview_dir,
+  fig_cohort, params$plot_preview_dpi)
+knitr::include_graphics(cohort_jpg)
+```
+
+解读：热图每格纳入 `r min(biology_cohort$query_count)` 至 `r max(biology_cohort$query_count)` 个配对 query，`r fmt_pct(cohort_negative_fraction)` 的可估计格子为负值。颜色展示队列内平均差，不给单个格子做显著性判断；完整队列名称、两臂均值、差值与 query 数保存在同批次的 `anchor_cohort_deltas.csv` 中。
 
 ```{r biology-anchor-inference, echo=FALSE}
 biology_inference_widget <- htmltools::tagList()

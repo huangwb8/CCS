@@ -85,12 +85,32 @@ list(
     )
   ),
   targets::tar_target(
+    biology_sources,
+    c("02.02.00. 生物锚点分析.R",
+      "02.02.00. 生物锚点分析_functions.R"),
+    format = "file"
+  ),
+  targets::tar_target(
     biology_analysis,
-    .ablation03_target_stage(
-      "02.02.00. 生物锚点分析.R",
-      dependency = list(representation_analysis, biology_inputs),
-      cache_root = runtime_config$cache_root
-    )
+    {
+      biology_sources
+      result <- .ablation03_target_stage(
+        "02.02.00. 生物锚点分析.R",
+        dependency = list(representation_analysis, biology_inputs),
+        cache_root = runtime_config$cache_root
+      )
+      report_inputs <- file.path(result$directory, c(
+        "anchor_coverage.csv", "anchor_utility.csv",
+        "anchor_contrasts.csv", "anchor_inference.csv",
+        "anchor_cohort_deltas.csv", "anchor_missing_pairs.csv",
+        "ablation03-biology.rds"
+      ))
+      if (!all(file.exists(report_inputs))) {
+        stop("Biology target did not produce all report inputs.", call. = FALSE)
+      }
+      result$report_input_md5 <- unname(tools::md5sum(report_inputs))
+      result
+    }
   ),
   targets::tar_target(
     structural_analysis,
@@ -144,12 +164,24 @@ list(
     format = "file"
   ),
   targets::tar_target(
+    biology_report_sources,
+    c("02.02.00. 生物锚点分析.Rmd",
+      "02.01.00. 表示分析_functions.R",
+      "scripts/helpers/nature_colors.R",
+      "scripts/helpers/nature_theme.R",
+      "scripts/helpers/plot_delivery_helpers.R"),
+    format = "file"
+  ),
+  targets::tar_target(
     biology_report,
-    .ablation03_render_report(
-      "02.02.00. 生物锚点分析.Rmd",
-      dependency = biology_analysis,
-      cache_root = runtime_config$cache_root
-    ),
+    {
+      biology_report_sources
+      .ablation03_render_report(
+        "02.02.00. 生物锚点分析.Rmd",
+        dependency = biology_analysis,
+        cache_root = runtime_config$cache_root
+      )
+    },
     format = "file"
   ),
   targets::tar_target(

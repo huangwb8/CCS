@@ -98,7 +98,11 @@ units:
     reports:
       - "02.02.00. 生物锚点分析.html"
       - "reports/tables/02.02.00. anchor-inference.csv"
-    completion: "生物锚点结果、配对推断、来源凭据与 HTML 均有效"
+      - "reports/tables/02.02.00. anchor-cohort-deltas.csv"
+      - "reports/figures/02.02.00. anchor-gene-coverage.pdf"
+      - "reports/figures/02.02.00. anchor-paired-effect.pdf"
+      - "reports/figures/02.02.00. anchor-cohort-heterogeneity.pdf"
+    completion: "生物锚点结果、队列级配对差、推断、来源凭据、三张 PDF 与 HTML 均有效"
   - id: "02.03.00"
     name: "结构复现分析"
     purpose: "评估双向结构复现与 matched-bank 设计敏感性"

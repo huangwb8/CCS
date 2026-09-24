@@ -18,11 +18,7 @@
   })
 }
 
-.biology_paired_contrast <- function(
-    per_query,
-    n_boot = 2000L,
-    seed = 20260830L,
-    min_cohorts = 3L) {
+.biology_cohort_deltas <- function(per_query) {
   required <- c(
     "anchor", "representation", "query_sample", "query_cohort", "utility"
   )
@@ -34,10 +30,6 @@
       call. = FALSE
     )
   }
-  if (n_boot < 100L) {
-    stop("biology inference: n_boot must be at least 100.", call. = FALSE)
-  }
-
   per_query <- per_query[is.finite(per_query$utility), required, drop = FALSE]
   if (!nrow(per_query)) {
     return(data.frame())
@@ -65,10 +57,25 @@
   if (!nrow(query_pairs)) return(data.frame())
   paired <- stats::aggregate(cbind(utility_direct, utility_d1) ~ anchor + query_cohort,
     data = query_pairs, FUN = mean)
-  if (!nrow(paired)) {
-    return(data.frame())
-  }
+  counts <- stats::aggregate(query_sample ~ anchor + query_cohort,
+    data = query_pairs, FUN = length)
+  names(counts)[3L] <- "query_count"
+  paired <- merge(paired, counts, by = c("anchor", "query_cohort"), sort = FALSE)
   paired$delta_d1_minus_direct <- paired$utility_d1 - paired$utility_direct
+  paired[, c("anchor", "query_cohort", "query_count", "utility_direct",
+    "utility_d1", "delta_d1_minus_direct"), drop = FALSE]
+}
+
+.biology_paired_contrast <- function(
+    per_query,
+    n_boot = 2000L,
+    seed = 20260830L,
+    min_cohorts = 3L) {
+  if (n_boot < 100L) {
+    stop("biology inference: n_boot must be at least 100.", call. = FALSE)
+  }
+  paired <- .biology_cohort_deltas(per_query)
+  if (!nrow(paired)) return(data.frame())
 
   split_paired <- split(paired, paired$anchor, drop = TRUE)
   out <- lapply(seq_along(split_paired), function(i) {
@@ -110,18 +117,7 @@
       p_value = p_value,
       p_method = p_method,
       cohort_count = n_cohorts,
-      query_count = length(intersect(
-        per_query$query_sample[
-          per_query$anchor == part$anchor[1L] &
-            per_query$representation == "Direct-GSClassifier" &
-            per_query$query_cohort %in% part$query_cohort
-        ],
-        per_query$query_sample[
-          per_query$anchor == part$anchor[1L] &
-            per_query$representation == "Cohort-d1" &
-            per_query$query_cohort %in% part$query_cohort
-        ]
-      )),
+      query_count = sum(part$query_count),
       n_boot = n_boot,
       stringsAsFactors = FALSE
     )
