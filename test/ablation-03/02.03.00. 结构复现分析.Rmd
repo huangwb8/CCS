@@ -321,9 +321,7 @@ render_dt(
 )
 ```
 
-解读：先读 `bank_role` 和 `target_role`：前者是谁提供冻结模型，后者是谁接受投影；再看 `fit_sample_count` 与 `target_sample_count`，确认模型拟合样本没有混入目标侧。正向和反向的平均 d1−Direct 结构差分别为 `r fmt(structural_forward_all$mean_delta, 4L)` 和 `r fmt(structural_reverse_all$mean_delta, 4L)`。两方向同时换了模型库和目标人群，不能拿两行数字直接比较哪一个方向“天生更好”。它们共同检查：换一种外部投影方式后，大体结构差是否仍在相近的量级；反向因共用冻结 Direct 特征合同，仍保留设计上的不对称。
-
-这两行数值应与后面的配对图一起读：若方向相同，说明当前结论对投影方向较少敏感；若方向相反，优先查 bank 与目标队列的组成差异。方向重复属于设计敏感性检查，不能把两行当成两次独立人群验证。
+解读：`bank_role` 标明冻结模块来自哪一侧，`target_role` 标明接受投影的患者来自哪一侧。正向用 `r structural_forward_all$bank_module_count` 个 reference 模块，从 `r structural_forward_all$fit_sample_count` 个拟合侧样本投影到 `r structural_forward_all$target_sample_count` 个 external target；平均 d1−Direct 结构差为 `r fmt(structural_forward_all$mean_delta, 4L)`，节点 bootstrap 区间为 `r paste0("[", fmt(structural_forward_all$mean_delta_ci_low, 4L), ", ", fmt(structural_forward_all$mean_delta_ci_high, 4L), "]")`。反向用 `r structural_reverse_all$bank_module_count` 个 external 模块，目标侧改为 `r structural_reverse_all$target_sample_count` 个 reference 样本；平均差为 `r fmt(structural_reverse_all$mean_delta, 4L)`，区间为 `r paste0("[", fmt(structural_reverse_all$mean_delta_ci_low, 4L), ", ", fmt(structural_reverse_all$mean_delta_ci_high, 4L), "]")`。两方向都只见小幅平均差，但 bank 数量、目标人群同时改变，反向还沿用正向冻结的 Direct 特征合同；它们是投影方向敏感性检查，不能当成两次完全对称、独立的人群验证。
 
 ```{r structural-entity-audit, echo=FALSE, interp_check=TRUE}
 render_dt(structural_entity_audit, pageLength = 12)
@@ -428,7 +426,7 @@ fig11_jpg <- .ae_save_plot(
 knitr::include_graphics(fig11_jpg)
 ```
 
-解读：配对图中每条细线连接同一个队列对在 Direct 与 d1 下的相似度，白色菱形标记两侧的总体位置。正向的 Direct 与 d1 平均值分别为 `r fmt(structural_all$mean_direct_similarity)` 和 `r fmt(structural_all$mean_d1_similarity)`，平均配对差为 `r fmt(structural_all$mean_delta, 4L)`，cohort 节点重采样 95% 区间为 `r fmt(structural_all$mean_delta_ci_low, 4L)` 至 `r fmt(structural_all$mean_delta_ci_high, 4L)`。这说明当前平均位置很接近，但许多线仍向不同方向倾斜，不能把“总体差很小”理解为“每个队列对都不变”。区间跨零表示现有证据同时容许一定幅度的改善和下降；没有事先规定可接受的损失幅度，就不能把它改写成已证明等价或无损。
+解读：每条线连接同一个队列对在 Direct 与 d1 下的状态距离排序相关，向上表示 d1 更可复现，向下则相反。正向 Direct 平均相似度为 `r fmt(structural_all$mean_direct_similarity)`，d1 为 `r fmt(structural_all$mean_d1_similarity)`；队列对中有 `r fmt_pct(structural_all$fraction_d1_ge_direct)` 的 d1 数值不低于 Direct。平均配对差为 `r fmt(structural_all$mean_delta, 4L)`，按共享 cohort 节点重采样的 95% 区间为 `r fmt(structural_all$mean_delta_ci_low, 4L)` 至 `r fmt(structural_all$mean_delta_ci_high, 4L)`。因此总体均值接近零与单条线的上升、下降可以同时成立；区间跨零允许两个方向，未预先规定可接受损失界值前，不能把它写成结构已证明等价或无损。
 
 这里之所以按 cohort 节点重采样，是因为同一队列会出现在许多队列对里。例如 A–B 与 A–C 共同使用 A；把这两条线当作两次完全独立实验，会夸大精度。图上单条线说明具体哪一对发生重排，总体区间回答“换一组队列节点后，平均差可能怎样变化”；二者不能互相替代。
 
@@ -487,7 +485,7 @@ fig12_jpg <- .ae_save_plot(
 knitr::include_graphics(fig12_jpg)
 ```
 
-解读：这张 Direct 热图是下一张 d1 热图的基线。每格对应一对 cohort，颜色表示八个生物地标的远近排序在两队列中有多相似；越接近色阶高端，排序越一致。Direct 的平均相似度为 `r fmt(structural_all$mean_direct_similarity)`，说明原始表示自身也已包含可跨队列比较的结构；不能只看 d1 一侧就判断它“创造”了这种关系。两张热图采用完全相同的色阶与队列布局，才能逐格比较；颜色不是临床分型标签，也没有为每个格子单独计算显著性。
+解读：这张 Direct 热图为下一张 d1 热图提供同位置、同色阶的基线；每格是一对 cohort 对同一组共有高低状态的距离排序相关。Direct 的平均相似度为 `r fmt(structural_all$mean_direct_similarity)`；最高的 `r structural_pairs$cohort_a[which.max(structural_pairs$direct_similarity)]` 与 `r structural_pairs$cohort_b[which.max(structural_pairs$direct_similarity)]` 为 `r fmt(max(structural_pairs$direct_similarity))`，最低的 `r structural_pairs$cohort_a[which.min(structural_pairs$direct_similarity)]` 与 `r structural_pairs$cohort_b[which.min(structural_pairs$direct_similarity)]` 为 `r fmt(min(structural_pairs$direct_similarity))`。这说明 Direct 自身已有可跨队列比较的状态关系，同时队列对之间差异很大。颜色不是临床分型标签，也没有给每格单独做显著性检验；比较 d1 时必须回到相同的 cohort 对，而不是比较两张图上最亮的两个不同格子。
 
 ```{r figure-structural-d1-heatmap, interp_check=TRUE}
 # ==== Figure 13: d1 structural-similarity heatmap (user-adjustable parameters) ====
@@ -655,7 +653,7 @@ fig14_jpg <- .ae_save_plot(
 knitr::include_graphics(fig14_jpg)
 ```
 
-解读：正向完整 bank 与反向完整 bank 的模块数不同，直接比较容易把“模型更多”与“模型来自哪里”混在一起。此图先在相同 tissue 与相同预算下每侧取 `r structural_matched_modules` 个模块，再重复 `r unique(structural_matched_forward_all$repeat_count)` 次改变 bank 组成；散点表示每次设计的 d1−Direct 差，空心菱形表示对应完整 bank 的结果。散点分布回答“换一批同预算模块，结论会不会改”，不回答“换一批新患者，置信区间是多少”。即使范围较窄，也只说明本次匹配方式下对模块选择不太敏感，仍需独立目标队列复核。
+解读：完整正向 bank 有 `r structural_forward_all$bank_module_count` 个模块，反向有 `r structural_reverse_all$bank_module_count` 个，直接比较会把模块预算与来源混在一起。此图固定 tissue 组成，每侧抽取 `r structural_matched_modules` 个模块，重复 `r unique(structural_matched_forward_all$repeat_count)` 次；散点是每次设计的 d1−Direct 平均结构差，空心菱形是对应完整 bank 的差。正向设计范围为 `r fmt(structural_matched_forward_all$mean_delta_min, 4L)` 至 `r fmt(structural_matched_forward_all$mean_delta_max, 4L)`，反向为 `r fmt(structural_matched_reverse_all$mean_delta_min, 4L)` 至 `r fmt(structural_matched_reverse_all$mean_delta_max, 4L)`。范围越宽，结论越依赖具体选了哪些模块；它固定了目标患者，不能解释成新患者或新队列的置信区间。
 
 ```{r structural-matched-summary-table, echo=FALSE, interp_check=TRUE}
 render_dt(

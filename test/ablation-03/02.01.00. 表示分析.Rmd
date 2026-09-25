@@ -723,7 +723,7 @@ overview_table <- data.frame(
 render_dt(overview_table, pageLength = 12)
 ```
 
-解读：当前结果显示，表中 Direct 的 `r manifest$direct_feature_count` 个特征与 d1 的 `r manifest$d1_feature_count` 个输出列代表不同表示维度；维度多不等于性能更好。癌种可估计队列数 `r manifest$query_cohort_count` 与全部候选队列数 `r manifest$external_candidate_cohort_count` 分别对应不同分析总体，不能互换。这里展示的是两种表示在相同样本身份下的输入规模差异，提示后续比较必须保持样本对齐。癌种支持不足的队列仍可用于连续表达评价，所以不能根据分类子集的规模推断全部候选样本的分析覆盖。
+解读：这张表固定样本身份，只改变每个样本的坐标表示：Direct 有 `r manifest$direct_feature_count` 个输入特征，d1 有 `r manifest$d1_feature_count` 个模块输出列，列数差不能当作信息量或性能差。reference 包含 `r manifest$reference_sample_count` 个样本、`r manifest$reference_cohort_count` 个队列；外部候选有 `r manifest$external_candidate_sample_count` 个样本、`r manifest$external_candidate_cohort_count` 个队列，其中旧癌种任务实际可估计 `r manifest$query_sample_count` 个样本、`r manifest$query_cohort_count` 个队列。这个收缩来自癌种及 reference 支持资格，不表示其他候选样本在连续表达锚点上都不可用。后续若比较两臂差值，必须在同一 query 身份和同一终点资格内配对，不能拿不同总体的汇总值相减。
 
 ## 关键函数、参数与源代码位置
 
@@ -860,7 +860,7 @@ fig1_jpg <- .ae_save_plot(
 knitr::include_graphics(fig1_jpg)
 ```
 
-解读：在同一批 `r native_geometry$metrics$sample_count[1L]` 个 reference 样本上，CKA 为 `r fmt(metric_value("linear_cka"))`，说明整体样本关系矩阵仍有相似结构；距离 Spearman 为 `r fmt(metric_value("distance_spearman"))`，说明抽样样本对的远近顺序也有一定一致性。前 `r max(manifest$config$geometry$k)` 名近邻的平均 Jaccard 为 `r fmt(metric_value("knn_jaccard"))`，表示局部名单并未完全沿用 Direct。三个数的定义不同，不能比较柱高并把它们说成三种“保留率”；联合起来只能描述大尺度关系尚有延续、局部邻居出现重排。新邻居是否更符合生物状态，仍需用后面的外部癌种检索、技术标签和独立表达锚点逐项核对；几何变化本身不标记好坏。
+解读：在同一批 `r native_geometry$metrics$sample_count[1L]` 个 reference 样本上，CKA 为 `r fmt(metric_value("linear_cka"))`，说明整体样本关系矩阵仍有相似结构；距离 Spearman 为 `r fmt(metric_value("distance_spearman"))`，说明抽样样本对的远近顺序也有一定一致性。前 `r max(manifest$config$geometry$k)` 名近邻的平均 Jaccard 为 `r fmt(metric_value("knn_jaccard"))`，表示局部名单并未完全沿用 Direct。三个数的定义不同，不能比较柱高并把它们说成三种“保留率”；联合起来只能描述大尺度关系尚有延续、局部邻居出现重排。新邻居是否更符合生物状态，仍需用后面的外部癌种检索、技术标签和预设表达锚点逐项核对；这些锚点与模型输入同源，几何变化本身也不标记好坏。
 
 ```{r geometry-inference-table}
 geometry_inference_table <- geometry_inference[, c(
@@ -1014,7 +1014,7 @@ fig2_jpg <- .ae_save_plot(
 knitr::include_graphics(fig2_jpg)
 ```
 
-解读：每个点是一整个外部 cohort 的平均 top-k 同癌种比例差，零线左侧是 d1 找回的同癌种邻居较少，右侧是较多。队列等权总体差为 `r fmt(retrieval_cohort_mean_delta)`；在满足 `r params$min_cohort_n` 个 query 的队列中，最正向的 `r retrieval_top$cohort[1L]` 为 `r fmt(retrieval_top$estimate[1L])`（`r retrieval_top$sample_count[1L]` 个 query），最负向的 `r retrieval_bottom$cohort[1L]` 为 `r fmt(retrieval_bottom$estimate[1L])`（`r retrieval_bottom$sample_count[1L]` 个 query）。这两个极端点说明总体均值不能代替单个队列的表现，也不能仅凭差值给该队列的癌种生物学下结论；应逐一检查其癌种在 reference 中的支持量、候选池技术构成，以及独立表达锚点是否同向变化。
+解读：每个点是一整个外部 cohort 的平均 top-k 同癌种比例差，零线左侧是 d1 找回的同癌种邻居较少，右侧是较多。队列等权总体差为 `r fmt(retrieval_cohort_mean_delta)`；在满足 `r params$min_cohort_n` 个 query 的队列中，最正向的 `r retrieval_top$cohort[1L]` 为 `r fmt(retrieval_top$estimate[1L])`（`r retrieval_top$sample_count[1L]` 个 query），最负向的 `r retrieval_bottom$cohort[1L]` 为 `r fmt(retrieval_bottom$estimate[1L])`（`r retrieval_bottom$sample_count[1L]` 个 query）。这两个极端点说明总体均值不能代替单个队列的表现，也不能仅凭差值给该队列的癌种生物学下结论；应逐一检查其癌种在 reference 中的支持量、候选池技术构成，以及预设表达锚点是否同向变化。锚点与模型输入同源，不能充当独立临床验证。
 
 ```{r retrieval-top-table}
 # Purpose: Expose the strongest external retrieval gains and losses with sample counts.
@@ -1277,7 +1277,7 @@ fig10_jpg <- .ae_save_plot(
 knitr::include_graphics(fig10_jpg)
 ```
 
-解读：这张汇总图把不同的“考试”放在同一页，虚线是 d1−Direct 等于零；点在左边表示该考试的 d1 数值较低。当前 readout cohort accuracy 为 `r fmt(readout_inference_delta)`，检索 top-k 为 `r fmt(retrieval_cohort_mean_delta)`。先沿每一行单独看点与区间是否跨零，再读左侧端点名称；这些指标虽然都写成差值，却分别测量分类、检索和训练设计，不能把点的绝对高度当作统一的生物价值评分。100% 学习曲线只有一个独立训练设计，未画出的区间不是“非常精确”，而是当前设计层 CI 不可估计。
+解读：四行均画 d1−Direct，虚线为零，但每行的分析单位不同。外部 query cohort 等权的检索 top-k 差为 `r fmt(retrieval_cohort_mean_delta)`（95% 区间 `r fmt_ci(retrieval_inference[retrieval_inference$endpoint == "top_k_label_rate", ])`），线性 readout 的 cohort accuracy 差为 `r fmt(readout_inference_delta)`（区间 `r fmt_ci(readout_cohort_row)`）；负值分别表示同癌种邻居更少、旧癌种分类更难。MRR 行另看首次同癌种命中的名次，100% learning-curve 行则固定 query、只剩 `r learning_inference$n_unique_design[learning_inference$requested_fraction == 1]` 种训练设计，因而没有设计层区间。图把方向集中展示，不能把不同行的差值大小或线段长度相加、排序为一个生物价值分数。
 
 ## cohort evidence 的二维 scaling
 
@@ -1562,7 +1562,7 @@ technical_inference_table <- technical_inference_table[, c(
 render_dt(technical_inference_table, pageLength = 3L)
 ```
 
-解读：表中 `n_query_sample` 是有技术标签的配对 query 数，`n_cohort` 才是置信区间和配对检验使用的独立单位；不能把数千个同队列样本当作同样多次外部重复。当前绝对差最大的字段为 `r technical_top_signal$technical_factor`（d1−Direct = `r fmt(technical_top_signal$estimate)`），但“最大”只描述这三个预设字段的量级。要检验技术聚集下降是否超出癌种组成变化，应在相同癌种和相同候选 reference 池内重算邻居差，并用留一队列或留一来源的外部数据复核；若负方向仍稳定且独立生物任务不下降，才更支持有目的的技术捷径削弱。
+解读：`n_query_sample` 数有技术标签的配对 query，`n_cohort` 数进入队列等权推断的外部 cohort；区间和配对检验的独立单位是后者。三个预设字段中绝对差最大的是 `r technical_top_signal$technical_factor`：d1−Direct 为 `r fmt(technical_top_signal$estimate)`，95% cohort bootstrap 区间为 `r fmt_ci(technical_top_signal)`，涉及 `r technical_top_signal$n_cohort` 个 cohort。这个差值描述邻居标签组成，不直接测平台误差；如果 d1 换了邻居的癌种构成，同平台比例也可能随之改变。下一步应在相同癌种与相同 reference 候选池内重算该字段，并留一来源复核；只有负方向仍在、独立生物终点又不下降，才更支持技术捷径被选择性削弱。
 
 ## module 贡献的集中程度
 
@@ -1709,11 +1709,11 @@ fig7_jpg <- .ae_save_plot(
 knitr::include_graphics(fig7_jpg)
 ```
 
-解读：这张图问的是“仅给受限 decoder 看 d1，能否在外部 query 上重建 Direct 线索”。Gene-pair 的 balanced accuracy 为 `r fmt(decoder_summary$balanced_accuracy[decoder_summary$feature_type == "gene_pair"])`，读的是二分类的两类召回率；single-bin 的 Spearman 为 `r fmt(decoder_summary$spearman[decoder_summary$feature_type == "single_bin"])`，只说明连续特征的排序相关，不能保证预测值与真值接近；set-pair 的 Spearman 为 `r fmt(decoder_summary$spearman[decoder_summary$feature_type == "set_pair"])`，需在同一分面结合误差指标阅读。图中 $1-\mathrm{Brier}$、$1/(1+\mathrm{MAE})$ 和 $1/(1+\mathrm{RMSE})$ 只是为了统一绘图方向，柱高不同不代表哪类生物信息更重要。当前结果证明这些线索至少有一部分可由有限秩线性 decoder 读回；读不回的部分还可能受 decoder 容量、正则化和训练量限制，不能断定 d1 已不可逆地丢弃它们。
+解读：这张图问的是“仅给受限 decoder 看 d1，能否在外部 query 上重建 Direct 线索”。Gene-pair 的 balanced accuracy 为 `r fmt(decoder_summary$balanced_accuracy[decoder_summary$feature_type == "gene_pair"])`，读的是二分类的两类召回率；single-bin 的 Spearman 为 `r fmt(decoder_summary$spearman[decoder_summary$feature_type == "single_bin"])`，只说明连续特征的排序相关，不能保证预测值与真值接近；set-pair 的 Spearman 为 `r fmt(decoder_summary$spearman[decoder_summary$feature_type == "set_pair"])`，需在同一分面结合误差指标阅读。图中 $1-\mathrm{Brier}$、$1/(1+\mathrm{MAE})$ 和 $1/(1+\mathrm{RMSE})$ 只是为了统一绘图方向，柱高不同不代表哪类生物信息更重要。当前结果显示，这个受限 decoder 能从 d1 读回部分 Direct 线索；读不回的部分还可能受 decoder 容量、正则化和训练量限制，不能断定 d1 已不可逆地丢弃它们。
 
 ## 讨论与分析
 
-**这一轮更像给新地图做体检，而不是给 CCS 判定总成绩。** Direct 保留原始线索，d1 汇集队列模型判断。本次 CKA 与距离排序显示两张地图的大体形状仍有关联，局部近邻却明显重排；癌种检索 top-k 的 cohort 等权差为 `r fmt(retrieval_cohort_mean_delta)`，癌种 readout 的 cohort accuracy 差为 `r fmt(readout_inference_delta)`，后者 95% CI 为 `r fmt_ci(readout_cohort_row)`。这些旧标签任务提示 d1 不是原表示的无损副本，却没有直接测量新的个性化亚型。当前两项主要癌种端点中按绝对差最大的为 `r primary_top_signal$endpoint`（`r fmt(primary_top_signal$estimate)`）；“最大”不是跨癌种效用的排名。
+本轮先确定 d1 究竟改变了什么。CKA `r fmt(metric_value("linear_cka"))` 与距离 Spearman `r fmt(metric_value("distance_spearman"))` 表明整体关系及远近次序仍有相似性，前 `r max(manifest$config$geometry$k)` 名邻居的 Jaccard `r fmt(metric_value("knn_jaccard"))` 则表明具体近邻发生重排。在旧癌种任务中，top-k 同类比例的 cohort 等权差为 `r fmt(retrieval_cohort_mean_delta)`，线性 readout 的 cohort accuracy 差为 `r fmt(readout_inference_delta)`，后者 95% 区间为 `r fmt_ci(readout_cohort_row)`。这几项共同说明 d1 不是 Direct 的无损重命名；它们只检查原有几何与旧标签，不测新个性化亚型。两项癌种端点中绝对差最大的是 `r primary_top_signal$endpoint`（`r fmt(primary_top_signal$estimate)`），仅表示当前预设终点中的量级排序。
 
 最值得并列阅读的是技术与生物两侧。本次检测方式、平台和来源的同标签近邻差均向下，最大为 `r technical_top_signal$technical_factor` 的 `r fmt(technical_top_signal$estimate)`；这说明旧技术边界在当前跨队列邻居任务中弱化。与此同时，癌种恢复也有负向结果，二者可能共享同一组由癌种与测量来源共同决定的方向。不能把“技术标签少了”直接解释成“去掉的恰好是技术噪声”，也不能因为癌种标签较难读出就宣布发现了跨癌种共享状态。生物锚点报告进一步检查局部表达邻居，结构报告检查跨队列的大体状态地图：前者与后者回答的尺度不同，应一起判断重编码的代价与可能收益。
 

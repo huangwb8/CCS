@@ -160,7 +160,7 @@ biology_top_anchor_signal <- paste(
 
 本报告是数据审计阶段，同时审计 `r main_feature_count` 特征主输入、biology anchor 的完整表达矩阵派生缓存、组织标签恢复和 reference-query 原始构成。它不运行表示学习，也不根据样本量、效应大小或显著性阈值筛选数据；确认性表示实验的资格条件与结果由 `r experiment_report_name` 单独报告。
 
-之所以把数据审计放在所有模型分析之前，是因为模型就像按花名册分组做游戏：如果同一个班被写成两个名字，或者不同班被误写成一个名字，后面的分数再精确也回答错了问题。本阶段先确认“有多少人、分别来自哪里、哪些人用于参照、哪些人用于提问”，让客户先看懂实验地基是否可靠，再进入 d1 与 Direct-GSClassifier 的比较。
+之所以把数据审计放在所有模型分析之前，是因为组织、队列和样本身份决定后续比较的单位。如果同一个队列被写成两个组织，breadth 分析会多算一种背景；如果不同队列被并成一个，队列级区间会少算一个独立单位。本阶段先核对样本总数、组织归属、reference/query 角色和表达锚点可用性，再进入 d1 与 Direct-GSClassifier 的比较。
 
 ## 数据概览
 
@@ -264,7 +264,7 @@ knitr::include_graphics(fig_data1_jpg)
 
 #### 结果解读
 
-图中蓝色 reference 像供检索的“参考书库”，橙色 external query 像后来拿来提问的新样本；横条长短表示样本数，不表示模型效果。当前 `r tissue_totals$tissue[1]` 最多（`r tissue_totals$sample_count[1]` 个样本、`r tissue_totals$cohort_count[1]` 个 cohort），其次为 `r tissue_totals$tissue[2]`（`r tissue_totals$sample_count[2]`）和 `r tissue_totals$tissue[3]`（`r tissue_totals$sample_count[3]`）。同样长的横条可能来自一家很大的队列，也可能来自许多独立队列；后一种情况才提供更多跨队列检验机会。external query 由冻结模型记录的 filtered cohort 决定，原始层面有 `r external_sample_count` 个样本。**这不是随机训练测试切分**：后续每项任务仍按癌种支持、表达覆盖和样本对齐分别确定可估计 query，所以这张图不能被误读为所有外部样本都进入每项检验。
+解读：每个 tissue 的蓝色和橙色横条分别计 reference 与 external query 样本，长度只表示人数。当前 `r tissue_totals$tissue[1]` 共有 `r tissue_totals$sample_count[1]` 个样本、`r tissue_totals$cohort_count[1]` 个 cohort；第二、第三大的 tissue 分别是 `r tissue_totals$tissue[2]`（`r tissue_totals$sample_count[2]` 人）和 `r tissue_totals$tissue[3]`（`r tissue_totals$sample_count[3]` 人）。原始 external query 共 `r external_sample_count` 人，但它们是按冻结模型记录的 cohort 身份指定，**不是随机切出的测试集**。横条较长可能只因某一个 cohort 很大，不能当作更多独立验证；后续癌种检索、表达锚点和结构分析各有资格条件，实际 query 数须回到各自报告核对。
 
 ## cohort 规模与来源异质性
 
@@ -335,7 +335,7 @@ knitr::include_graphics(fig_data2_jpg)
 
 #### 结果解读
 
-当前数据结果显示，各 tissue 的 cohort 数与样本数存在跨量级差异；最大单一 cohort 为 `r largest_cohort$tissue` / `r largest_cohort$cohort`，含 `r largest_cohort$sample_count` 个样本。该差异表明样本多不等于独立外部证据更充分，一个大 cohort 可能在样本级汇总中压过多个较小 cohort。当前画像包含 `r raw_cohort_count` 个 cohort，主分析采用 cohort 等权汇总与 cohort-level bootstrap；尚未实施 leave-one-cohort-out，因此不能声称已验证移除最大 cohort 后的方向稳定性，该问题仍需独立的留一队列敏感性分析。
+解读：图中每个点代表一个 cohort，纵轴按对数刻度显示人数；相同纵向间隔表示相同倍数，而不是相同人数差。最大单一 cohort 是 `r largest_cohort$tissue` 的 `r largest_cohort$cohort`，有 `r largest_cohort$sample_count` 人；全体 cohort 的中位规模为 `r stats::median(data_profile$cohort_profile$sample_count)` 人。当前画像共 `r raw_cohort_count` 个 cohort，因此不能让最大队列仅凭人数在主效应中占更大票数：下游先算队列效应、再对队列等权，并对完整 cohort 重采样。这里尚未做留一队列敏感性分析；要检查最大队列是否支配结论，应固定终点与候选池后移除它重算，比较效应方向和区间。
 
 还需要查看数据来源，因为同一平台或数据库的样本可能共享测量偏差。下面的热图按 tissue 内部归一化，帮助识别是否存在单一 source 主导；这类 tissue 的差异可能同时包含生物差异和来源差异，不能直接视为多次独立重复。
 
@@ -500,7 +500,7 @@ biology_coverage_display$coverage <- scales::label_percent(accuracy = 0.1)(
 render_dt(biology_coverage_display, pageLength = 15)
 ```
 
-该表把组织、队列和锚点逐项列出；如果后续某个队列的锚点效应特别大或无法估计，可回到相应行核对所需基因是否齐全。它与前面的 `r main_feature_count` 特征主输入是两份不同用途的清单：主输入描述 Direct 与 d1 所比较的样本和来源，锚点清单描述用于评价邻居生物状态的表达签名能否计算。两份清单的样本范围和基因范围不能直接互换。
+解读：每行固定一个 tissue、cohort 和 anchor，`genes_found/genes_required` 对应覆盖率，`sample_count` 是该队列进入锚点缓存的样本数。覆盖最低的记录是 `r biology_profile$coverage$cohort[which.min(biology_profile$coverage$coverage)]` 的 `r biology_profile$coverage$anchor[which.min(biology_profile$coverage$coverage)]`：找到 `r biology_profile$coverage$genes_found[which.min(biology_profile$coverage$coverage)]`／`r biology_profile$coverage$genes_required[which.min(biology_profile$coverage$coverage)]` 个基因。若后续该队列效应异常或无法估计，应先核对这一行的 `id_type`、基因数和配对 query 完整性。这里的锚点清单用于判断表达签名能否计算，前面的 `r main_feature_count` 特征主输入用于构造 Direct；二者的基因范围与样本角色不同，不能互换。
 
 ## 讨论与分析
 

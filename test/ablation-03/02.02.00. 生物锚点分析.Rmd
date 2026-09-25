@@ -375,7 +375,7 @@ cohort_jpg <- .ae_save_plot(p_cohort,
 knitr::include_graphics(cohort_jpg)
 ```
 
-解读：森林图是四类锚点的总体答案，热图则回答“这个答案是否只由少数队列造成”。一行是一个外部 cohort，一列是一类锚点；每格纳入 `r min(biology_cohort$query_count)` 至 `r max(biology_cohort$query_count)` 个两臂配对的 query，颜色对应该 cohort 的平均 d1−Direct 差。当前 `r fmt_pct(cohort_negative_fraction)` 的可估计格子为负值，说明负向并非只在一个锚点或一个队列出现；仍应查看正向或幅度异常的格子，核对其基因覆盖、样本数与来源。单格没有独立显著性检验，颜色深浅不能当作 P 值；完整数值在同批次的 `anchor_cohort_deltas.csv` 中。
+解读：热图每行是一个外部 query cohort，每列是一个表达锚点；格子颜色来自该 cohort 内 `r min(biology_cohort$query_count)` 至 `r max(biology_cohort$query_count)` 个两臂配对 query 的平均 d1−Direct utility 差。当前 `r fmt_pct(cohort_negative_fraction)` 的可估计格子为负值，不是单个异常队列造成的整图负向。最负向的是 `r biology_cohort$query_cohort[which.min(biology_cohort$delta_d1_minus_direct)]` 的 `r biology_cohort$anchor[which.min(biology_cohort$delta_d1_minus_direct)]`（`r fmt(min(biology_cohort$delta_d1_minus_direct))`，`r biology_cohort$query_count[which.min(biology_cohort$delta_d1_minus_direct)]` 个 query）；最正向的是 `r biology_cohort$query_cohort[which.max(biology_cohort$delta_d1_minus_direct)]` 的 `r biology_cohort$anchor[which.max(biology_cohort$delta_d1_minus_direct)]`（`r fmt(max(biology_cohort$delta_d1_minus_direct))`）。两端格子应回查签名基因覆盖和来源构成；它们是从当前热图事后选出的描述性极值，单格没有独立 P 值，颜色深浅也不能充当显著性。
 
 ```{r biology-anchor-inference, echo=FALSE}
 biology_inference_widget <- htmltools::tagList()
@@ -392,15 +392,13 @@ if (identical(biology_status, "complete")) {
 biology_inference_widget
 ```
 
-解读：这张数值表供逐项核对森林图：`estimate` 是 cohort 等权配对差，`ci_low/ci_high` 给出区间，`cohort_count/query_count` 说明证据覆盖，`p_value_adj` 是四项可推断锚点范围内的 BH 校正结果。每个 query 先与自身的另一臂配对，再计算 cohort 均值，避免缺失样本组成改变效应。未达预设 cohort 门槛的锚点只保留描述性点估计，区间与 P 值为 NA。即使某项统计证据稳定，也只说明当前连续表达邻居任务的差异；其是否影响生物状态识别，仍要在明确的独立任务上检验。
+解读：表中的 `estimate` 先在同一 query 上相减、再对完整 cohort 等权；`ci_low/ci_high` 来自 cohort bootstrap，`p_value_adj` 在预设的锚点族内做 BH 校正。当前 `r sum(biology_inference$estimate < 0)`／`r nrow(biology_inference)` 项点估计为负；绝对差最大的 `r biology_top_signal$anchor` 为 `r fmt(biology_top_signal$estimate)`，区间 `r paste0("[", fmt(biology_top_signal$ci_low), ", ", fmt(biology_top_signal$ci_high), "]")`，涉及 `r biology_top_signal$cohort_count` 个 cohort。这支持在当前连续表达签名的邻居任务中存在局部接近度代价，不能推广为所有生物任务的损失。若某行未达预设 cohort 门槛，区间和 P 值应保持 NA；即使调整后 P 值很小，也仍须结合差值量级、基因覆盖及共享表达来源判断。
 
 ## 讨论与分析
 
 这项分析把“有无足够基因可计算”与“算出来的邻居是否相近”分开。本次表达覆盖审计有 `r nrow(biology_coverage)` 行 cohort-anchor 记录，分臂 utility 表有 `r nrow(biology_utility)` 行完整配对结果；前者限定能测什么，后者描述两臂各自的水平，真正的比较则是同一 query 的 cohort 等权差。本次四项锚点的结果为 `r biology_inference_summary`。当前按绝对点估计差最大的为 `r biology_top_signal$anchor`：d1−Direct = `r fmt(biology_top_signal$estimate)`，涉及 `r biology_top_signal$cohort_count` 个 cohort，95% CI 为 `r paste0("[", fmt(biology_top_signal$ci_low), ", ", fmt(biology_top_signal$ci_high), "]")`。这里“最大”只是在预设四项中的排序，不是全部生物效用的排名。
 
-本次有 `r nrow(biology_inference)` 类预设锚点进入效应汇总，但它们仍只代表四种表达签名的局部邻居关系。
-
-一种可检验的解释是：队列模型的概率输出保留了较粗的状态边界，却没有原始特征那样精细地排列连续表达分数。它与当前局部负差相容，但仍只是机制假说；若八个高低状态在独立队列间的相对结构仍可复现，便说明局部与整体不能混为一谈，详见 `r structure_report_name`。反过来，若预先选定的独立 pathway、微环境或治疗反应任务也持续下降，就需要重新评估 d1 的生物表示用途。
+四类预设签名测量的是患者附近邻居的连续表达接近度。当前局部负差与“d1 的队列模型概率输出保留粗状态、弱化精细表达排序”的机制假说相容，但本报告没有直接分解这两类信息。结构报告用八个高低状态检验跨队列的较大尺度排序；若那里接近零，也只能说明两种尺度给出的答案不同。更关键的检验是在事先指定的独立 pathway、微环境或治疗反应任务中，观察 d1 的方向是否跨未见队列保持，并与当前局部代价并列报告。
 
 下一轮应先在未见 cohort 中测量与模型输入来源不同的 pathway、治疗反应或结局：固定每个 anchor 的有效 query 和基因覆盖，判据是 d1 在跨队列迁移上有稳定收益或至少落在事先定义的可接受损失范围内。再按癌种、平台和来源分层重算当前局部效应，检查负差是否集中在少数测量条件。现有表达锚点与 Direct/d1 输入有共同来源，不承担独立临床效用的证明责任。
 
