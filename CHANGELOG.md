@@ -6,6 +6,12 @@
 
 ## [Unreleased]
 
+- 为 ablation-03 正式 targets 图增加统计推断补充：decoder 的 cohort 等权区间及预设基准损失比较、队列内配对 query 区间、结构共享节点推断与 matched-bank 设计分布、100% 学习曲线固定训练设计的 query 条件区间，以及几何留一 cohort 敏感性；报告保留不可估计项的 NA 与原因。
+
+- 扩写 ablation-03 的外部癌种线性 readout 解读：说明外部 query 资格、线性分类器与分组调参、队列等权差值的手算例子、pooled balanced accuracy 的不同权重，以及结果表和队列图的判读边界。
+
+- 补充 ablation-03 表示报告的外部癌种标签检索解读：明确 query 资格、跨队列近邻与 reference 定标、Top-k/MRR 的手算示例、队列等权汇总、图中展示门槛和总体区间；纠正三项检索终点的 Holm 校正范围。
+
 - 重写 ablation-03 四份正式报告中公式跳步和含糊的图表解读：补全 Linear CKA 的样本关系矩阵推导、近邻与距离指标的读法，并将检索、readout、scaling、技术标签、decoder、生物锚点和结构复现的结论锚定到本次数字、分析单位及验证边界；通过正式 targets 入口同步 HTML。
 
 - 细化 ablation-03 四份正式 R Markdown 报告的分析动机、关键公式、生活例子和结果边界；明确 cohort 等权、连续锚点效用、跨队列结构及 scaling 中子 bank 对完整 bank 的近邻比较，便于初学者与专业读者核对同一结论。

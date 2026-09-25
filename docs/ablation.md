@@ -188,6 +188,8 @@ flowchart LR
 
 `params$tradeoffs$decoder = TRUE` 时，`.ablation_decode_direct_features()` 拟合 d1→Direct 的 ridge decoder：`gene_pair` 报告 balanced accuracy/Brier，`single_bin` 和 `set_pair` 报告 Spearman 相关。decoder 是机制诊断，不替换 retrieval endpoint。
 
+ablation-03 的补充统计推断由同一 `_targets.R` 中的 `statistical_inference`、`learning_query_inference`、`geometry_sensitivity` 目标生成。decoder 同时报告原样本加权分数和 cohort 等权区间；三个预设损失与 reference 均值／阳性率基准作 cohort 配对比较。检索、readout 与生物锚点的单队列区间只描述队列内 query 波动。结构均值的节点层检验在网络稀疏或模拟覆盖不足时保留 NA；100% 学习曲线的新区间固定训练设计和种子，原设计层 CI／P 值保持 NA。几何留一 cohort 的范围仅作敏感性描述，不是 95% CI。
+
 ## `.ablation_*` 子函数职责地图
 
 下表按业务职责组织，而不是按源码出现顺序罗列。
