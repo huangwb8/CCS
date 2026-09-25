@@ -103,6 +103,7 @@ list(
         "anchor_coverage.csv", "anchor_utility.csv",
         "anchor_contrasts.csv", "anchor_inference.csv",
         "anchor_cohort_deltas.csv", "anchor_missing_pairs.csv",
+        "anchor_per_query_utility.rds",
         "ablation03-biology.rds"
       ))
       if (!all(file.exists(report_inputs))) {
@@ -121,11 +122,43 @@ list(
     )
   ),
   targets::tar_target(
+    statistical_inference,
+    .ablation03_statistical_inference(
+      representation_inputs = representation_inputs,
+      representation_analysis = representation_analysis,
+      biology_analysis = biology_analysis,
+      structural_analysis = structural_analysis,
+      cache_root = runtime_config$cache_root
+    ),
+    format = "file"
+  ),
+  targets::tar_target(
+    learning_query_inference,
+    .ablation03_learning_query_inference(
+      representation_inputs = representation_inputs,
+      representation_analysis = representation_analysis,
+      cache_root = runtime_config$cache_root
+    ),
+    format = "file"
+  ),
+  targets::tar_target(
+    geometry_sensitivity,
+    .ablation03_geometry_sensitivity(
+      representation_inputs = representation_inputs,
+      representation_analysis = representation_analysis,
+      cache_root = runtime_config$cache_root
+    ),
+    format = "file"
+  ),
+  targets::tar_target(
     resource_metrics,
     {
       representation_analysis
       biology_analysis
       structural_analysis
+      statistical_inference
+      learning_query_inference
+      geometry_sensitivity
       .ablation03_read_resource_metrics(list(observability = observability_config))
     }
   ),
@@ -141,6 +174,9 @@ list(
       representation = representation_analysis,
       biology = biology_analysis,
       structural = structural_analysis,
+      statistical_inference = statistical_inference,
+      learning_query_inference = learning_query_inference,
+      geometry_sensitivity = geometry_sensitivity,
       resource_metrics = resource_metrics,
       worker_health = worker_health
     )
@@ -184,7 +220,8 @@ list(
       representation_report_sources
       .ablation03_render_report(
         "02.01.00. 表示分析.Rmd",
-        dependency = representation_analysis,
+        dependency = list(representation_analysis, statistical_inference,
+          learning_query_inference, geometry_sensitivity),
         cache_root = runtime_config$cache_root
       )
     },
@@ -206,7 +243,7 @@ list(
       biology_report_sources
       .ablation03_render_report(
         "02.02.00. 生物锚点分析.Rmd",
-        dependency = biology_analysis,
+        dependency = list(biology_analysis, statistical_inference),
         cache_root = runtime_config$cache_root
       )
     },
@@ -229,7 +266,7 @@ list(
       structural_report_sources
       .ablation03_render_report(
         "02.03.00. 结构复现分析.Rmd",
-        dependency = structural_analysis,
+        dependency = list(structural_analysis, statistical_inference),
         cache_root = runtime_config$cache_root
       )
     },

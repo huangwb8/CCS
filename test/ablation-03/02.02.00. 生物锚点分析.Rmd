@@ -61,6 +61,9 @@ biology_functions_name <- "02.02.00. 生物锚点分析_functions.R"
 result_dir <- .wf_output("ablation-experiment")
 .wf_validate(result_dir)
 manifest <- readRDS(file.path(result_dir, "manifest.rds"))
+statistical_inference <- readRDS(file.path(
+  Sys.getenv("CCS_ABLATION_CACHE_ROOT"), "statistical-inference", "summary.rds"
+))
 .wf_validate(.wf_output("ablation-biology"))
 biology_dir <- .wf_output("ablation-biology")
 biology_files <- file.path(
@@ -410,3 +413,11 @@ biology_inference_widget
 | 配对 | 两臂各有完整 top-`r 15L` 后按同一 query 配对 |
 | 独立单位 | cohort 等权效应与 cohort bootstrap；BH 校正 |
 | 数字 | 正文动态读取当前 `biology_inference`，未复制历史结果 |
+
+## 锚点格子的队列内波动
+
+下表对每个预设 anchor 和 query cohort 在**同一 cohort 内**重采样完整配对 query，给出 utility 差的点式 95% 区间。只有至少 20 个可用 query 的格子才估计区间；其余格子保留 NA 和原因。此区间衡量当前 cohort 内患者组成的波动，与上文跨 cohort 的主效应区间不同。热图中事后选出的极值仍只供追查，不提供单格 P 值。
+
+```{r biology-local-query-inference, echo=FALSE}
+render_dt(statistical_inference$biology_local, pageLength = 20L)
+```

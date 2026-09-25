@@ -186,6 +186,7 @@ write.csv(missing_pairs, file.path(out_dir, "anchor_missing_pairs.csv"), row.nam
 write.csv(contrasts, file.path(out_dir, "anchor_contrasts.csv"), row.names = FALSE)
 write.csv(cohort_deltas, file.path(out_dir, "anchor_cohort_deltas.csv"), row.names = FALSE)
 write.csv(anchor_inference, file.path(out_dir, "anchor_inference.csv"), row.names = FALSE)
+saveRDS(per_query_utility, file.path(out_dir, "anchor_per_query_utility.rds"))
 saveRDS(list(anchors = anchors, coverage = coverage, utility = utility, contrasts = contrasts,
              cohort_deltas = cohort_deltas, inference = anchor_inference,
              retrieval_rows_top15 = nrow(neighbours), source_signature = sig_path,
@@ -208,4 +209,5 @@ cat(sprintf("anchors=%d coverage_rows=%d utility_rows=%d output=%s\n", length(an
     file.path(.ablation03_dir, "02.02.00. 生物锚点分析_functions.R")),
   outputs = file.path(out_dir, c("anchor_coverage.csv", "anchor_utility.csv",
     "anchor_contrasts.csv", "anchor_cohort_deltas.csv", "anchor_inference.csv",
-    "anchor_missing_pairs.csv", "ablation03-biology.rds")))
+    "anchor_missing_pairs.csv", "anchor_per_query_utility.rds",
+    "ablation03-biology.rds")))

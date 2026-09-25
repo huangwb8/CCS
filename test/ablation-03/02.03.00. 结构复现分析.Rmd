@@ -83,6 +83,9 @@ structural_pairs <- read.csv(structural_paths[2L], check.names = FALSE)
 structural_summary <- read.csv(structural_paths[3L], check.names = FALSE)
 structural_matrices <- readRDS(structural_paths[4L])
 structural_result <- readRDS(structural_paths[5L])
+statistical_inference <- readRDS(file.path(
+  Sys.getenv("CCS_ABLATION_CACHE_ROOT"), "statistical-inference", "summary.rds"
+))
 directional_paths <- file.path(
   structural_dir,
   c(
@@ -688,3 +691,17 @@ render_dt(
 | 独立单位 | cohort 节点而非队列对 |
 | 敏感性 | matched-bank 范围保留原有解释，不冒充置信区间 |
 | 数字 | 所有内联效应与图表均读取当前 CSV/RDS |
+
+## 节点层推断与设计敏感性补充
+
+以下四行分别对应正反方向和全部／同癌种队列对。均值、辅助中位数及 d1 不低于 Direct 的比例都按**共享 cohort 节点**重采样。均值的零假设检验使用删一节点 jackknife 标准误，并先在当前网络上用节点效应及边噪声模拟检查 95% 覆盖；节点稀疏或覆盖未通过的格子保留 NA。有效 P 值在预设四行比较族内采用 Holm 校正。队列对数只是网络边数，不是独立样本数。
+
+```{r structural-node-inference, echo=FALSE}
+render_dt(statistical_inference$structural, pageLength = 4L)
+```
+
+Matched-bank 的 2.5%—97.5% 分位范围只描述当前患者及冻结模块池下，20 次组成设计的分布中心。重复设计共享模块，故此处不报告人口层 P 值，也不把分位范围写成新 cohort 的 95% 置信区间。
+
+```{r matched-bank-distribution, echo=FALSE}
+render_dt(statistical_inference$matched_bank, pageLength = 4L)
+```

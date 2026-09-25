@@ -14,12 +14,19 @@ formal 分析与轻量验收使用相同的 targets 图、CCS 版本、参数、
 | `02.01.00` | 几何、检索、readout、learning curve、scaling、decoder | `ablation-experiment` |
 | `02.02.00` | 生物锚点效用与队列级推断 | `ablation-biology` |
 | `02.03.00` | 双向结构复现与 matched-bank 敏感性 | `ablation-structural-reproducibility` |
+| `02.04.00` | decoder、局部 query、共享节点及固定训练设计的补充推断 | `statistical-inference` |
 
 R Markdown 文件只消费已完成 target 产物，用于报告渲染，不参与科学计算调度。
 四份 HTML 均由正式依赖图中的 file target 直出；不得在 `tar_make()` 之外用独立
 runner 生成正式报告。
 生物锚点报告附带配对效应、cohort 异质性和基因覆盖三张 PDF，并在
 `reports/tables/` 导出队列级配对差值，供核对图中每个格子的样本数与方向。
+补充推断由 `statistical_inference`、`learning_query_inference` 和
+`geometry_sensitivity` 三个 target 生成；报告分别依赖这些 target。
+decoder 的 cohort 等权区间与原样本加权分数分列；结构均值检验先检查共享节点
+和模拟覆盖，稀疏网络保留 NA；100% 学习曲线的新区间只针对固定训练设计下
+的 query cohort，原设计层 CI/P 值仍为 NA。几何诊断报告留一 reference cohort
+敏感性，不把其范围标作 95% CI。
 
 ## 正式运行
 

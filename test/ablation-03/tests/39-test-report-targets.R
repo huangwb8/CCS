@@ -27,6 +27,18 @@ stopifnot(
     grepl(source_targets[i], manifest$command[match(expected[i], manifest$name)], fixed = TRUE)
   }, logical(1)))
 )
+inference_targets <- c("statistical_inference", "learning_query_inference",
+  "geometry_sensitivity")
+stopifnot(
+  all(inference_targets %in% manifest$name),
+  all(grepl("statistical_inference",
+    manifest$command[match(c("representation_report", "biology_report",
+      "structural_report"), manifest$name)], fixed = TRUE)),
+  all(vapply(c("learning_query_inference", "geometry_sensitivity"),
+    function(target) grepl(target,
+      manifest$command[match("representation_report", manifest$name)], fixed = TRUE),
+    logical(1)))
+)
 
 target_lines <- readLines("_targets.R", warn = FALSE, encoding = "UTF-8")
 launcher_lines <- readLines(

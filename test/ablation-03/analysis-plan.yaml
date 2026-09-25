@@ -9,6 +9,9 @@ requirements:
   - id: "REQ-03"
     description: "retrieval、readout、learning curve 与 decoder 具备内容键多版本缓存"
     units: ["02.01.00"]
+  - id: "REQ-04"
+    description: "补充推断使用冻结输入、显式抽样单位及同一正式 targets 图；无效区间或检验记录原因"
+    units: ["02.04.00"]
 units:
   - id: "01.01.00"
     name: "数据准备"
@@ -122,3 +125,24 @@ units:
       - "reports/figures/02.03.00. structural-matched-bank-sensitivity.pdf"
       - "reports/tables/02.03.00. directional-summary.csv"
     completion: "双向结构结果、审计表、来源凭据与 HTML 均有效"
+  - id: "02.04.00"
+    name: "统计推断补充"
+    purpose: "补充 decoder、局部 query、结构节点、100% 学习曲线及设计敏感性"
+    depends_on: ["01.02.00", "02.01.00", "02.02.00", "02.03.00"]
+    inputs:
+      - "01-representations/representation-inputs.rds"
+      - "ablation-experiment/tradeoffs.rds"
+      - "ablation-experiment/learning_curve.rds"
+      - "ablation-biology/anchor_per_query_utility.rds"
+      - "ablation-structural-reproducibility/structural_directional_pair_comparisons.csv"
+    code: ["targets/statistical_inference.R", "_targets.R"]
+    products:
+      - "statistical-inference/summary.rds"
+      - "statistical-inference/learning-query.rds"
+      - "statistical-inference/geometry-leave-one.rds"
+    cache: true
+    reports:
+      - "02.01.00. 表示分析.html"
+      - "02.02.00. 生物锚点分析.html"
+      - "02.03.00. 结构复现分析.html"
+    completion: "正式 targets metadata、估计量与抽样单位、有效重复数、原学习分数对照和报告数字均通过"
