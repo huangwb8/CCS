@@ -292,18 +292,18 @@ reference 与 external bank 分别包含 `r structural_reference_modules` 和 `r
 
 ## 指标导读
 
-| 指标 | 定义与边界 |
-|---|---|
-| 结构相似度 | 同一组高低状态的质心距离在跨队列之间的 Spearman；越高表示距离排序越可复现 |
-| d1−Direct | 同一个队列对的结构相似度差；不能独自证明无信息损失 |
-| `r "95%"` CI | 至少 `r 4L` 个 cohort 且 `r 3L` 个队列对时使用 cohort 节点 bootstrap；否则仅保留描述性点估计 |
-| Matched-bank 范围 | 固定目标数据下改变 bank 组成的敏感性；不是抽样置信区间 |
+| 指标 | 输入与计算 | 尺度、方向及不能推出的结论 |
+|---|---|---|
+| 结构相似度 | 在同一表示下，对两个 cohort 共有的高低状态计算质心两两距离，再对两份距离排序求 Spearman | −1 至 1；越高表示这组状态的远近次序越可复现，不表示患者逐一相同或绝对距离相等 |
+| d1−Direct | 对同一个队列对，用 d1 结构相似度减 Direct 结构相似度 | 零表示当前队列对两臂相同；正值偏向 d1，跨零不证明无信息损失 |
+| `r "95%"` CI | 达到至少 `r 4L` 个 cohort、`r 3L` 个队列对时，以 cohort 节点为单位重采样 | 反映队列节点变动；共享 cohort 的队列对不能当成独立重复 |
+| Matched-bank 范围 | 固定目标样本与模块预算，多次更换 tissue 匹配的 bank 组成 | 最小至最大值只表示本次设计敏感性，不是新患者的概率覆盖区间 |
 
 ## 独立队列间的生物结构可复现性
 
 可以把四类表达锚点各自的“高”和“低”想成八个地图地标。每个目标 cohort 内分别取 anchor 分数两端三分之一，形成相对高低状态；因此“乳腺癌队列中的免疫高”和“肺癌队列中的免疫高”都只表示各自队列内较高，不要求两者达到同一绝对表达值。每个状态至少有 `r structural_result$method$min_entity_n` 个样本；常量分数或分位边界并列时不强行切分。Direct 和 d1 各自计算地标的质心距离，再比较不同 cohort 中**地标远近的排序**是否一致。排序越相似，说明这套较粗的生物关系越容易跨队列复现；它不表示患者逐一相同。
 
-计算可以拆成三步：先对状态 $e$ 在队列 $c$ 中的样本坐标取均值，得到质心 $\boldsymbol\mu_{c,e}^{(m)}$；再算任意两个状态质心的欧氏距离 $D_{c,e,f}^{(m)}=\|\boldsymbol\mu_{c,e}^{(m)}-\boldsymbol\mu_{c,f}^{(m)}\|_2$；最后对两个队列共同拥有的状态，只取距离矩阵的上三角，计算 $S_{a,b}^{(m)}=\operatorname{Spearman}(D_a^{(m)},D_b^{(m)})$。同一对队列的效应是 $\Delta_{a,b}=S_{a,b}^{(d1)}-S_{a,b}^{(Direct)}$。好比先量八个地标两两相距多远，再问换一座城市后“哪些地标更近、哪些更远”的排序能否保留。Spearman 接近 1 表示排序较一致，接近 0 表示没有稳定的排序关系；它不比较绝对距离，也不能证明高低状态的临床定义跨队列相同。
+计算按样本、状态、队列对逐层进行。第一步，在表示 $m$ 中对 cohort $c$ 的状态 $e$ 所有样本坐标取平均，得到该状态的质心 $\boldsymbol\mu_{c,e}^{(m)}$。第二步，在**同一 cohort、同一表示**中计算两个状态 $e,f$ 的质心欧氏距离 $D_{c,e,f}^{(m)}=\|\boldsymbol\mu_{c,e}^{(m)}-\boldsymbol\mu_{c,f}^{(m)}\|_2$。第三步，取 cohort $a,b$ 共有的状态，分别列出所有不重复状态对的距离；对两列距离的名次求相关，得到 $S_{a,b}^{(m)}=\operatorname{Spearman}(D_a^{(m)},D_b^{(m)})$。例如两个队列都把“免疫高”和“免疫低”排成最远的一对，便会提高排序的一致性；它们相差的绝对距离仍可能不同。最后在**同一个队列对**上相减，$\Delta_{a,b}=S_{a,b}^{(d1)}-S_{a,b}^{(Direct)}$，才是在问换成 d1 后跨队列排序更稳定还是更不稳定。相关接近 1 表示这组状态的远近次序较一致，接近 0 表示没有稳定排序关系；它不证明高低状态的临床定义跨队列相同。
 
 正向使用 reference d1 modules 投影 external targets，反向使用 external d1 modules 投影 reference targets。这样做像用两套不同学校的阅卷经验去看另一侧的答卷，用于检查结论是否过度依赖某一套模型。**反向 Direct 仍沿用正向的冻结特征合同**，只交换尺度拟合侧；所以反向是固定 Direct 基准下的敏感性检查，不能写成两臂所有学习步骤均完全对称地重新外部化。
 
@@ -329,7 +329,7 @@ render_dt(
 render_dt(structural_entity_audit, pageLength = 12)
 ```
 
-解读：当前结果显示，正向共有 `r structural_all$cohort_count` 个 cohort 进入有效队列对比较，候选总数为 `r manifest$external_candidate_cohort_count`。表中记录有效状态的样本与基因数；应核查候选到有效集合的差异，而不能预设所有候选都满足状态资格。该表展示有效实体的构造范围，提示高低状态首先是队列内部的相对位置。样本不足或边界并列会使某些状态不可估计；这种排除应与候选范围一起报告，不能将其当作跨平台统一阈值或绝对生物状态。
+解读：这张审计表先说明哪些 cohort 实际形成了可比较的高低状态：候选外部队列有 `r manifest$external_candidate_cohort_count` 个，正向有效比较涉及 `r structural_all$cohort_count` 个。每行的状态样本数应达到 `r structural_result$method$min_entity_n`；未达到、签名基因不足或分位边界并列的状态，不会被强行填补。因而后续结构相似度只适用于**两队列共同具备的状态**，不能自动推广到所有候选 cohort 或把 cohort 内的“高”当作跨平台统一的绝对阈值。
 
 ```{r structural-pair-table, echo=FALSE, interp_check=TRUE}
 render_dt(
@@ -342,7 +342,7 @@ render_dt(
 )
 ```
 
-解读：当前结果显示，正向共有 `r structural_all$cohort_pair_count` 个有效队列对，改善最大与下降最大差值分别为 `r fmt(structural_best$delta_d1_minus_direct)` 和 `r fmt(structural_worst$delta_d1_minus_direct)`。这些行共享 cohort，不能当作相互独立的实验重复。表中展示的是同一批生物实体在不同队列中的距离排序差异。某个队列反复出现在许多行中，提示这些行之间共享信息；最大正负差适合定位敏感队列，但不能被当作额外增加的独立统计证据。
+解读：正向共有 `r structural_all$cohort_pair_count` 个有效队列对。差值最大的 `r structural_best$cohort_a` 与 `r structural_best$cohort_b` 为 `r fmt(structural_best$delta_d1_minus_direct)`；最负向的 `r structural_worst$cohort_a` 与 `r structural_worst$cohort_b` 为 `r fmt(structural_worst$delta_d1_minus_direct)`。每行先对同一对 cohort 计算 Direct、d1 的状态距离排序相关，再相减；所以正负表示该队列对在 d1 下排序更一致或更不一致。极端行适合回查共有状态数 `shared_entity_count` 与参与比较的距离数 `compared_distance_count`。多个队列对可能反复共享同一 cohort，不能把表的 `r structural_all$cohort_pair_count` 行当成同样多次独立验证。
 
 ```{r figure-structural-paired, interp_check=TRUE}
 # ==== Figure 11: Cross-cohort structural similarity (user-adjustable parameters) ====
@@ -532,7 +532,7 @@ fig13_jpg <- .ae_save_plot(
 knitr::include_graphics(fig13_jpg)
 ```
 
-解读：现在保持同一个格子位置与色阶，换成 d1 的队列对结果。平均相似度为 `r fmt(structural_all$mean_d1_similarity)`，相对 Direct 的平均差为 `r fmt(structural_all$mean_delta, 4L)`；若某些格子明显变色而多数变化很小，就说明表示改写对不同队列对并不均匀。逐格比较用于定位值得排查的 cohort，不能从许多格子中事后挑出最亮的当作新发现。这里仅比较四个锚点构成的八种相对状态，不意味着所有分子或临床信息都保留；总体统计判断仍以共享 cohort 节点的重采样区间为准。
+解读：此图沿用 Direct 热图的格子位置和 −1 至 1 色阶，所以同一个格子的颜色差才对应同一对 cohort 的结构变化。d1 的平均相似度为 `r fmt(structural_all$mean_d1_similarity)`，相对 Direct 的平均差为 `r fmt(structural_all$mean_delta, 4L)`；变化最正向的队列对是 `r structural_best$cohort_a` 与 `r structural_best$cohort_b`（差 `r fmt(structural_best$delta_d1_minus_direct)`），最负向的是 `r structural_worst$cohort_a` 与 `r structural_worst$cohort_b`（差 `r fmt(structural_worst$delta_d1_minus_direct)`）。这些具体格子说明平均值可能遮住方向不同的队列对；挑选极端格子只用于追查共享状态数和来源构成，不可事后当作新发现。这里仅比较四个锚点构成的八种相对状态，总体不确定性仍以共享 cohort 节点的重采样区间判断。
 
 ```{r structural-summary-table, echo=FALSE, interp_check=TRUE}
 render_dt(
@@ -548,7 +548,7 @@ render_dt(
 )
 ```
 
-解读：全体队列对包含不同癌种之间的比较；同癌种子集则把“乳腺癌对肺癌本来就不同”这一解释尽量排开，只问相同癌种、不同队列的地标排序。当前有 `r structural_same_cancer_pair_count` 对有效同癌种队列；结果为 `r structural_same_cancer_summary`。若该子集方向与全体接近，说明总体结果不只由跨癌种组成造成；若分歧较大，应先排查具体癌种和队列。它仍不能消除平台、取样和疾病阶段差异，也不能替代完全独立的生物终点；节点 bootstrap 用 cohort 而非共享节点的队列对作为重复单位。
+解读：全体队列对混合了同癌种和不同癌种的比较；同癌种子集只保留癌种标签相同、cohort 不同的队列对，以减少“癌种本来不同”对状态排序的影响。当前有效同癌种队列对有 `r structural_same_cancer_pair_count` 对，`r structural_same_cancer_summary`；全体队列对的平均差为 `r fmt(structural_all$mean_delta, 4L)`。应并排看这两个估计及各自区间：同癌种结果靠近零，只说明这一子集尚未观察到清楚的平均方向，不能推出每个队列对都无损，也不能排除平台、取样和疾病阶段差异。区间按共享 cohort 节点重采样，不把 `r structural_same_cancer_pair_count` 对比较当成同样多次独立实验。
 
 把同癌种分析想成只在同一科目中比较不同学校的成绩：它减少了“科目本来不同”的解释，却没有让学校的设备和学生构成一致。表中的 `cohort_count` 是独立节点数，`cohort_pair_count` 是这些节点组成的比较数；后者更大不代表多出了同样多份独立生物证据。
 
@@ -669,7 +669,7 @@ render_dt(
 )
 ```
 
-解读：当前结果显示，正向 matched-bank 效应中位数为 `r fmt(structural_matched_forward_all$mean_delta_median, 4L)`，反向为 `r fmt(structural_matched_reverse_all$mean_delta_median, 4L)`。相同 module 数限制了预算差异，但仍不能消除两方向 target 集合与 Direct 特征确定来源的不同。汇总表展示了每个方向在重复 bank 设计下的效应分布，提示同预算比较仍有剩余限制。最小和最大值来自有限次数的设计探索，它们不是概率覆盖区间，也不应据此给出对所有可能 bank 的保证。
+解读：在每侧固定 `r structural_matched_modules` 个模块并保持 tissue 匹配后，正向重复设计的 d1−Direct 中位效应为 `r fmt(structural_matched_forward_all$mean_delta_median, 4L)`，本次设计范围为 `r fmt(structural_matched_forward_all$mean_delta_min, 4L)` 至 `r fmt(structural_matched_forward_all$mean_delta_max, 4L)`；反向中位效应为 `r fmt(structural_matched_reverse_all$mean_delta_median, 4L)`，范围为 `r fmt(structural_matched_reverse_all$mean_delta_min, 4L)` 至 `r fmt(structural_matched_reverse_all$mean_delta_max, 4L)`。若某一方向的范围横跨零，说明固定目标人群时只换 bank 组成即可改变效应方向；若不跨零，也只说明这批有限设计较稳定。这些最小／最大值不是新患者的置信区间，两方向还换了 target 集合，并共享冻结 Direct 特征合同，不能解释为完全对称的重复实验。
 
 ## 讨论与分析
 

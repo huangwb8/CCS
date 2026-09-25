@@ -182,11 +182,12 @@ plot_label <- function(en, zh) if (plot_zh) zh else en
 
 ## 指标导读
 
-| 指标 | 定义与边界 |
-|---|---|
-| Anchor utility | `exp(-绝对分数差)`；同分数时为 1，差距越大越靠近 0，越高表示邻居表达状态越接近；不是临床效用 |
-| d1−Direct | cohort 等权的配对差；正值表示 d1 的 utility 较高 |
-| `r "95%"` CI 与 BH 校正 P 值 | cohort bootstrap 区间与组内多重比较；CI 跨零不证明等价 |
+| 指标 | 怎样从数据得到 | 尺度、方向与边界 |
+|---|---|---|
+| 基因覆盖率 | 当前 cohort 可用的签名基因数／预设签名基因数 | 0–1；1 表示基因齐全，只衡量能否按同一基因集计算，不衡量邻居质量 |
+| Anchor utility | 先对每个 query–邻居对计算 $\exp(-|s_q-s_j|)$，再平均前 `r 15L` 个邻居 | 0–1；同分数为 1，差得越远越接近 0；是表达状态接近度，不是临床效用 |
+| d1−Direct | 同一 query 的两臂 utility 先相减，再在 cohort 内和 cohort 间依次平均 | 零表示当前锚点的平均接近度相同；正值是 d1 更高，负值是 Direct 更高 |
+| `r "95%"` CI 与 BH 校正 P 值 | 对完整 cohort 重采样得到区间，锚点组内校正检验 | 区间反映队列间波动；跨零不证明等价，样本级区间不能替代队列级区间 |
 
 双侧 sign-flip 检验在 cohort 数不超过 `r 18L` 时枚举符号组合，否则采用 Monte Carlo 加一校正；保留原有统计实现与 seed。
 
@@ -251,7 +252,7 @@ coverage_jpg <- .ae_save_plot(p_coverage,
 knitr::include_graphics(coverage_jpg)
 ```
 
-解读：外部 query 包含 `r external_cohort_count` 个 cohort × `r length(anchor_order)` 个锚点组合，其中 `r partial_external_count` 个组合的基因覆盖率未达到 100%；缺失分数邻居对共 `r missing_pair_count` 个。覆盖率只说明签名基因在表达数据中是否可用，不代表邻居效用，也不能证明锚点与模型输入独立。
+解读：横轴每个点是一项 cohort–锚点的基因覆盖率，1 表示该队列具备该签名的全部基因。当前 `r external_cohort_count` 个外部 cohort 与 `r length(anchor_order)` 个锚点组成的审计中，有 `r partial_external_count` 个组合覆盖不足 100%；实际缺失分数的 query–邻居对为 `r missing_pair_count` 个。部分覆盖意味着不同队列的分数可能由不同基因子集计算，若该队列效应很大，应先检查缺了哪些基因及最终配对 query 是否减少。基因齐全也只保证可按预设签名计算，不能证明这些表达签名独立于 CCS 输入或已验证生物效用。
 
 ```{r biology-anchor-coverage, echo=FALSE}
 biology_coverage_widget <- htmltools::tagList()
@@ -261,7 +262,7 @@ if (identical(biology_status, "complete")) {
 biology_coverage_widget
 ```
 
-解读：当前结果显示，coverage 表保留 `r nrow(biology_coverage)` 行 anchor/cohort 覆盖信息。实际基因覆盖与有效 query 范围共同决定可解释性；高覆盖也不意味着 signature 与 CCS 输入完全独立。表格展示的是基因集合能否被当前表达数据支持，提示不同队列可用的基因子集可能不同。覆盖不足会影响分数含义，不能只看最终均值；后续若发现极端效应，应同时核对该队列的基因覆盖和缺失邻居数量。
+解读：coverage 表的 `r nrow(biology_coverage)` 行分别对应一个 cohort–锚点组合；`genes_required` 是预设基因数，`genes_found` 是该 cohort 实际能用的基因数，二者相除才是 `coverage`。对效果异常的队列，应先在这一行核对基因缺口，再到缺失分数表核对 query–邻居对是否完整；若不同队列依据的基因子集不同，同名锚点分数也未必严格可比。`status=estimable` 仅表示达到计算门槛，不能由此推断签名与模型输入独立。
 
 ```{r biology-anchor-utility, echo=FALSE}
 biology_utility_widget <- htmltools::tagList()
@@ -271,13 +272,13 @@ if (identical(biology_status, "complete")) {
 biology_utility_widget
 ```
 
-解读：当前结果显示，表中 `r nrow(biology_utility)` 行给出同一批完整配对 query 的分臂 utility。较高值表示连续表达分数更接近。此处分臂样本均值及样本重采样的 95% 置信区间用于描述，两臂差异的正式比较使用下面 cohort 等权差及其区间。这里展示连续锚点的一致程度，而非旧癌种标签的一致程度。样本较多的队列会影响单臂样本均值；其区间没有处理队列内依赖，不能用来判断向新队列推广的精度，主要结论应以配对后队列等权的推断为准。
+解读：表中每个锚点有 Direct 和 d1 两行，`utility` 是各自找到的前 `r 15L` 个邻居与 query 的平均表达接近度。例如增殖锚点的 Direct 为 `r fmt(biology_utility$utility[biology_utility$anchor == "proliferation" & biology_utility$representation == "Direct-GSClassifier"])`，d1 为 `r fmt(biology_utility$utility[biology_utility$anchor == "proliferation" & biology_utility$representation == "Cohort-d1"])`；这两个数是对同一批完整配对 query 分别汇总的单臂水平，不能直接拿它们的差代替后面的 cohort 等权效应。表内单臂区间按样本重采样，只描述当前 query 样本均值的变化，没有处理同 cohort 内依赖；向新 cohort 推广的判断应看下一节的配对差与 cohort bootstrap 区间。
 
 读这张表时，可以先在同一 anchor 下对照两行分臂 utility：这回答“各自找到的邻居有多近”，尚未回答“换表示后平均改变多少”。后一个问题必须回到每个 query 的成对差 $u_{q,d1}-u_{q,Direct}$；若一个队列患者很多，不能让它仅凭人数盖过其他外部队列。
 
 ### 配对效应与不确定性
 
-本节为什么改用配对效应？因为同一患者的基础表达状态固定，换的是选邻居的表示。对 cohort $c$ 先算 $\bar\Delta_c=n_c^{-1}\sum_{q\in c}(u_{q,d1}-u_{q,Direct})$，再对可估计 cohort 等权平均 $\bar\Delta=C^{-1}\sum_c\bar\Delta_c$。零表示两臂在这一连续签名上的平均邻居接近程度相同；正值偏向 d1，负值偏向 Direct。cohort bootstrap 重新抽取的是整组 cohort，而非把同队列的患者当成互不相关的重复；因此区间反映当前外部队列之间的波动。
+本节改用配对效应，是因为同一患者的表达分数固定，变化的是 Direct 或 d1 为其选出的邻居。先对每个 query 计算 $\Delta_q=u_{q,d1}-u_{q,Direct}$；例如某患者的 d1 utility 为 0.55、Direct 为 0.65，则该患者的 $\Delta_q=-0.10$，表示 d1 邻居的连续签名平均接近度低 0.10。然后在 cohort $c$ 内平均，$\bar\Delta_c=n_c^{-1}\sum_{q\in c}\Delta_q$；最后对 $C$ 个可估计 cohort 各给一票，$\bar\Delta=C^{-1}\sum_c\bar\Delta_c$。零表示当前锚点两臂平均接近度相同，正值偏向 d1，负值偏向 Direct。cohort bootstrap 每次重新抽取整组 cohort，因而区间反映队列间波动，不把同队列数百名患者误当成数百个独立外部验证。
 
 ```{r figure-biology-anchor-inference, echo=FALSE, interp_check=TRUE}
 fig_inference <- list(width_in = 9.2, height_in = 4.7, base_size = 10,
@@ -328,7 +329,7 @@ inference_jpg <- .ae_save_plot(p_inference,
 knitr::include_graphics(inference_jpg)
 ```
 
-解读：读这张配对效应图时，先看竖向零线，再看每个锚点的圆点及横线。圆点是把同一 query 的 d1−Direct 效用差先在各 cohort 内平均、再对 cohort 等权平均；横线是重抽完整 cohort 得到的 95% 区间。圆点在左侧表示 Direct 找到的邻居在该表达签名上更接近；在右侧才表示 d1 更接近。当前四项结果为 `r biology_inference_summary`。这些负差是当前局部表达任务中的实测代价，不应因为 Direct 的输入更靠近表达就忽略，也不应误写成 d1 在所有生物任务上都差。P 值采用配对 sign-flip 并对可推断锚点做 BH 校正；Monte Carlo P 值受 `r biology_inference$n_boot[1L]` 次模拟的分辨率限制，图中只显示到 `<0.001`，不以星号替代效应大小。
+解读：圆点是同一 query 的 d1−Direct 效用差先在 cohort 内平均、再对 cohort 等权平均；横线是重抽完整 cohort 得到的 95% 区间，零线左侧表示 Direct 的邻居在该表达签名上更接近。当前 `r biology_inference_summary`。绝对差最大的预设锚点是 `r biology_top_signal$anchor`，点估计 `r fmt(biology_top_signal$estimate)`，涉及 `r biology_top_signal$cohort_count` 个 cohort，区间为 `r paste0("[", fmt(biology_top_signal$ci_low), ", ", fmt(biology_top_signal$ci_high), "]")`。这是本次**局部连续表达邻居任务**的可量化代价；它不说明 d1 在所有生物任务上都较差。P 值采用配对 sign-flip，并对可推断锚点做 BH 校正；应与效应大小、区间和基因覆盖一起读，而非只凭星号或阈值下结论。
 
 ### 队列间效应分布
 

@@ -391,7 +391,7 @@ knitr::include_graphics(fig_data3_jpg)
 
 #### 结果解读
 
-当前数据结果显示，在 `r nrow(tissue_totals)` 个 tissue 中，GEO、cBioPortal 与 UCSC Xena 的支撑比例存在明显差异；图中按 tissue 内部归一化，避免大样本组织遮蔽小组织。**该差异提示，单一 source 占主导的 tissue 不能被当作生物学重复。** 当前结果只完成 source 构成审计，leave-one-source-out 敏感性分析的已完成轮数为 `r 0L`；后续跨来源验证应以 source 分层数据为输入，并预设“移除主要来源后效应方向仍一致”的判据。
+当前数据结果显示，这张热图的每一行先固定一个 tissue，再把该 tissue 的样本按 GEO、cBioPortal、UCSC Xena 分成占比；因此每行合计为 100%，颜色深浅不是全项目的样本占比。在 `r nrow(tissue_totals)` 个 tissue 中，来源最集中的一行是 `r data_profile$source_profile$tissue[which.max(data_profile$source_profile$tissue_fraction)]`：`r data_profile$source_profile$source_system[which.max(data_profile$source_profile$tissue_fraction)]` 占 `r scales::percent(max(data_profile$source_profile$tissue_fraction), accuracy = 0.1)`。这个数说明该 tissue 的观测主要来自同一种数据来源，不能把同一来源内的许多样本当成跨来源重复。当前只完成构成审计，尚未进行 leave-one-source-out；后续应逐次移除主要来源并重算预设终点，检查效应方向是否保持，才可评价来源依赖。
 
 ## Biology anchor 数据审计
 
@@ -416,7 +416,7 @@ biology_anchor_summary_display$min_coverage <- scales::label_percent(
 render_dt(biology_anchor_summary_display, pageLength = 10)
 ```
 
-解读：本次数据中，表格展示 `r nrow(biology_profile$anchor_summary)` 类 anchor 的基因覆盖中位数与最低值。最低覆盖偏低提示部分队列的分数依据较少，跨队列效应可能受到测量范围影响。这里的可计算状态只反映基因数门槛，不保证查询样本及两臂全部邻居的分数完整；最终成对覆盖须结合主报告的缺失审计判断，也不能将基因覆盖率直接解释为生物学预测性能。
+解读：表中 `r nrow(biology_profile$anchor_summary)` 行对应预设的锚点签名，每行同时给出预设基因数、各 cohort 覆盖的中位数和最低值。中位覆盖最低的是 `r biology_anchor_rank$anchor[nrow(biology_anchor_rank)]`，为 `r scales::percent(biology_anchor_rank$median_coverage[nrow(biology_anchor_rank)], accuracy = 0.1)`；它提示该签名在典型 cohort 中使用的基因子集可能更不完整。`estimable` 仅表示该 cohort 至少有两个签名基因可算分数，不保证 query 及两臂前 15 个邻居均有完整分数。进入效用比较前，应到生物锚点报告核对缺失邻居对与配对 query 数；覆盖率本身不是 d1 的生物学表现。
 
 ### Anchor 覆盖率分布图
 
