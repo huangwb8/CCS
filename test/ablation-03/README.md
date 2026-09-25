@@ -19,6 +19,8 @@ formal 分析与轻量验收使用相同的 targets 图、CCS 版本、参数、
 R Markdown 文件只消费已完成 target 产物，用于报告渲染，不参与科学计算调度。
 四份 HTML 均由正式依赖图中的 file target 直出；不得在 `tar_make()` 之外用独立
 runner 生成正式报告。
+报告共用 `templates/` 下的 Liquid Glass 样式与交互模板；模板文件纳入四个报告的
+targets 文件依赖。R 代码默认折叠，可在 HTML 中按需展开。
 生物锚点报告附带配对效应、cohort 异质性和基因覆盖三张 PDF，并在
 `reports/tables/` 导出队列级配对差值，供核对图中每个格子的样本数与方向。
 补充推断由 `statistical_inference`、`learning_query_inference` 和

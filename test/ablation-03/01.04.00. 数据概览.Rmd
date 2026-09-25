@@ -15,7 +15,7 @@ output:
     number_sections: true
     theme: default
     highlight: tango
-    code_folding: show
+    code_folding: hide
     includes:
       after_body: "templates/liquid_glass_lightbox.html"
     css: "templates/liquid_glass_theme.css"

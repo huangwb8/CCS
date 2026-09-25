@@ -189,7 +189,9 @@ list(
       "scripts/helpers/nature_colors.R",
       "scripts/helpers/nature_theme.R",
       "scripts/helpers/plot_delivery_helpers.R",
-      "scripts/helpers/datatables_helper.R"),
+      "scripts/helpers/datatables_helper.R",
+      "templates/liquid_glass_theme.css",
+      "templates/liquid_glass_lightbox.html"),
     format = "file"
   ),
   targets::tar_target(
@@ -211,7 +213,9 @@ list(
       "scripts/helpers/nature_colors.R",
       "scripts/helpers/nature_theme.R",
       "scripts/helpers/plot_delivery_helpers.R",
-      "scripts/helpers/datatables_helper.R"),
+      "scripts/helpers/datatables_helper.R",
+      "templates/liquid_glass_theme.css",
+      "templates/liquid_glass_lightbox.html"),
     format = "file"
   ),
   targets::tar_target(
@@ -234,7 +238,9 @@ list(
       "scripts/helpers/nature_colors.R",
       "scripts/helpers/nature_theme.R",
       "scripts/helpers/plot_delivery_helpers.R",
-      "scripts/helpers/datatables_helper.R"),
+      "scripts/helpers/datatables_helper.R",
+      "templates/liquid_glass_theme.css",
+      "templates/liquid_glass_lightbox.html"),
     format = "file"
   ),
   targets::tar_target(
@@ -257,7 +263,9 @@ list(
       "scripts/helpers/nature_colors.R",
       "scripts/helpers/nature_theme.R",
       "scripts/helpers/plot_delivery_helpers.R",
-      "scripts/helpers/datatables_helper.R"),
+      "scripts/helpers/datatables_helper.R",
+      "templates/liquid_glass_theme.css",
+      "templates/liquid_glass_lightbox.html"),
     format = "file"
   ),
   targets::tar_target(
