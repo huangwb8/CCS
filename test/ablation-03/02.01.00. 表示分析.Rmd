@@ -749,7 +749,7 @@ render_dt(overview_table, pageLength = 12)
 |---|---|---|---|
 | Linear CKA | 同一批 reference 样本在两种表示中的中心化样本关系矩阵；下节推导公式 | 0–1；越高表示整体关系图越相似；区间量化队列组成敏感性 | 检查整体几何是否重排，不是保留生物信息的百分比 |
 | 距离 Spearman | 对抽到的同一组样本对分别计算两臂距离，再比较距离名次 | −1 至 1；1 表示排序完全一致；区间量化队列组成敏感性 | 检查远近排序；不比较绝对距离大小 |
-| kNN Jaccard | 每个样本的两份近邻名单取交集人数／并集人数，再对样本平均 | 0–1；越高表示具体邻居越重合；区间量化队列组成敏感性 | 补充局部变化；数值不是邻居重合的直接百分比 |
+| kNN Jaccard | 每个样本的两份近邻名单取交集人数／并集人数，再对样本平均 | 0–1；越高表示具体邻居越重合；区间只量化固定完整 atlas 下的 query cohort 组成 | 补充局部变化；数值不是邻居重合的直接百分比 |
 | Top-k label rate、MRR@k | 前 $k$ 名同癌种邻居比例；首次同癌种命中的倒数排名，$k$ 名外记零 | 0–1；越高越容易从邻居找回旧癌种；两臂差以零为参照 | 保护性旧标签任务，不等于新亚型发现能力 |
 | Cohort accuracy、pooled balanced accuracy | 分别对外部队列准确率等权平均、对合并样本中各癌种召回率等权平均 | 0–1；越高表示旧癌种越可读；两种权重不相同 | 查旧癌种信息是否受损，不能用一项替换另一项 |
 | Technical excess | 同技术标签近邻比例减同癌种、其它队列 reference 的背景比例 | 零表示与背景相同，正值表示更易按技术标签聚集 | 两臂差中的共同背景会抵消，不能单独证明技术噪声被选择性移除 |
@@ -875,12 +875,13 @@ knitr::include_graphics(fig1_jpg)
 geometry_inference_table <- geometry_inference[, c(
   "endpoint", "estimate", "ci_low", "ci_high", "p_value", "n_cohort",
   "n_sample", "resamples", "valid_resamples", "seed", "unit", "method",
+  "condition",
   "status", "reason"
 )]
 render_dt(geometry_inference_table, pageLength = 3L)
 ```
 
-解读：表中有 `r nrow(geometry_inference)` 行，分别对应 CKA、距离排序和近邻重合。点估计仍来自同一批 `r native_geometry$metrics$sample_count[1L]` 个 reference 样本及一次冻结表示；95% 区间按 `r geometry_inference$n_cohort[1L]` 个 reference cohort 整组有放回重采样，每次重新计算三项指标。重复 cohort 中的同一患者只保留一个近邻候选身份，再按该 cohort 的抽中次数对患者贡献加权；距离 Spearman 使用固定样本对并按队列抽中次数加权，以免重新抽取样本对带入额外波动。区间只量化冻结模型与现有 atlas 下的队列组成敏感性，不是未见队列或重新训练模型的验证。kNN 重采样时部分 cohort 会缺席，候选池大小因此变化；其百分位区间可以相对原点估计偏移，不能按区间是否覆盖原点估计判断显著性。三项指标没有预设的共同自然零假设，故 P 值保持 NA；不能按样本对数量推断显著性。
+解读：表中有 `r nrow(geometry_inference)` 行，分别对应 CKA、距离排序和近邻重合。点估计来自同一批 `r native_geometry$metrics$sample_count[1L]` 个 reference 样本及一次冻结表示。CKA 与距离 Spearman 的 95% 区间按 `r geometry_inference$n_cohort[1L]` 个 reference cohort 整组有放回重采样；距离 Spearman 固定样本对，再按两端队列抽中次数加权。这两项量化现有 atlas 的队列组成敏感性。kNN Jaccard 的区间固定完整 reference 近邻图，只对每个患者的近邻名单重合度按 query cohort 整组重采样；它量化当前 atlas 下 query 队列组成变化，不能解释为更换近邻候选库后的性能区间。三项区间都以冻结模型为条件，不是未见队列或重新训练模型的验证；没有预设的自然零假设，故 P 值保持 NA。
 
 ## 外部癌种标签检索
 
@@ -1555,7 +1556,7 @@ p5 <- ggplot2::ggplot(
   ) +
   ggplot2::labs(
     x = "Technical factor",
-    y = "Delta in same-technology excess",
+    y = "Delta in same-technology neighbor rate",
     color = "Technical factor",
     caption = "Black diamonds and bars: cohort-equal means and bootstrap 95% CI."
   ) +
@@ -1775,13 +1776,13 @@ knitr::include_graphics(fig7_jpg)
 render_dt(geometry_sensitivity$values, pageLength = 15L)
 ```
 
-受限 decoder 的六项指标分别列出原报告的样本加权点估计，以及冻结 decoder 条件下的外部 query cohort 等权点估计和对应 95% cohort bootstrap 区间。两个点估计的权重对象不同；表中的区间只围绕 `cohort_equal_estimate`，不能移到 `sample_weighted_estimate` 旁解释。`valid_resamples` 记录能够计算该指标的重复次数；二分类缺少某一类或连续特征无变异时，该次结果不以零替代。
+受限 decoder 的六项指标分别列出原报告的合并 query 点估计，以及冻结 decoder 条件下的外部 query cohort 等权点估计和对应 95% cohort bootstrap 区间。`pooled_query_estimate` 是先在全部 query 上逐特征算 balanced accuracy、Spearman 或损失，再对同类特征等权平均；balanced accuracy 和 Spearman 属于非线性指标，不能称为简单的“样本加权均值”。表中的区间只围绕 `cohort_equal_estimate`，不能移到 `pooled_query_estimate` 旁解释。`valid_resamples` 记录能够计算该指标的重复次数；二分类缺少某一类或连续特征无变异时，该次结果不以零替代。
 
 ```{r decoder-cohort-inference, echo=FALSE}
 render_dt(statistical_inference$decoder$summary, pageLength = 6L)
 ```
 
-预先指定的三项损失比较分别是 gene-pair Brier、single-bin MAE 与 set-pair RMSE；基准预测用 decoder 实际训练 reference 子集的逐特征阳性率或均值。每个 query 先在同一特征上计算“基准损失减 decoder 损失”，再按外部 cohort 等权汇总；正值表示 decoder 损失较低。P 值在 cohort 层对配对差做双侧符号翻转，三项预设比较一起做 Holm 校正。Balanced accuracy、Spearman 和绘图变换分数只给区间，不另选临时零值。
+预先指定的三项损失比较分别是 gene-pair Brier、single-bin MAE 与 set-pair RMSE；基准预测用 decoder 实际训练 reference 子集的逐特征阳性率或均值。在同一外部 cohort 内，先对每个特征分别计算基准与 decoder 的损失并相减，再对同类特征及 cohort 依次等权平均；尤其 RMSE 是先对该 cohort、该特征的平方误差求平均并开方，不能描述为“每个 query 的 RMSE 差”。正值表示 decoder 损失较低。P 值在 cohort 层对配对差做双侧符号翻转，三项预设比较一起做 Holm 校正。Balanced accuracy、Spearman 和绘图变换分数只给区间，不另选临时零值。
 
 ```{r decoder-baseline-comparisons, echo=FALSE}
 render_dt(statistical_inference$decoder$baseline_comparisons, pageLength = 3L)

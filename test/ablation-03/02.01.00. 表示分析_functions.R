@@ -543,6 +543,7 @@
     seed = inference$seed,
     unit = inference$unit,
     method = inference$method,
+    condition = inference$condition,
     alternative = NA_character_,
     null = NA_real_,
     multiplicity_method = "none",

@@ -243,7 +243,7 @@ structural_paired_long$representation <- factor(
 )
 structural_cohorts <- rownames(structural_matrices[["Direct-GSClassifier"]])
 structural_labels <- sub("/TCGATARGET-", "/TCGA-", structural_cohorts)
-structural_labels <- gsub("/", "\n", structural_labels, fixed = TRUE)
+structural_labels <- gsub("/", " / ", structural_labels, fixed = TRUE)
 names(structural_labels) <- structural_cohorts
 structural_matrix_long <- function(matrix, representation) {
   data <- as.data.frame(as.table(matrix), responseName = "similarity")
@@ -436,14 +436,11 @@ knitr::include_graphics(fig11_jpg)
 ```{r figure-structural-direct-heatmap, interp_check=TRUE}
 # ==== Figure 12: Direct structural-similarity heatmap (user-adjustable parameters) ====
 fig12 <- list(
-  # Enlarged canvas leaves room for the complete cohort labels on both axes.
+  # Cohort names are shown once on the rows; columns use the same order.
   width_in = 14,
   height_in = 13,
-  # Base font and tile border sizes preserve labels and cell boundaries in print.
   base_size = 9,
   tile_line_width = 0.18,
-  # A 45-degree x label avoids overlap; the legend stays outside the data grid.
-  x_text_angle = 45,
   # Both panels share -1 to 1 so all correlations have a common scale; this supports
   # visible contrast while preserving direct cellwise comparability.
   fill_limits = c(-1, 1),
@@ -470,23 +467,26 @@ p12 <- ggplot2::ggplot(
     limits = fig12$fill_limits,
     name = "Spearman"
   ) +
-  ggplot2::labs(x = "Cohort", y = "Cohort") +
+  ggplot2::labs(x = "Cohort (row order, top to bottom)", y = "Cohort") +
   ggplot2::coord_fixed() +
   theme_nature_readable(
     base_size = fig12$base_size,
-    x_text_angle = fig12$x_text_angle,
     legend_position = fig12$legend_position
-  )
+  ) +
+  ggplot2::theme(axis.text.x = ggplot2::element_blank(),
+    axis.ticks.x = ggplot2::element_blank())
 
-# Readability check: cohort labels are shortened only for display and wrapped
-# onto two lines; a square grid, external legend, and fixed color scale avoid
-# clipping and make this panel directly comparable with Figure 13.
+# Readability check: row labels identify both axes because the square matrix
+# uses the same cohort order across columns. This avoids overlapping column
+# labels while preserving cellwise comparison with Figure 13.
 fig12_jpg <- .ae_save_plot(
   p12, "02.03.00. structural-similarity-direct", figure_dir,
   preview_dir, fig12, params$plot_preview_dpi
 )
 knitr::include_graphics(fig12_jpg)
 ```
+
+横轴列顺序与左侧队列名从上到下的顺序一致；省略重复的横轴名称，精确队列对可在上方明细表中查询。
 
 解读：这张 Direct 热图为下一张 d1 热图提供同位置、同色阶的基线；每格是一对 cohort 对同一组共有高低状态的距离排序相关。Direct 的平均相似度为 `r fmt(structural_all$mean_direct_similarity)`；最高的 `r structural_pairs$cohort_a[which.max(structural_pairs$direct_similarity)]` 与 `r structural_pairs$cohort_b[which.max(structural_pairs$direct_similarity)]` 为 `r fmt(max(structural_pairs$direct_similarity))`，最低的 `r structural_pairs$cohort_a[which.min(structural_pairs$direct_similarity)]` 与 `r structural_pairs$cohort_b[which.min(structural_pairs$direct_similarity)]` 为 `r fmt(min(structural_pairs$direct_similarity))`。这说明 Direct 自身已有可跨队列比较的状态关系，同时队列对之间差异很大。颜色不是临床分型标签，也没有给每格单独做显著性检验；比较 d1 时必须回到相同的 cohort 对，而不是比较两张图上最亮的两个不同格子。
 
@@ -515,16 +515,17 @@ p13 <- ggplot2::ggplot(
     limits = fig13$fill_limits,
     name = "Spearman"
   ) +
-  ggplot2::labs(x = "Cohort", y = "Cohort") +
+  ggplot2::labs(x = "Cohort (row order, top to bottom)", y = "Cohort") +
   ggplot2::coord_fixed() +
   theme_nature_readable(
     base_size = fig13$base_size,
-    x_text_angle = fig13$x_text_angle,
     legend_position = fig13$legend_position
-  )
+  ) +
+  ggplot2::theme(axis.text.x = ggplot2::element_blank(),
+    axis.ticks.x = ggplot2::element_blank())
 
-# Readability check: Figure 13 deliberately shares Figure 12's label wrapping,
-# square aspect, external legend, and common -1 to 1 scale, enabling cellwise visual
+# Readability check: Figure 13 shares Figure 12's row order, square aspect,
+# external legend, and common -1 to 1 scale, enabling cellwise visual
 # comparison without rescaling artifacts.
 fig13_jpg <- .ae_save_plot(
   p13, "02.03.00. structural-similarity-d1", figure_dir,
@@ -532,6 +533,8 @@ fig13_jpg <- .ae_save_plot(
 )
 knitr::include_graphics(fig13_jpg)
 ```
+
+这张图沿用相同的行列顺序；横轴各列仍按左侧队列名从上到下排列。
 
 解读：此图沿用 Direct 热图的格子位置和 −1 至 1 色阶，所以同一个格子的颜色差才对应同一对 cohort 的结构变化。d1 的平均相似度为 `r fmt(structural_all$mean_d1_similarity)`，相对 Direct 的平均差为 `r fmt(structural_all$mean_delta, 4L)`；变化最正向的队列对是 `r structural_best$cohort_a` 与 `r structural_best$cohort_b`（差 `r fmt(structural_best$delta_d1_minus_direct)`），最负向的是 `r structural_worst$cohort_a` 与 `r structural_worst$cohort_b`（差 `r fmt(structural_worst$delta_d1_minus_direct)`）。这些具体格子说明平均值可能遮住方向不同的队列对；挑选极端格子只用于追查共享状态数和来源构成，不可事后当作新发现。这里仅比较四个锚点构成的八种相对状态，总体不确定性仍以共享 cohort 节点的重采样区间判断。
 

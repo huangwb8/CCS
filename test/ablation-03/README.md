@@ -23,10 +23,10 @@ runner 生成正式报告。
 `reports/tables/` 导出队列级配对差值，供核对图中每个格子的样本数与方向。
 补充推断由 `statistical_inference`、`learning_query_inference` 和
 `geometry_sensitivity` 三个 target 生成；报告分别依赖这些 target。
-decoder 的 cohort 等权区间与原样本加权分数分列；结构均值检验先检查共享节点
+decoder 的 cohort 等权区间与原合并 query 逐特征分数分列；结构均值检验先检查共享节点
 和模拟覆盖，稀疏网络保留 NA；100% 学习曲线的新区间只针对固定训练设计下
 的 query cohort，原设计层 CI/P 值仍为 NA。几何诊断以 reference cohort
-重采样给出冻结模型条件下的 95% 区间，P 值因没有预设零假设保持 NA；另报告
+重采样给出 CKA 和距离排序的条件性 95% 区间；kNN Jaccard 固定完整近邻图后按 query cohort 重采样，P 值因没有预设零假设保持 NA；另报告
 留一 reference cohort 敏感性，不把其范围标作 95% CI。
 
 ## 正式运行

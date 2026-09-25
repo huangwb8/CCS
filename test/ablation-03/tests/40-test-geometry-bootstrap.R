@@ -21,3 +21,24 @@ stopifnot(identical(actual, run()), nrow(actual) == 3L,
   all(actual$valid_resamples == 100L), all(is.finite(actual$ci_low)),
   all(is.finite(actual$ci_high)), all(actual$ci_low <= actual$ci_high),
   all(is.na(actual$p_value)), all(actual$status == "estimable"))
+
+# The kNN interval must resample query cohorts against the complete frozen
+# neighbor graph. Rebuilding a smaller atlas inside each draw changes the metric.
+knn <- getFromNamespace(".ablation_knn", "CCS")
+direct_neighbors <- knn(direct, 3L)
+d1_neighbors <- knn(d1, 3L)
+agreement <- vapply(seq_len(nrow(direct)), function(i) {
+  length(intersect(direct_neighbors[i, ], d1_neighbors[i, ])) /
+    length(union(direct_neighbors[i, ], d1_neighbors[i, ]))
+}, numeric(1))
+expected <- vapply(seq_len(100L), function(i) {
+  set.seed(40L + i - 1L)
+  selected <- sample(unique(cohort), length(unique(cohort)), replace = TRUE)
+  weight <- tabulate(match(selected, unique(cohort)),
+    nbins = length(unique(cohort)))
+  stats::weighted.mean(agreement, weight[match(cohort, unique(cohort))])
+}, numeric(1))
+knn_row <- actual[actual$endpoint == "knn_jaccard", ]
+stopifnot(identical(knn_row$method, "query_cohort_percentile_bootstrap"),
+  isTRUE(all.equal(unname(c(knn_row$ci_low, knn_row$ci_high)),
+    unname(stats::quantile(expected, c(0.025, 0.975))), tolerance = 1e-12)))

@@ -110,7 +110,7 @@
     }, numeric(1))
     ci <- .asi_percentile(boot)
     data.frame(feature_type = keys$feature_type[i], metric = keys$metric[i],
-      sample_weighted_estimate = decoder$summary[[keys$metric[i]]][
+      pooled_query_estimate = decoder$summary[[keys$metric[i]]][
         match(keys$feature_type[i], decoder$summary$feature_type)],
       cohort_equal_estimate = mean(part$value), ci_low = ci[1L], ci_high = ci[2L],
       n_cohort = nrow(part), n_sample = sum(part$sample_count),
@@ -536,26 +536,22 @@
     if (denominator == 0) return(NA_real_)
     sum(w * x_rank * y_rank) / denominator
   }
-  neighbor_jaccard <- function(weight) {
-    keep <- which(weight > 0)
-    if (length(keep) <= k) return(NA_real_)
-    x_neighbors <- getFromNamespace(".ablation_knn", "CCS")(
-      direct[keep, , drop = FALSE], k)
-    y_neighbors <- getFromNamespace(".ablation_knn", "CCS")(
-      d1[keep, , drop = FALSE], k)
-    agreement <- vapply(seq_along(keep), function(i) {
-      length(intersect(x_neighbors[i, ], y_neighbors[i, ])) /
-        length(union(x_neighbors[i, ], y_neighbors[i, ]))
-    }, numeric(1))
-    weighted.mean(agreement, weight[keep])
-  }
+  # kNN is defined against the complete frozen atlas. Rebuilding the graph
+  # after dropping unsampled cohorts changes the candidate pool and the
+  # estimand; resample whole query cohorts against the same neighbor graph.
+  x_neighbors <- getFromNamespace(".ablation_knn", "CCS")(direct, k)
+  y_neighbors <- getFromNamespace(".ablation_knn", "CCS")(d1, k)
+  agreement <- vapply(seq_len(n), function(i) {
+    length(intersect(x_neighbors[i, ], y_neighbors[i, ])) /
+      length(union(x_neighbors[i, ], y_neighbors[i, ]))
+  }, numeric(1))
   for (i in seq_len(n_boot)) {
     set.seed(seed + i - 1L)
     multiplicity <- tabulate(sample.int(n_cohort, n_cohort, replace = TRUE),
       nbins = n_cohort)
     weight <- multiplicity[cohort_ids]
     samples[i, ] <- c(cka(direct, d1, weight), pair_spearman(weight),
-      neighbor_jaccard(weight))
+      stats::weighted.mean(agreement, weight))
   }
   metrics <- colnames(samples)
   intervals <- t(vapply(seq_along(metrics), function(i) {
@@ -566,8 +562,12 @@
     ci_high = intervals[, 2L], p_value = NA_real_, p_value_adj = NA_real_,
     n_cohort = n_cohort, n_sample = n, resamples = n_boot,
     valid_resamples = as.integer(valid), seed = seed,
-    unit = "reference_cohort", method = "cohort_percentile_bootstrap",
-    condition = "frozen_model_and_reference_atlas_fixed_pairs",
+    unit = "reference_cohort",
+    method = c("cohort_percentile_bootstrap",
+      "cohort_percentile_bootstrap", "query_cohort_percentile_bootstrap"),
+    condition = c("frozen_model_and_reference_atlas_fixed_pairs",
+      "frozen_model_and_reference_atlas_fixed_pairs",
+      "frozen_model_and_complete_reference_neighbor_graph"),
     status = ifelse(valid >= 100L, "estimable", "not_estimable"),
     reason = ifelse(valid >= 100L, NA_character_, "too_few_valid_resamples"),
     stringsAsFactors = FALSE)
