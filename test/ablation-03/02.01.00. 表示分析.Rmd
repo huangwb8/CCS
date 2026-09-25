@@ -883,6 +883,18 @@ render_dt(geometry_inference_table, pageLength = 3L)
 
 解读：表中有 `r nrow(geometry_inference)` 行，分别对应 CKA、距离排序和近邻重合。点估计来自同一批 `r native_geometry$metrics$sample_count[1L]` 个 reference 样本及一次冻结表示。CKA 与距离 Spearman 的 95% 区间按 `r geometry_inference$n_cohort[1L]` 个 reference cohort 整组有放回重采样；距离 Spearman 固定样本对，再按两端队列抽中次数加权。这两项量化现有 atlas 的队列组成敏感性。kNN Jaccard 的区间固定完整 reference 近邻图，只对每个患者的近邻名单重合度按 query cohort 整组重采样；它量化当前 atlas 下 query 队列组成变化，不能解释为更换近邻候选库后的性能区间。三项区间都以冻结模型为条件，不是未见队列或重新训练模型的验证；没有预设的自然零假设，故 P 值保持 NA。
 
+## 三项旧癌种标签分析如何互补
+
+接下来的检索、线性 readout 和 readout 样本效率都使用本次可估计的外部 query，以已有癌种标签检查 d1 相对 Direct 保留了什么。它们共享标签和样本，因此是同一问题的三个观察角度，不能算作三次独立的生物学验证。三项分别检查局部邻居关系、监督可读性和训练队列资源依赖。
+
+| 分析 | 独有的问题 | 为什么需要它 |
+|---|---|---|
+| 外部癌种标签检索 | 不拟合癌种分类器，在固定 reference atlas 中按距离找邻居；同癌种样本是否仍靠近外部 query？ | 直接检查旧标签对应的**局部邻居关系**。即使监督分类器能认对癌种，也可能掩盖同癌种近邻已被重排；readout 分数不能替代这一检查。 |
+| 外部癌种线性 readout | 用 reference 的旧癌种标签训练受限线性读出层，再预测未参与拟合的外部 query；分布在表示各列中的信息能否被读出？ | 检查**可读出性**。近邻检索较弱时，旧标签仍可能以需要汇总多个特征的形式存在；只看邻居不能判断这一点。 |
+| 癌种 readout 的样本效率 | 固定外部 query，改变可用于训练 readout 的 **reference cohort 比例**；两臂差距如何随训练队列组合变化？ | 检查**训练资源与队列组成敏感性**。完整 reference 上的一次 readout 无法显示差距是否依赖训练队列的数量和选择。这里的“样本效率”指训练 cohort 资源，并非需要多少患者样本。 |
+
+前两项的主要差值按外部 query cohort 等权汇总，学习曲线则在固定 query 人群上比较不同训练 cohort 设计；三者的分数、区间和 P 值不能直接相加或互借。若它们方向一致，只能更具体地描述旧癌种标签如何变化；若方向不同，先检查局部距离、监督读出和训练队列组成的差别。无论哪种情况，都还需要独立的癌种内或跨癌种生物终点，才能判断这种变化是否有益于新的个性化分型。
+
 ## 外部癌种标签检索
 
 这项检索可以理解为：拿一个来自外部队列的样本，在冻结的 reference atlas 中找输入线索最相近的样本，再看邻居是否属于同一旧癌种。它检查**跨队列能否找回已有癌种标签**，不训练新的癌种分类器，也不把 query 的癌种名称交给近邻搜索。癌种标签只在找到邻居后用于计分；因此分数较高表示当前空间更容易按旧癌种聚在一起，并不等于新亚型更好。
@@ -1085,7 +1097,17 @@ readout_inference_table <- readout_inference[, c(
 render_dt(readout_inference_table, pageLength = 1L)
 ```
 
-解读：本次队列等权的 d1−Direct accuracy 差为 `r fmt(readout_inference_delta)`，即 d1 `r if (readout_inference_delta < 0) "低" else "高"`约 `r fmt(abs(100 * readout_inference_delta))` 个百分点；95% cohort bootstrap 区间为 `r fmt_ci(readout_cohort_row)`，`r if (readout_cohort_row$ci_low <= 0 && readout_cohort_row$ci_high >= 0) "跨过零，当前数据尚不能排除两个方向" else "未跨过零，方向仍应结合队列间差异判断"`。表中 `n_cohort` 是独立外部队列数，`n_sample` 是这些队列合计的 query 数；`p_value` 是队列差的 sign-flip 检验，`p_value_adj` 在本节单一推断终点上作 Holm 校正，因此不会增加另一项独立证据。合并 query 后按癌种等权的 balanced accuracy 差为 `r fmt(readout_delta)`，`r if (readout_delta < 0) "同样指向 d1 较低" else "指向 d1 较高"`，但没有本节提供的队列 bootstrap 区间，不能用上表替它作显著性判断。两种口径的差异来自权重对象；任何一个负向差值都不能单独判定 d1 选择性去除了技术噪声或损害了有用的癌种生物信息。
+### 本次结果怎样读
+
+| 看什么 | 本次结果 | 含义 |
+|---|---|---|
+| **主结果：队列等权 accuracy 差** | d1−Direct：`r fmt(100 * readout_inference_delta, 2L)` 个百分点 | 每个外部队列先各算一次正确率差，再让每个队列各占一票。负值表示 d1 在这项旧癌种任务中的线性读出分数较低。 |
+| 主结果的不确定性 | 95% CI：`r fmt(100 * readout_cohort_row$ci_low, 2L)` 至 `r fmt(100 * readout_cohort_row$ci_high, 2L)` 个百分点；双侧 P = `r fmt_p(readout_cohort_row$p_value)` | 区间和 P 值只对应上一行的**队列等权差**。 |
+| 辅助描述：合并 query 后的癌种等权 balanced accuracy | Direct：`r fmt_pct(readout_direct$balanced_accuracy, 2L)`；d1：`r fmt_pct(readout_d1$balanced_accuracy, 2L)`；差：`r fmt(100 * readout_delta, 2L)` 个百分点 | 先把全部 query 合并，再让每个癌种各占一票；它与主结果的权重对象不同。 |
+
+主结果涉及 `r readout_cohort_row$n_cohort` 个独立外部队列、合计 `r readout_cohort_row$n_sample` 个 query。点估计显示 d1 比 Direct `r if (readout_inference_delta < 0) "低" else "高"`约 `r fmt(abs(100 * readout_inference_delta), 2L)` 个百分点；`r if (readout_cohort_row$ci_low <= 0 && readout_cohort_row$ci_high >= 0) "但 95% 区间跨过零，当前数据尚不能确定总体差异的方向" else "95% 区间未跨过零，仍须结合队列间差异判断适用范围"`。区间跨零也不等于证明两种表示一样好：本分析没有预设可接受损失界值，不能做等价或非劣效结论。表中的 `p_value` 是对队列差做 sign-flip 检验；本节只有一个推断终点，故 Holm 校正后的 `p_value_adj` 与原值相同，不构成第二份证据。
+
+逐队列看，`r sum(readout$paired_by_cohort$delta_accuracy > 0, na.rm = TRUE)` 个队列 d1 较高、`r sum(readout$paired_by_cohort$delta_accuracy < 0, na.rm = TRUE)` 个较低、`r sum(readout$paired_by_cohort$delta_accuracy == 0, na.rm = TRUE)` 个相同。合并 query 的 balanced accuracy `r if (readout_delta < 0) "也指向 d1 较低" else "指向 d1 较高"`，但它没有本节的队列 bootstrap 区间，不能借用主结果的 P 值。两种口径只说明旧癌种标签在当前冻结表示中有多容易被这个线性读出层识别；分数下降不能单独判定 d1 去除了技术噪声、丢失了有用生物信息，或新的个性化分型会变差。
 
 ```{r figure-readout-cohort, interp_check=TRUE}
 # ==== Figure 3: External linear readout cohort deltas (user-adjustable parameters) ====

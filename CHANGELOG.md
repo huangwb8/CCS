@@ -6,6 +6,8 @@
 
 ## [Unreleased]
 
+- 进一步梳理 ablation-03 外部癌种线性 readout 的报告解读：以直观结果表区分队列等权 accuracy 与合并 query 的癌种等权 balanced accuracy，明确区间、P 值、队列异质性及不能据此判定等价或生物机制。
+
 - 同步 ablation-03 的 Liquid Glass 新版 CSS：修复动态目录悬停命中区域的过渡抖动，并关闭代码字体连字以保留 R 运算符原貌；四份报告默认折叠 R 代码，主题模板变更会通过正式 targets 依赖触发 HTML 更新。
 
 - 审核 ablation-03 出版指标并纠正 decoder 补充推断的汇总标签：原值为合并 query 后逐特征计算再平均，不能笼统称为样本加权；修正 RMSE 基准比较的文字计算顺序，并将技术来源图纵轴明确为两臂同技术近邻比例差。修正 kNN Jaccard 区间因重抽样改变近邻候选池而与点估计不匹配的问题；结构相似性热图只显示一套队列标签，消除横轴重叠；通过正式 targets 图更新统计产物及 HTML。
