@@ -6,6 +6,8 @@
 
 ## [Unreleased]
 
+- 说明 ablation-03“癌种 readout 的样本效率”实际是训练 reference cohort 学习曲线：区分请求比例与逐癌种最低支持后的实际队列数，补充与检索、全量 readout、bank scaling 的关系，以及固定 query、设计层不确定性和可推论范围。
+
 - 进一步梳理 ablation-03 外部癌种线性 readout 的报告解读：以直观结果表区分队列等权 accuracy 与合并 query 的癌种等权 balanced accuracy，明确区间、P 值、队列异质性及不能据此判定等价或生物机制。
 
 - 同步 ablation-03 的 Liquid Glass 新版 CSS：修复动态目录悬停命中区域的过渡抖动，并关闭代码字体连字以保留 R 运算符原貌；四份报告默认折叠 R 代码，主题模板变更会通过正式 targets 依赖触发 HTML 更新。

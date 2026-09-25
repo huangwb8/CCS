@@ -891,7 +891,7 @@ render_dt(geometry_inference_table, pageLength = 3L)
 |---|---|---|
 | 外部癌种标签检索 | 不拟合癌种分类器，在固定 reference atlas 中按距离找邻居；同癌种样本是否仍靠近外部 query？ | 直接检查旧标签对应的**局部邻居关系**。即使监督分类器能认对癌种，也可能掩盖同癌种近邻已被重排；readout 分数不能替代这一检查。 |
 | 外部癌种线性 readout | 用 reference 的旧癌种标签训练受限线性读出层，再预测未参与拟合的外部 query；分布在表示各列中的信息能否被读出？ | 检查**可读出性**。近邻检索较弱时，旧标签仍可能以需要汇总多个特征的形式存在；只看邻居不能判断这一点。 |
-| 癌种 readout 的样本效率 | 固定外部 query，改变可用于训练 readout 的 **reference cohort 比例**；两臂差距如何随训练队列组合变化？ | 检查**训练资源与队列组成敏感性**。完整 reference 上的一次 readout 无法显示差距是否依赖训练队列的数量和选择。这里的“样本效率”指训练 cohort 资源，并非需要多少患者样本。 |
+| 癌种 readout 的样本效率 | 固定外部 query 和 readout 方法，逐步改变用于训练的 **reference cohort 数量**；较少训练队列时，两种表示各能读出多少旧癌种信息？ | 检查**训练资源敏感性**。完整 reference readout 只给出训练资源充足时的一个终点，无法说明结果在训练队列较少时怎样变化。这里的资源单位是 cohort，不是患者人数。 |
 
 前两项的主要差值按外部 query cohort 等权汇总，学习曲线则在固定 query 人群上比较不同训练 cohort 设计；三者的分数、区间和 P 值不能直接相加或互借。若它们方向一致，只能更具体地描述旧癌种标签如何变化；若方向不同，先检查局部距离、监督读出和训练队列组成的差别。无论哪种情况，都还需要独立的癌种内或跨癌种生物终点，才能判断这种变化是否有益于新的个性化分型。
 
@@ -1189,11 +1189,64 @@ knitr::include_graphics(fig3_jpg)
 
 解读：横轴是每个外部队列的 $\Delta_c$，竖向零线左侧表示 d1 比 Direct 少认对该队列的 query，右侧表示多认对。每个普通点只代表**一个队列的点估计**，没有逐队列区间，不能据其离零远近宣布该队列显著。图中只展示至少 `r params$min_cohort_n` 个 query 的队列；底部 Overall 则对**全部可估计队列**等权平均，横向误差线是队列 bootstrap 95% 区间，而不是单个患者或单个队列的误差线。显示队列中最高的 `r readout_top$cohort[1L]` 为 `r fmt(readout_top$delta_accuracy[1L])`（`r pmax(readout_top$sample_count_d1[1L], readout_top$sample_count_direct[1L])` 个 query），最低的 `r readout_bottom$cohort[1L]` 为 `r fmt(readout_bottom$delta_accuracy[1L])`（`r pmax(readout_bottom$sample_count_d1[1L], readout_bottom$sample_count_direct[1L])` 个 query）；它们是看过数据后挑出的两端，不是独立确认。若同一癌种在不同平台队列中方向不一致，应先核对 reference 中该癌种的队列支持、query 样本数和技术来源，再用预设的生物任务追查机制；这张图本身无法解释为何变化。
 
-## 癌种 readout 的样本效率
+## 癌种 readout 的样本效率：训练队列学习曲线
 
-每个比例使用相同的训练 cohort 子集比较两表示；预处理和调参只在该子集内完成。重复使用同一个训练设计不会增加独立设计数。
+### 为什么做，和前两项看法有何不同
 
-把训练资源想成可用的参考教材：本节逐步增加用于拟合 readout 的 reference cohort，外部考试题保持相同。每个比例的效应是同一设计下 $\Delta_f=\mathrm{BA}_{d1,f}-\mathrm{BA}_{Direct,f}$，其中 BA 是类别等权召回率；比较曲线是为了看“少量教材时与教材齐备时，哪种表示更易读出旧标签”。它只测当前冻结 query 集上的训练设计敏感性，不能推出少量患者即可完成个性化分类，更不能把重复拟合当成新的独立队列。
+通常说“样本效率”，是问模型能否用**更少训练数据达到某个相近的测试表现**。本节把训练资源具体定义为可用于拟合线性 readout 的**独立 reference cohort 数**，每个 cohort 内有多位患者；它并没有单独控制患者样本数。更准确地说，这是一条训练队列学习曲线：看减少训练队列后，Direct 与 d1 对同一批外部 query 的旧癌种标签还能读出多少。报告没有预设“达到多少分才算够好”的门槛，因此不能从曲线直接宣布某臂“只需多少个患者或队列”。
+
+做这项分析，是因为上一节的完整 readout 只回答“**全部 reference 都可用于训练时**，旧癌种标签能否被线性分类器认出”；一个终点看不出两臂的差距是否依赖训练队列数量或具体组成。本节保持分类器类型、外部 query 和旧癌种任务不变，逐步改变训练 cohort，检查哪一臂在训练资源较少时更容易被读出。它也与前面的癌种检索不同：检索**不训练癌种分类器**，看局部同癌种邻居；这里重新训练读出层，看汇总多个表示特征后的监督分类表现。后文的二维 scaling 改变的是冻结 bank 的模块组合，测空间容量、冗余和近邻稳定性；本节不改变 bank，而改变读出层可使用的训练队列。
+
+### 横轴究竟减少了什么
+
+每个请求比例都按癌种从 reference 中抽取 cohort：某癌种有至少 2 个候选 cohort 时，抽样规则至少保留 2 个；不足 2 个时保留全部。因此图上的 10%、25%、50%、100% 是**请求比例**，实际纳入的队列比例可以更高；它们不是患者样本的抽样比例。两臂在每次重复中使用**同一组训练 cohort**，并在该组内分别重新拟合尺度、选择正则化参数和训练 readout；既有 Direct 与 d1 表示保持冻结，外部 query 始终是同一批 `r manifest$query_sample_count` 个样本。这样，曲线比较的是改变 readout 训练资源后的旧癌种可读性，而不是重新训练 CCS 或创造了新的外部验证队列。
+
+纵轴的 balanced accuracy（BA）是先算每个癌种在固定外部 query 中被认对的比例，再对癌种等权平均；越高表示旧标签越容易从该臂读出。每个比例先对同一训练 cohort 组合计算 $\Delta_f=\mathrm{BA}_{d1,f}-\mathrm{BA}_{Direct,f}$：负值表示在**该训练资源水平**下 Direct 较高。它与上一节按外部 cohort 等权的 accuracy 主结果不同，不能把两个差值或各自的区间混为一谈。
+
+```{r learning-resource-summary, echo=FALSE}
+learning_resource <- learning_curve$paired[
+  !duplicated(learning_curve$paired$requested_fraction),
+  c("requested_fraction", "train_cohort_count_direct",
+    "realized_cohort_fraction_direct"),
+  drop = FALSE
+]
+learning_resource <- learning_resource[
+  match(learning_inference$requested_fraction,
+    learning_resource$requested_fraction),
+  , drop = FALSE
+]
+direct_learning <- learning_summary[
+  learning_summary$representation == "Direct-GSClassifier", , drop = FALSE
+]
+d1_learning <- learning_summary[
+  learning_summary$representation == "Cohort-d1", , drop = FALSE
+]
+learning_readable <- data.frame(
+  requested = scales::percent(learning_inference$requested_fraction,
+    accuracy = 1),
+  actual = paste0(learning_resource$train_cohort_count_direct, "/",
+    manifest$reference_cohort_count, " (",
+    scales::percent(learning_resource$realized_cohort_fraction_direct,
+      accuracy = 0.1), ")"),
+  direct = fmt_pct(direct_learning$estimate[match(
+    learning_inference$requested_fraction,
+    direct_learning$requested_fraction)], 2L),
+  d1 = fmt_pct(d1_learning$estimate[match(
+    learning_inference$requested_fraction,
+    d1_learning$requested_fraction)], 2L),
+  delta = paste0(fmt(100 * learning_inference$estimate, 2L), " 个百分点"),
+  designs = learning_inference$n_unique_design,
+  stringsAsFactors = FALSE
+)
+knitr::kable(
+  learning_readable,
+  col.names = c("请求的 cohort 比例", "实际训练 cohort", "Direct BA",
+    "d1 BA", "d1−Direct", "不同训练组合数"),
+  align = c("c", "c", "r", "r", "r", "c")
+)
+```
+
+例如，请求 10% 时实际使用 `r learning_resource$train_cohort_count_direct[1L]` 个、占全部 reference cohort 的 `r scales::percent(learning_resource$realized_cohort_fraction_direct[1L], accuracy = 0.1)`，因为逐癌种最低支持数会抬高总比例。表中 BA 是该档各次拟合的平均表现；最后一列是**不同的 cohort 组合数**，不是 query 数或独立外部验证次数。100% 行仍对同一组训练 cohort 重复拟合 `r manifest$config$validation$repeats` 次，故其平均 BA 可以与上一节单次全量 readout 略有不同，但不代表多了 `r manifest$config$validation$repeats` 种独立训练设计。
 
 ```{r learning-inference-table}
 learning_inference_table <- learning_inference[, c(
@@ -1204,7 +1257,7 @@ learning_inference_table <- learning_inference[, c(
 render_dt(learning_inference_table, pageLength = nrow(learning_inference_table))
 ```
 
-解读：表中的 `requested_fraction` 是允许进入训练的 reference cohort 比例，`n_unique_design` 是实际不同的训练队列组合数，而非模型拟合次数。当比例达到 100% 时，独立组合只有 `r learning_inference$n_unique_design[learning_inference$requested_fraction == 1]` 个：再用不同随机种子重复拟合同一批训练 cohort，也不会产生第二种训练设计，因此这一行的设计层 CI 与 P 值明确不可估计。较小训练比例的区间只量化当前固定 query 人群对训练 cohort 组合的敏感性，不能冒充对未来 query cohort 的抽样不确定性。
+技术表中的 `requested_fraction` 对应上方第一列；`estimate` 是同一训练组合内 d1−Direct 的 BA 差，再按**不同训练组合**汇总。较小比例的区间和检验只描述：在当前固定外部 query 上，换一组训练 cohort 后差值有多大变化。100% 时只剩 `r learning_inference$n_unique_design[learning_inference$requested_fraction == 1]` 种独立训练组合；重复拟合同一批 cohort 不会创造新设计，所以设计层 CI 与 P 值不可估计。该结论不否定补充分析中固定训练设计后按**外部 query cohort**重采样得到的条件区间；两种区间回答不同问题。
 
 ```{r figure-learning-curve, interp_check=TRUE}
 # ==== Figure 4: Paired learning curves (user-adjustable parameters) ====
@@ -1275,7 +1328,7 @@ fig4_jpg <- .ae_save_plot(
 knitr::include_graphics(fig4_jpg)
 ```
 
-解读：横轴逐步增加可训练的 reference cohort 比例，query 集始终固定；纵轴是各臂在旧癌种标签上的类别等权召回率。本次最小比例 `r scales::percent(min(learning_delta$requested_fraction), accuracy = 1)` 时，d1−Direct 差为 `r fmt(learning_delta$estimate[which.min(learning_delta$requested_fraction)])`；全部 reference 都用于训练时，差为 `r fmt(learning_delta$estimate[match(1, learning_delta$requested_fraction)])`。这两个端点说明在本次固定 query 集中，增加训练 cohort 并未自动消除 d1 对旧癌种标签的相对劣势；差值随训练比例变化也可能受可用癌种构成与具体 cohort 组合影响。带状区间描述有限训练设计的变化，100% 端点只有一种独立设计，不能据曲线平坦或变陡推断新患者上的学习上限。
+解读：横轴是**请求的**训练 cohort 比例，实际队列数见上表；纵轴是两臂在同一批外部 query 上的旧癌种 BA。最小请求比例 `r scales::percent(min(learning_delta$requested_fraction), accuracy = 1)` 时，d1−Direct 差为 `r fmt(100 * learning_delta$estimate[which.min(learning_delta$requested_fraction)], 2L)` 个百分点；请求 50% 时为 `r fmt(100 * learning_delta$estimate[match(0.5, learning_delta$requested_fraction)], 2L)` 个百分点；全部 reference 都用于训练时为 `r fmt(100 * learning_delta$estimate[match(1, learning_delta$requested_fraction)], 2L)` 个百分点。在本次固定 query 集上，Direct 从较少训练 cohort 到更多训练 cohort 获得了更明显的 BA 增益，d1 没有出现相同幅度的上升；但两臂差值并非严格随比例单调变化，训练 cohort 的身份、癌种覆盖和患者数也随之改变。曲线提示**当前训练资源设计下的敏感性**，不能据此断言表示本身具有普遍的样本效率优势或劣势。带状区间只反映较小比例下不同训练组合的变化；100% 只有一种独立组合，不应把重复拟合当成新的外部证据。
 
 ## 主要终点的效应量与不确定性
 
