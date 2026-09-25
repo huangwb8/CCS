@@ -25,8 +25,9 @@ runner 生成正式报告。
 `geometry_sensitivity` 三个 target 生成；报告分别依赖这些 target。
 decoder 的 cohort 等权区间与原样本加权分数分列；结构均值检验先检查共享节点
 和模拟覆盖，稀疏网络保留 NA；100% 学习曲线的新区间只针对固定训练设计下
-的 query cohort，原设计层 CI/P 值仍为 NA。几何诊断报告留一 reference cohort
-敏感性，不把其范围标作 95% CI。
+的 query cohort，原设计层 CI/P 值仍为 NA。几何诊断以 reference cohort
+重采样给出冻结模型条件下的 95% 区间，P 值因没有预设零假设保持 NA；另报告
+留一 reference cohort 敏感性，不把其范围标作 95% CI。
 
 ## 正式运行
 

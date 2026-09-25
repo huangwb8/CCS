@@ -6,6 +6,8 @@
 
 ## [Unreleased]
 
+- 为 ablation-03 三项表示几何指标补充 reference cohort 重采样的条件性 95% 区间；重复队列的患者近邻身份去重，保留留一队列敏感性与未预设零假设的 P 值 NA，并同步报告解释。
+
 - 为 ablation-03 正式 targets 图增加统计推断补充：decoder 的 cohort 等权区间及预设基准损失比较、队列内配对 query 区间、结构共享节点推断与 matched-bank 设计分布、100% 学习曲线固定训练设计的 query 条件区间，以及几何留一 cohort 敏感性；报告保留不可估计项的 NA 与原因。
 
 - 扩写 ablation-03 的外部癌种线性 readout 解读：说明外部 query 资格、线性分类器与分组调参、队列等权差值的手算例子、pooled balanced accuracy 的不同权重，以及结果表和队列图的判读边界。

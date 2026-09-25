@@ -518,30 +518,36 @@
   .ae_adjust_inference(result, multiplicity_method)
 }
 
-.ae_geometry_inference <- function(native_geometry) {
+.ae_geometry_inference <- function(native_geometry, geometry_sensitivity) {
   metrics <- native_geometry$metrics
   metrics <- metrics[metrics$metric_name %in% c(
     "linear_cka", "distance_spearman", "knn_jaccard"
   ), , drop = FALSE]
   if (nrow(metrics) == 0L) return(data.frame())
+  inference <- geometry_sensitivity$inference
+  inference <- inference[match(metrics$metric_name, inference$endpoint), , drop = FALSE]
+  if (anyNA(inference$endpoint)) {
+    stop("Geometry bootstrap endpoints do not match native metrics.", call. = FALSE)
+  }
   data.frame(
     endpoint = metrics$metric_name,
     estimate = metrics$metric_value,
-    ci_low = NA_real_,
-    ci_high = NA_real_,
-    p_value = NA_real_,
-    p_value_adj = NA_real_,
-    n_cohort = NA_integer_,
+    ci_low = inference$ci_low,
+    ci_high = inference$ci_high,
+    p_value = inference$p_value,
+    p_value_adj = inference$p_value_adj,
+    n_cohort = inference$n_cohort,
     n_sample = metrics$sample_count,
-    resamples = 0L,
-    seed = NA_integer_,
-    unit = "not_available",
-    method = "not_estimable_single_frozen_geometry",
-    alternative = "two.sided",
+    resamples = inference$resamples,
+    valid_resamples = inference$valid_resamples,
+    seed = inference$seed,
+    unit = inference$unit,
+    method = inference$method,
+    alternative = NA_character_,
     null = NA_real_,
     multiplicity_method = "none",
-    status = "not_estimable",
-    reason = "native_geometry_contains_one_frozen_estimate",
+    status = inference$status,
+    reason = inference$reason,
     stringsAsFactors = FALSE
   )
 }

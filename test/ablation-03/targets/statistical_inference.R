@@ -490,7 +490,91 @@
   output
 }
 
-.asi_geometry_leave_one <- function(prepared, manifest, leave_limit = Inf) {
+.asi_weighted_rank <- function(value, weight) {
+  ordering <- order(value)
+  sorted <- value[ordering]
+  groups <- cumsum(c(TRUE, diff(sorted) != 0))
+  group_weight <- as.numeric(rowsum(weight[ordering], groups, reorder = FALSE))
+  group_rank <- cumsum(group_weight) - group_weight / 2 + 0.5
+  result <- numeric(length(value))
+  result[ordering] <- group_rank[groups]
+  result
+}
+
+.asi_geometry_bootstrap <- function(direct, d1, cohort, first, second,
+    direct_distance, d1_distance, k, n_boot = 200L, seed = 20260925L) {
+  cohort_ids <- match(cohort, sort(unique(cohort)))
+  n_cohort <- max(cohort_ids)
+  n <- nrow(direct)
+  samples <- matrix(NA_real_, n_boot, 3L, dimnames = list(NULL,
+    c("linear_cka", "distance_spearman", "knn_jaccard")))
+  cka <- function(x, y, weight) {
+    size <- sum(weight)
+    x_sum <- colSums(x * weight)
+    y_sum <- colSums(y * weight)
+    x_weighted <- x * sqrt(weight)
+    y_weighted <- y * sqrt(weight)
+    xy <- crossprod(x_weighted, y_weighted) - tcrossprod(x_sum, y_sum) / size
+    xx <- crossprod(x_weighted) - tcrossprod(x_sum) / size
+    yy <- crossprod(y_weighted) - tcrossprod(y_sum) / size
+    denominator <- sqrt(sum(xx^2) * sum(yy^2))
+    if (!is.finite(denominator) || denominator == 0) return(NA_real_)
+    sum(xy^2) / denominator
+  }
+  pair_spearman <- function(weight) {
+    pair_weight <- weight[first] * weight[second]
+    keep <- pair_weight > 0
+    x <- direct_distance[keep]
+    y <- d1_distance[keep]
+    w <- pair_weight[keep]
+    if (length(x) < 3L) return(NA_real_)
+    x_rank <- .asi_weighted_rank(x, w)
+    y_rank <- .asi_weighted_rank(y, w)
+    x_rank <- x_rank - weighted.mean(x_rank, w)
+    y_rank <- y_rank - weighted.mean(y_rank, w)
+    denominator <- sqrt(sum(w * x_rank^2) * sum(w * y_rank^2))
+    if (denominator == 0) return(NA_real_)
+    sum(w * x_rank * y_rank) / denominator
+  }
+  neighbor_jaccard <- function(weight) {
+    keep <- which(weight > 0)
+    if (length(keep) <= k) return(NA_real_)
+    x_neighbors <- getFromNamespace(".ablation_knn", "CCS")(
+      direct[keep, , drop = FALSE], k)
+    y_neighbors <- getFromNamespace(".ablation_knn", "CCS")(
+      d1[keep, , drop = FALSE], k)
+    agreement <- vapply(seq_along(keep), function(i) {
+      length(intersect(x_neighbors[i, ], y_neighbors[i, ])) /
+        length(union(x_neighbors[i, ], y_neighbors[i, ]))
+    }, numeric(1))
+    weighted.mean(agreement, weight[keep])
+  }
+  for (i in seq_len(n_boot)) {
+    set.seed(seed + i - 1L)
+    multiplicity <- tabulate(sample.int(n_cohort, n_cohort, replace = TRUE),
+      nbins = n_cohort)
+    weight <- multiplicity[cohort_ids]
+    samples[i, ] <- c(cka(direct, d1, weight), pair_spearman(weight),
+      neighbor_jaccard(weight))
+  }
+  metrics <- colnames(samples)
+  intervals <- t(vapply(seq_along(metrics), function(i) {
+    .asi_percentile(samples[, i])
+  }, numeric(2)))
+  valid <- colSums(is.finite(samples))
+  data.frame(endpoint = metrics, ci_low = intervals[, 1L],
+    ci_high = intervals[, 2L], p_value = NA_real_, p_value_adj = NA_real_,
+    n_cohort = n_cohort, n_sample = n, resamples = n_boot,
+    valid_resamples = as.integer(valid), seed = seed,
+    unit = "reference_cohort", method = "cohort_percentile_bootstrap",
+    condition = "frozen_model_and_reference_atlas_fixed_pairs",
+    status = ifelse(valid >= 100L, "estimable", "not_estimable"),
+    reason = ifelse(valid >= 100L, NA_character_, "too_few_valid_resamples"),
+    stringsAsFactors = FALSE)
+}
+
+.asi_geometry_leave_one <- function(prepared, manifest, leave_limit = Inf,
+    n_boot = 200L, bootstrap_seed = 20260925L) {
   config <- manifest$config$geometry
   reference_metadata <- prepared$reference_metadata
   sample_rows <- if (nrow(reference_metadata) > config$geometry_samples) {
@@ -568,7 +652,18 @@
       condition = "frozen_model_and_reference_atlas",
       stringsAsFactors = FALSE)
   })
-  list(values = do.call(rbind, rows), n_cohort = length(all_cohorts),
+  baseline <- c(
+    linear_cka = cka_from_moments(direct_cross, d1_cross,
+      between_cross, direct_sums, d1_sums, n),
+    distance_spearman = suppressWarnings(stats::cor(direct_distance,
+      d1_distance, method = "spearman")),
+    knn_jaccard = jaccard_after_omission(seq_len(n), integer())
+  )
+  inference <- .asi_geometry_bootstrap(direct, d1, cohort, first, second,
+    direct_distance, d1_distance, k, n_boot, bootstrap_seed)
+  list(values = do.call(rbind, rows), inference = inference,
+    baseline = baseline,
+    n_cohort = length(all_cohorts),
     n_sample = length(sample_rows), input_key = prepared$input_key,
     seed = manifest$seed)
 }
@@ -579,6 +674,13 @@
     "representation-inputs.rds"))$analysis$prepared
   manifest <- readRDS(file.path(representation_analysis$directory, "manifest.rds"))
   result <- .asi_geometry_leave_one(prepared, manifest)
+  native <- readRDS(file.path(representation_analysis$directory,
+    "native_geometry.rds"))$metrics
+  expected <- native$metric_value[match(names(result$baseline), native$metric_name)]
+  if (anyNA(expected) || any(abs(result$baseline - expected) > 1e-8)) {
+    stop("Geometry resampling baseline differs from the frozen native estimate.",
+      call. = FALSE)
+  }
   output <- file.path(cache_root, "statistical-inference", "geometry-leave-one.rds")
   dir.create(dirname(output), recursive = TRUE, showWarnings = FALSE)
   saveRDS(result, output)

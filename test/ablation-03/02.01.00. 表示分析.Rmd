@@ -121,7 +121,7 @@ geometry_metrics$metric_label <- c(
   distance_spearman = "Distance Spearman",
   knn_jaccard = "kNN Jaccard"
 )[geometry_metrics$metric_name]
-geometry_inference <- .ae_geometry_inference(native_geometry)
+geometry_inference <- .ae_geometry_inference(native_geometry, geometry_sensitivity)
 
 retrieval_cohort_delta <- .ae_retrieval_cohort_delta(retrieval, params$display_k)
 table_dir <- .ablation03_report_path("tables")
@@ -747,9 +747,9 @@ render_dt(overview_table, pageLength = 12)
 
 | 指标 | 输入与计算 | 数值怎样读 | 本报告的用途与边界 |
 |---|---|---|---|
-| Linear CKA | 同一批 reference 样本在两种表示中的中心化样本关系矩阵；下节推导公式 | 0–1；越高表示整体关系图越相似；单次冻结估计无 CI | 检查整体几何是否重排，不是保留生物信息的百分比 |
-| 距离 Spearman | 对抽到的同一组样本对分别计算两臂距离，再比较距离名次 | −1 至 1；1 表示排序完全一致；单次冻结估计无 CI | 检查远近排序；不比较绝对距离大小 |
-| kNN Jaccard | 每个样本的两份近邻名单取交集人数／并集人数，再对样本平均 | 0–1；越高表示具体邻居越重合；单次冻结估计无 CI | 补充局部变化；数值不是邻居重合的直接百分比 |
+| Linear CKA | 同一批 reference 样本在两种表示中的中心化样本关系矩阵；下节推导公式 | 0–1；越高表示整体关系图越相似；区间量化队列组成敏感性 | 检查整体几何是否重排，不是保留生物信息的百分比 |
+| 距离 Spearman | 对抽到的同一组样本对分别计算两臂距离，再比较距离名次 | −1 至 1；1 表示排序完全一致；区间量化队列组成敏感性 | 检查远近排序；不比较绝对距离大小 |
+| kNN Jaccard | 每个样本的两份近邻名单取交集人数／并集人数，再对样本平均 | 0–1；越高表示具体邻居越重合；区间量化队列组成敏感性 | 补充局部变化；数值不是邻居重合的直接百分比 |
 | Top-k label rate、MRR@k | 前 $k$ 名同癌种邻居比例；首次同癌种命中的倒数排名，$k$ 名外记零 | 0–1；越高越容易从邻居找回旧癌种；两臂差以零为参照 | 保护性旧标签任务，不等于新亚型发现能力 |
 | Cohort accuracy、pooled balanced accuracy | 分别对外部队列准确率等权平均、对合并样本中各癌种召回率等权平均 | 0–1；越高表示旧癌种越可读；两种权重不相同 | 查旧癌种信息是否受损，不能用一项替换另一项 |
 | Technical excess | 同技术标签近邻比例减同癌种、其它队列 reference 的背景比例 | 零表示与背景相同，正值表示更易按技术标签聚集 | 两臂差中的共同背景会抵消，不能单独证明技术噪声被选择性移除 |
@@ -851,7 +851,7 @@ p1 <- ggplot2::ggplot(
   ggplot2::labs(
     x = NULL,
     y = "Agreement",
-    caption = "One frozen geometry estimate; CI and p-value are not estimable."
+    caption = "Points: frozen estimates; cohort bootstrap 95% CI is reported in the table."
   ) +
   theme_nature_readable(
     base_size = fig1$base_size,
@@ -860,7 +860,7 @@ p1 <- ggplot2::ggplot(
   )
 
 # Readability check: three short labels fit without rotation; values are printed
-# above bars, and the non-estimable inference note is moved to the caption so it
+# above bars, and the inference note is moved to the caption so it
 # does not cover the data bars in PDF/JPG rendering.
 fig1_jpg <- .ae_save_plot(
   p1, "02.01.00. native-geometry", figure_dir, preview_dir, fig1,
@@ -873,13 +873,14 @@ knitr::include_graphics(fig1_jpg)
 
 ```{r geometry-inference-table}
 geometry_inference_table <- geometry_inference[, c(
-  "endpoint", "estimate", "ci_low", "ci_high", "p_value", "n_sample",
-  "unit", "method", "status", "reason"
+  "endpoint", "estimate", "ci_low", "ci_high", "p_value", "n_cohort",
+  "n_sample", "resamples", "valid_resamples", "seed", "unit", "method",
+  "status", "reason"
 )]
 render_dt(geometry_inference_table, pageLength = 3L)
 ```
 
-解读：表中有 `r nrow(geometry_inference)` 行，分别对应 CKA、距离排序和近邻重合。它们共享同一批 `r native_geometry$metrics$sample_count[1L]` 个 reference 样本及一次冻结表示；样本对也不是独立重做的模型或独立队列，因此 `ci_low`、`ci_high` 与 `p_value` 显示 NA 是设计边界，而非漏算。若要为“新队列的几何仍相似”给区间，应预先定义队列级抽样，逐次重建两种空间及三个指标，再以队列为重复单位；不能对现有单次估计的样本行反复抽样后宣称获得独立外部证据。
+解读：表中有 `r nrow(geometry_inference)` 行，分别对应 CKA、距离排序和近邻重合。点估计仍来自同一批 `r native_geometry$metrics$sample_count[1L]` 个 reference 样本及一次冻结表示；95% 区间按 `r geometry_inference$n_cohort[1L]` 个 reference cohort 整组有放回重采样，每次重新计算三项指标。重复 cohort 中的同一患者只保留一个近邻候选身份，再按该 cohort 的抽中次数对患者贡献加权；距离 Spearman 使用固定样本对并按队列抽中次数加权，以免重新抽取样本对带入额外波动。区间只量化冻结模型与现有 atlas 下的队列组成敏感性，不是未见队列或重新训练模型的验证。kNN 重采样时部分 cohort 会缺席，候选池大小因此变化；其百分位区间可以相对原点估计偏移，不能按区间是否覆盖原点估计判断显著性。三项指标没有预设的共同自然零假设，故 P 值保持 NA；不能按样本对数量推断显著性。
 
 ## 外部癌种标签检索
 
@@ -1768,7 +1769,7 @@ knitr::include_graphics(fig7_jpg)
 
 ## 补充统计推断
 
-几何诊断的少量完整留一 cohort 试算表明，按当前 reference cohort 数量扩展到足够的精确节点 bootstrap，成本显著高于本轮的其他补充。这里逐个删除一个 reference cohort，重新计算原标准化尺度上的 CKA、距离 Spearman 与 kNN Jaccard；距离排序使用同一批预先抽取的样本对，删队列时只排除涉及该队列的样本对，以免每行因重新抽样而额外波动。这是**冻结模型和现有 atlas 条件下的留一队列敏感性**。下表每行是一个被删除的 cohort；范围不能标作 95% CI，原几何推断表中的 CI 和 P 值保持 NA。
+作为区间的辅助诊断，这里逐个删除一个 reference cohort，重新计算原标准化尺度上的 CKA、距离 Spearman 与 kNN Jaccard；距离排序使用同一批预先抽取的样本对，删队列时只排除涉及该队列的样本对，以免每行因重新抽样而额外波动。这是**冻结模型和现有 atlas 条件下的留一队列敏感性**。下表每行是一个被删除的 cohort；留一范围本身不是 95% CI。三项指标的 cohort bootstrap 区间见前面的几何推断表，P 值因没有预设零假设仍为 NA。
 
 ```{r geometry-leave-one-sensitivity, echo=FALSE}
 render_dt(geometry_sensitivity$values, pageLength = 15L)
