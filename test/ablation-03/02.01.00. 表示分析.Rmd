@@ -1332,56 +1332,121 @@ knitr::include_graphics(fig4_jpg)
 
 ## 主要终点的效应量与不确定性
 
-森林图把不同终点的方向与 CI 放在同一处；终点含义与统计单位仍须分别理解。
+这一节回答一个汇总问题：把 Direct 换成 Cohort-d1 后，**旧癌种信息保留了多少，观察到的得失有多稳定**？前面的检索、线性 readout 和学习曲线分别给出同癌种近邻、旧癌种可读出性以及使用全部训练 cohort 时的表现；只看某一张图，容易漏掉另一项任务的代价。这里把预设终点的 d1−Direct 差值及可估计的区间并列，便于同时检查差异的方向、实际幅度和对队列或训练设计变化的敏感性，再决定哪些变化值得追查。这是对前述结果的汇总，不是新增的独立验证，也不能据此判定个性化亚型或生物学效用更好。
+
+森林图把不同终点的方向与 CI 放在同一处；检索 Top-k 和 MRR 衡量近邻标签，readout accuracy 衡量线性分类，100% 学习曲线衡量固定外部 query 下的全量训练设计。它们回答不同问题，统计单位也不相同。
 
 每行的圆点是预设终点的 $\Delta=\text{d1 指标}-\text{Direct 指标}$，线段是该终点适用的 95% 区间。零线表示当前指标下两臂数值相同，区间跨零表示这些数据仍容许两种方向；它既不是“已无差异”的证明，也不是预先设界的等价性检验。把几门考试成绩画在同一页便于寻找代价集中在哪一门，但各门试卷的分数尺度和重复单位不同，不能直接用线段长短给生物价值排序。
 
 ```{r figure-inference-forest, interp_check=TRUE}
 # ==== Figure 10: Inference summary forest plot (user-adjustable parameters) ====
 fig10 <- list(
-  # Canvas size in inches. Increase height if endpoint labels become crowded.
-  width_in = 8.0,
-  height_in = 5.2,
-  base_size = 11,
-  point_size = 2.8,
-  line_size = 0.75,
-  zero_line_width = 0.55,
-  legend_position = "none"
+  width_in = 10.2,
+  height_in = 3.8,
+  base_size = 10.5,
+  point_size = 3.2,
+  line_size = 0.9,
+  zero_line_width = 0.5,
+  value_margin_pt = 190
+)
+forest_plot_data <- forest_data
+forest_plot_data$row <- rev(seq_len(nrow(forest_plot_data)))
+forest_plot_data$label <- c(
+  "Label retrieval  ·  Top-k rate",
+  "Label retrieval  ·  MRR",
+  "Linear readout  ·  accuracy",
+  "Learning curve  ·  100%"
+)
+forest_plot_data$has_ci <- is.finite(forest_plot_data$ci_low) &
+  is.finite(forest_plot_data$ci_high)
+forest_plot_data$value_label <- ifelse(
+  forest_plot_data$has_ci,
+  sprintf("%+.3f\n[%+.3f, %+.3f]", forest_plot_data$estimate,
+          forest_plot_data$ci_low, forest_plot_data$ci_high),
+  sprintf("%+.3f\nCI unavailable", forest_plot_data$estimate)
 )
 p10 <- ggplot2::ggplot(
-  forest_data,
-  ggplot2::aes(y = .data$endpoint, x = .data$estimate)
+  forest_plot_data,
+  ggplot2::aes(y = .data$row, x = .data$estimate)
 ) +
+  ggplot2::geom_hline(
+    yintercept = c(1.5, 2.5), color = "#E8EDF1", linewidth = 0.45
+  ) +
   ggplot2::geom_vline(
     xintercept = 0,
     linewidth = fig10$zero_line_width,
     linetype = "dashed",
-    color = "grey55"
+    color = "#9CA7B1"
   ) +
-  ggplot2::geom_errorbar(
-    ggplot2::aes(xmin = .data$ci_low, xmax = .data$ci_high),
-    orientation = "y",
+  ggplot2::geom_segment(
+    data = forest_plot_data[forest_plot_data$has_ci, ],
+    ggplot2::aes(x = .data$ci_low, xend = .data$ci_high,
+                 y = .data$row, yend = .data$row),
     linewidth = fig10$line_size,
-    na.rm = TRUE
+    lineend = "round",
+    color = nature_colors[["navy"]]
   ) +
   ggplot2::geom_point(
+    data = forest_plot_data[forest_plot_data$has_ci, ],
     size = fig10$point_size,
-    color = nature_colors[["purple"]],
-    na.rm = TRUE
+    shape = 21,
+    fill = nature_colors[["navy"]],
+    color = "white",
+    stroke = 0.7
+  ) +
+  ggplot2::geom_point(
+    data = forest_plot_data[!forest_plot_data$has_ci, ],
+    size = fig10$point_size,
+    shape = 21,
+    fill = "white",
+    color = nature_colors[["navy"]],
+    stroke = 1.1
+  ) +
+  ggplot2::geom_text(
+    ggplot2::aes(label = .data$value_label),
+    x = Inf,
+    hjust = -0.12,
+    lineheight = 1.15,
+    size = 3.2,
+    color = "#263746"
+  ) +
+  ggplot2::annotate(
+    "text", x = Inf, y = 4.55, label = "Estimate / 95% CI",
+    hjust = -0.12, size = 3.1, fontface = "bold", color = "#687784"
+  ) +
+  ggplot2::scale_y_continuous(
+    breaks = forest_plot_data$row,
+    labels = forest_plot_data$label,
+    limits = c(0.55, 4.75),
+    expand = ggplot2::expansion(mult = 0)
   ) +
   ggplot2::labs(
-    x = "d1 minus Direct estimate (endpoint-specific units)",
+    x = "Endpoint score difference (d1 - Direct)",
     y = NULL,
-    caption = "Points: estimates; lines: 95% bootstrap CI where estimable; dashed line: zero difference."
+    caption = "Intervals use external cohorts; the 100% learning design has no design-level CI."
   ) +
+  ggplot2::coord_cartesian(clip = "off") +
   theme_nature_readable(
     base_size = fig10$base_size,
     x_text_angle = 0,
-    legend_position = fig10$legend_position
+    legend_position = "none"
+  ) +
+  ggplot2::theme(
+    panel.border = ggplot2::element_blank(),
+    axis.line = ggplot2::element_line(color = "#B8C3CC", linewidth = 0.45),
+    axis.ticks.y = ggplot2::element_blank(),
+    axis.text.y = ggplot2::element_text(
+      size = 10, color = "#263746", margin = ggplot2::margin(r = 11)
+    ),
+    axis.title.x = ggplot2::element_text(size = 10, face = "plain"),
+    plot.caption = ggplot2::element_text(
+      size = 9, color = "#687784", hjust = 0
+    ),
+    plot.margin = ggplot2::margin(12, fig10$value_margin_pt, 10, 12)
   )
 
-# Readability check: endpoints are short and ordered by analysis module; the
-# horizontal intervals expose zero-crossing directly without overlapping labels.
+# Values and interval availability appear beside each row; the open point marks
+# the 100% design, where a design-level interval cannot be estimated.
 fig10_jpg <- .ae_save_plot(
   p10, "02.01.00. inference-summary", figure_dir, preview_dir, fig10,
   params$plot_preview_dpi
@@ -1393,11 +1458,83 @@ knitr::include_graphics(fig10_jpg)
 
 ## cohort evidence 的二维 scaling
 
-本次 bank design 使用审计恢复后的真实 tissue 字段，保留冻结 module ID。Breadth 像请来更多不同专科的评委，扩大 tissue 覆盖；depth 像在同一专科再请几家医院，增加相似背景下的独立检查。两者回答“新增模块带来新视角，还是重复已有视角”，并不自动等于哪种设计更能改善临床任务。先沿两条扩展路线看变化，再在相同 module 数的预算下比较，才能避免把“请的人更多”误当作“证据更好”。
+### 为什么要比较两种扩充方式
 
-先解释三把尺子怎样从同一套冻结 bank 得到。对 bank 输出矩阵做奇异值分解，把第 $j$ 个方向的平方奇异值除以所有方向平方奇异值之和，记为能量份额 $p_j$。若能量平均分散在更多方向，$\exp(-\sum_jp_j\log p_j)$ 较大；再除以该设计允许的最大秩 $r_{\max}$，得到 0–1 的归一化有效秩。这个分母会随 bank 容量变动，所以分数下降也可能只是“可用维度涨得比已使用维度快”，并不等同于信息减少。module 冗余则把两两 module 的一维分数相关系数取绝对值后平均：接近 1 表示输出更相似，接近 0 表示较不相似；绝对值也会把反向但高度对应的判断计作冗余。
+CCS 用多个已训练的 cohort module 为同一批样本提供证据。前面的学习曲线改变的是读出层可用的训练 cohort；这里保持评分样本和已训练 module 不变，只从同一套冻结 bank 中选取不同的 module 组合。要回答的是：增加 cohort evidence 后，d1 是否获得更多不重复、较稳定的表示方向，以及这些变化主要来自新的组织背景，还是已有组织中的更多独立队列。
 
-第三把尺子把**同一批 query** 在当前子 bank 与完整冻结 bank 的近邻名单逐一比较，用交集人数除以并集人数，再对 query 平均。值较高表示子 bank 更像完整 bank；完整 bank 只是固定参照，并非生物真值。三项分别测方向容量、模块间重复和近邻稳定性；任何一项单独升高，都不能直接判定临床或生物任务更好。
+只按 module 总数画一条曲线无法区分这两种来源：增加一个 module 时，可能首次纳入一种 tissue，也可能只是在已有 tissue 内多纳入一个 cohort。两种加入方式都让 d1 多出输出，却可能产生不同的冗余和近邻结构。因此，本次 bank design 使用审计恢复后的真实 tissue 字段，保留冻结 module ID，分别构造两条扩充路线：breadth 固定每种 tissue 的 cohort 数，逐步增加 tissue 种类；depth 固定 tissue 集合，逐步增加每种 tissue 内的 cohort 数。再在相同 module 总数下比较偏向 breadth 与偏向 depth 的组合。比如同样选 6 个 module，比较“3 种 tissue、每种 2 个 cohort”与“2 种 tissue、每种 3 个 cohort”；这只是设计逻辑示例，实际组合受冻结 bank 的可用模块约束。
+
+这样才能检验在相同模块预算下，证据分散到更多组织背景与集中到已有组织各自带来什么表示变化。结果只描述当前冻结 bank 的性质；哪种扩充方式更能改善生物或临床任务，仍需独立终点验证。
+
+### 数学对象与 bank 构造
+
+令 $\mathcal M$ 为已训练并冻结的 module 集合，$\mathcal R$ 和 $\mathcal Q$ 分别为固定的评分 reference 与 query 样本集合，$n_R=|\mathcal R|$、$n_Q=|\mathcal Q|$。每个 module $m$ 对样本 $s$ 输出概率块 $f_m(s)\in\mathbb R^{q_m}$，其中 $q_m$ 是该块的列数。任一子 bank $B\subseteq\mathcal M$ 的表示是这些概率块的拼接：
+
+$$
+d_{1,B}(s)=\bigoplus_{m\in B} f_m(s),\qquad
+M(B)=|B|,\qquad T(B)=|\{t(m):m\in B\}|.
+$$
+
+$t(m)$ 是 module 的真实 tissue，$M(B)$ 是 module 总数，$T(B)$ 是覆盖的 tissue 数；对已覆盖 tissue $t$，深度 $D_t(B)=|\{m\in B:t(m)=t\}|$，全 bank 中该 tissue 的可用模块集合记为 $\mathcal M_t=\{m\in\mathcal M:t(m)=t\}$。因此“二维”指 $T(B)$ 与各 tissue 的 $D_t(B)$ 两种扩充方向，不是把 d1 投影到二维。每个随机设计重复 $r$ 都先打乱 tissue 顺序及各 tissue 内的 module 顺序。Breadth 序列 $B^{\mathrm{br}}_{r,b}$ 取前 $b$ 个 tissue 各自的第一个 module，故 $T(B^{\mathrm{br}}_{r,b})=M(B^{\mathrm{br}}_{r,b})=b$、每个入选 tissue 的深度均为 1。Depth 序列先固定至少拥有两个 module 的 tissue 集合 $\mathcal T_r$，再在每个 tissue 取前 $d$ 个 module，故 $T(B^{\mathrm{de}}_{r,d})=|\mathcal T_r|$、$D_t(B^{\mathrm{de}}_{r,d})=d$，且 $d\leq\min_{t\in\mathcal T_r}|\mathcal M_t|$。序列逐层嵌套。Matched-size 配对则从同一重复中构造 $B^+_{r,M}$ 与 $B^-_{r,M}$，满足 $|B^+_{r,M}|=|B^-_{r,M}|=M$ 且 $T(B^+_{r,M})>T(B^-_{r,M})$；前者轮流从不同 tissue 取 module，后者优先填充 module 较多的 tissue。无法形成 tissue 数差异的模块数不进入配对。
+
+几何指标先按固定 reference 估计每列的均值 $\mu_{mj}$ 和标准差 $\sigma_{mj}$，再把同一变换用于 reference 和 query；若标准差为 0 或非有限值，计算中将其置为 1。为避免输出列较多的 module 自动占更大的欧氏距离权重，bank 内每列还乘以 $1/\sqrt{M(B)q_m}$：
+
+$$
+z_{B,mj}(s)=\frac{f_{mj}(s)-\mu_{mj}}{\sigma_{mj}\sqrt{M(B)q_m}},
+\qquad m\in B,\;j=1,\ldots,q_m.
+$$
+
+以下有效秩和近邻都基于拼接后的 $z_B$；模块冗余则按实现使用**未做上述列标准化的 reference 概率块**。三项指标的输入边界不同，不能把它们当成同一种“信息量”。
+
+### 三项指标的定义
+
+对 $z_B$ 的 $n_Q\times\sum_{m\in B}q_m$ query 矩阵按列再次中心化，记非零奇异值为 $\lambda_j$，令 $\pi_j=\lambda_j^2/\sum_\ell\lambda_\ell^2$。归一化有效秩为
+
+$$
+R(B)=\frac{\exp\!\left(-\sum_{j:\pi_j>0}\pi_j\log\pi_j\right)}
+{\min\!\left(n_Q-1,\sum_{m\in B}q_m\right)}.
+$$
+
+分母是该矩阵允许的最大秩，$R(B)$ 在可计算时处于 $(0,1]$。它描述能量占用了多少**可用方向的份额**；bank 扩大时分母也会变化，因此 $R(B)$ 下降不等于原有方向或生物信息消失。
+
+对每个 module 的 reference 概率块 $F_m^{\mathcal R}$ 按列中心化后做奇异值分解，取第一左奇异向量乘第一奇异值作为一维分数 $a_m=\lambda_{m1}u_{m1}$。模块冗余为所有可计算 module 对的绝对 Pearson 相关均值：
+
+$$
+C(B)=\operatorname{mean}_{m<m',\;m,m'\in B}
+\left|\operatorname{cor}_{\mathcal R}(a_m,a_{m'})\right|.
+$$
+
+只含一个 module 或相关无法计算时，该项不作为有效观测。绝对值使同向和反向的高度对应都计为冗余；一维分数只概括各概率块的第一方向，并不声称完整刻画模块间依赖。
+
+近邻稳定性比较**同一设计格、不同随机 bank 组成**。令 $N_k(s;B)$ 为 query 样本 $s$ 在同一批 query 中、按 $z_B$ 的欧氏距离找到的 $k$ 个其他 query；$\mathcal P(B)$ 是与 $B$ 具有相同设计类型、角色、层级和 module 数的其他重复所得 bank。令 $J(A,A')=|A\cap A'|/|A\cup A'|$，则
+
+$$
+S(B)=\frac{1}{|\mathcal P(B)|}\sum_{B'\in\mathcal P(B)}
+\frac{1}{n_Q}\sum_{s\in\mathcal Q}
+J\!\left(N_k(s;B),N_k(s;B')\right).
+$$
+
+令 $K$ 为预设的近邻数集合，这里 $k=\min(\max K,n_Q-1)$；不足两个可比较 bank 的设计格不估计 $S(B)$。$S(B)$ 越高，表示换一种同规格的 module 组合后，query 近邻名单越相似。计算中另有 $J(N_k(s;B),N_k(s;\mathcal M))$ 形式的**对子 bank 与完整 bank 的近邻诊断**，但它不是本图和下表使用的 `neighbor_stability`，完整 bank 也不是生物真值。
+
+### 曲线、对比与不确定性
+
+对任一指标 $y(B)\in\{R(B),C(B),S(B)\}$，Figure 8 在每个 breadth 或 depth 层级展示随机设计重复的均值。表中的斜率先在每个重复 $r$ 内，沿相应嵌套序列拟合
+
+$$
+y(B_{r,\ell})=\alpha_r+\beta_r\log_2 M(B_{r,\ell})+\varepsilon_{r,\ell},
+\qquad \widehat\beta=\frac{1}{R_0}\sum_{r=1}^{R_0}\widehat\beta_r.
+$$
+
+因此 $\widehat\beta$ 的单位是 **module 数每翻倍时的指标变化**，不是每增加一个 tissue 或 cohort 的变化；相邻嵌套 bank 的边际变化另定义为 $y(B_{r,\ell})-y(B_{r,\ell-1})$。对 Figure 9，同预算的配对差是
+
+$$
+\delta_{r,M}=y(B^+_{r,M})-y(B^-_{r,M}),\qquad
+\overline\delta_M=\operatorname{mean}_r\delta_{r,M}.
+$$
+
+Figure 9 按 $M$ 展示 $\overline\delta_M$；推断表的 matched-size 总体行则先在每个重复内对可配对的 $M$ 求均值，再跨重复汇总。表中的 breadth–depth interaction 另在每个重复的 matched banks 上拟合 $y=\alpha+\gamma_T T+\gamma_D\bar D+\gamma_{TD}T\bar D+\varepsilon$，其中 $\bar D=M/T$；$\gamma_{TD}$ 是这个线性模型的交互系数，不是因果交互。
+
+令 $v_1,\ldots,v_{R_0}$ 为某个图格或对比在各随机设计重复上的估计值，则展示值是 $\bar v=R_0^{-1}\sum_r v_r$。每次 bootstrap 有放回地抽取 $R_0$ 个**完整重复**，得到 $\bar v^{*(b)}$；95% 区间取这些 bootstrap 均值的 2.5% 与 97.5% 分位数。推断表检验零效应时，对重复级估计作双侧 sign-flip：不超过 18 个重复时遍历 $\epsilon_r\in\{-1,1\}$，比较 $|R_0^{-1}\sum_r\epsilon_r v_r|$ 与 $|\bar v|$；更多重复时改用随机符号抽样，并对多个检验作 Holm 校正。该检验的有效性依赖零假设下重复级效应可交换地改变符号。固定的 query 样本、同一重复内的网格点和 module 均不充当独立重复。这些区间与 $P$ 值只描述当前冻结 bank 的组成敏感性，不是未来新 cohort 的人群推断。
 
 ```{r figure-cohort-evidence-sequences, interp_check=TRUE}
 # ==== Figure 8: Breadth and depth scaling (user-adjustable parameters) ====
@@ -1439,8 +1576,12 @@ p8 <- ggplot2::ggplot(
   ggplot2::facet_grid(
     rows = ggplot2::vars(.data$metric_label),
     cols = ggplot2::vars(.data$design_label),
-    scales = "free_y"
+    scales = "free"
   ) +
+  ggplot2::scale_x_continuous(breaks = function(limits) {
+    ticks <- pretty(limits, n = 5)
+    ticks[ticks %% 1 == 0]
+  }) +
   ggplot2::scale_color_manual(values = c(
     "Tissue breadth" = nature_colors[["blue"]],
     "Within-tissue depth" = nature_colors[["red"]]
@@ -1463,7 +1604,7 @@ p8 <- ggplot2::ggplot(
   )
 
 # Readability check: each scientific property receives its own y scale while the
-# x scale is shared across breadth/depth panels; panel heights are not interpreted
+# x scale follows each design's levels; panel heights are not interpreted
 # as cross-metric effect sizes.
 fig8_jpg <- .ae_save_plot(
   p8, "02.01.00. cohort-evidence-sequences", figure_dir,
@@ -1472,7 +1613,7 @@ fig8_jpg <- .ae_save_plot(
 knitr::include_graphics(fig8_jpg)
 ```
 
-解读：两列分别是扩大 tissue 种类的 breadth 和增加同 tissue 模块的 depth；每行只在自己的指标尺度上读，纵轴自由缩放，不能跨行比较柱高。当前模块数每翻倍，归一化有效秩沿 breadth 路线的估计变化为 `r fmt(rank_breadth$estimate)`，沿 depth 路线为 `r fmt(rank_depth$estimate)`；正值表示单位容量中使用的有效方向份额上升，负值则相反。斜率来自当前冻结 atlas 的设计序列，而不是未来任一新 cohort 的预期收益。读者还应同时看同一设计的冗余与对完整 bank 的近邻 Jaccard：新增方向若伴随近邻不稳定，其用途仍需在独立生物任务上核验。
+解读：两列分别是扩大 tissue 种类的 breadth 和增加同 tissue 模块的 depth；每行只在自己的指标尺度上读，纵轴自由缩放，不能跨行比较柱高。当前模块数每翻倍，归一化有效秩沿 breadth 路线的估计变化为 `r fmt(rank_breadth$estimate)`，沿 depth 路线为 `r fmt(rank_depth$estimate)`；正值表示可用方向中被实际占用的份额上升，负值则相反。斜率来自当前冻结 atlas 的设计序列，而不是未来任一新 cohort 的预期收益。还应同时看模块冗余与**不同 bank 组成之间**的近邻稳定性：新增方向若伴随近邻不稳定，其用途仍需在独立生物任务上核验。
 
 ```{r scaling-inference-table}
 scaling_inference_table <- scaling_inference[, c(
@@ -1549,7 +1690,7 @@ fig9_jpg <- .ae_save_plot(
 knitr::include_graphics(fig9_jpg)
 ```
 
-解读：此图先固定横轴的 module 总数，再在相同预算下计算 breadth-heavy 减 depth-heavy；零线是两种分配方式在当前指标上没有观察到差。当前归一化有效秩差为 `r fmt(rank_matched$estimate)`，冗余差为 `r fmt(redundancy_matched$estimate)`，近邻 Jaccard 差为 `r fmt(stability_matched$estimate)`。正的有效秩差只表示 breadth 用了更多可用方向；正的冗余差表示模块输出更相似；正的 Jaccard 差表示它更接近完整 bank。三者的方向含义不同，不能相加或投票选“赢家”。图中的带状区间来自有限 bank 设计重复，测的是模块组合敏感性；若要选择部署哪种扩展路线，仍须预先指定外部生物终点，在新队列上用相同模块预算比较。
+解读：此图先固定横轴的 module 总数，再在相同预算下计算 breadth-heavy 减 depth-heavy；零线是两种分配方式在当前指标上没有观察到差。跨可配对模块数汇总后，归一化有效秩差为 `r fmt(rank_matched$estimate)`，冗余差为 `r fmt(redundancy_matched$estimate)`，近邻稳定性差为 `r fmt(stability_matched$estimate)`。正的有效秩差表示 breadth 的可用方向占用份额较高；正的冗余差表示模块分数更相似；正的稳定性差表示 breadth-heavy bank 在更换同规格模块组合后，query 近邻名单更一致，**不表示它更接近完整 bank**。三者的方向含义不同，不能相加或投票选“赢家”。图中的带状区间来自有限 bank 设计重复，测的是模块组合敏感性；若要选择部署哪种扩展路线，仍须预先指定外部生物终点，在新队列上用相同模块预算比较。
 
 ## 技术来源与癌种锚点的联合评估
 
