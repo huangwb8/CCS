@@ -6,6 +6,12 @@
 
 ## [Unreleased]
 
+- 优化 ablation-03 Figure 8 的两列横轴：breadth 和 depth 各按自身层级缩放，去除 depth 列因共用 1–20 横轴造成的大块留白。
+
+- 优化 ablation-03 主要终点森林图：压缩留白和标签、减轻区间线条，并在图中直接标注差值、95% 区间及 100% 训练设计区间不可估计的状态。
+
+- 补充 ablation-03 表示报告中“主要终点的效应量与不确定性”的分析动机：说明森林图如何汇总旧癌种任务的得失、幅度与稳定性，并明确不同终点及训练设计区间的解读边界。
+
 - 说明 ablation-03“癌种 readout 的样本效率”实际是训练 reference cohort 学习曲线：区分请求比例与逐癌种最低支持后的实际队列数，补充与检索、全量 readout、bank scaling 的关系，以及固定 query、设计层不确定性和可推论范围。
 
 - 进一步梳理 ablation-03 外部癌种线性 readout 的报告解读：以直观结果表区分队列等权 accuracy 与合并 query 的癌种等权 balanced accuracy，明确区间、P 值、队列异质性及不能据此判定等价或生物机制。
