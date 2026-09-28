@@ -3,6 +3,7 @@ param(
   [string]$Action = 'make',
   [string]$InputRds = $env:CCS_ABLATION_INPUT_RDS,
   [string]$CacheRoot = $env:CCS_ABLATION_CACHE_ROOT,
+  [string]$OutputRoot = '',
   [int]$Workers = 2,
   [string]$Rscript = 'C:/R/R-4.3.1/bin/Rscript.exe'
 )
@@ -32,7 +33,21 @@ try {
       [StringComparison]::OrdinalIgnoreCase)) {
     throw 'The input RDS must not be the generated 01-data/inputs.rds file.'
   }
-  $env:CCS_ABLATION_CACHE_ROOT = $CacheRoot
+  $env:CCS_ABLATION_CACHE_ROOT = [IO.Path]::GetFullPath($CacheRoot)
+  $projectTmp = [IO.Path]::GetFullPath((Join-Path $project 'tmp'))
+  if ([string]::IsNullOrWhiteSpace($OutputRoot)) {
+    $cachePath = $env:CCS_ABLATION_CACHE_ROOT
+    $inProjectTmp = [string]::Equals($cachePath, $projectTmp,
+      [StringComparison]::OrdinalIgnoreCase) -or
+      $cachePath.StartsWith($projectTmp + [IO.Path]::DirectorySeparatorChar,
+        [StringComparison]::OrdinalIgnoreCase)
+    if ($inProjectTmp) {
+      throw 'OutputRoot is required for an isolated cache under the project tmp directory.'
+    }
+    $env:CCS_ABLATION_OUTPUT_ROOT = $project
+  } else {
+    $env:CCS_ABLATION_OUTPUT_ROOT = [IO.Path]::GetFullPath($OutputRoot)
+  }
   $env:CCS_ABLATION_TARGET_WORKERS = [string]([Math]::Max(1, $Workers))
   $localBin = Join-Path $env:USERPROFILE '.local\bin'
   if (Test-Path -LiteralPath (Join-Path $localBin 'pandoc.exe')) {
@@ -40,6 +55,10 @@ try {
   }
   & $Rscript --vanilla 'scripts/renv-ablation03.R' --command check
   if ($LASTEXITCODE -ne 0) { throw "ablation-03 renv check failed with exit code $LASTEXITCODE." }
+  # targets resolves the store before sourcing _targets.R. Synchronize the
+  # config first so a new cache root cannot silently reuse the previous store.
+  & $Rscript --vanilla -e "source('renv/activate.R'); targets::tar_config_set(store = normalizePath(file.path(Sys.getenv('CCS_ABLATION_CACHE_ROOT'), 'targets'), winslash = '/', mustWork = FALSE))"
+  if ($LASTEXITCODE -ne 0) { throw 'Failed to configure the ablation-03 targets store.' }
   if ($Action -eq 'manifest') {
     & $Rscript --vanilla -e "source('renv/activate.R'); targets::tar_manifest(script = '_targets.R')"
   } elseif ($Action -eq 'watch') {

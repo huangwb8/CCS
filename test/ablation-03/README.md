@@ -31,9 +31,15 @@ decoder 的 cohort 等权区间与原合并 query 逐特征分数分列；结构
 重采样给出 CKA 和距离排序的条件性 95% 区间；kNN Jaccard 固定完整近邻图后按 query cohort 重采样，P 值因没有预设零假设保持 NA；另报告
 留一 reference cohort 敏感性，不把其范围标作 95% CI。
 
+## 七组织深度设计
+
+表示分析的 Figure 8 右列固定 ACC、BRCA、CRC、KIRC、PAAD、PRAD、STAD，每种 tissue 按 1–8 个冻结 cohort module 逐层增加，总模块数为 7、14、21、28、35、42、49、56。七种 tissue 与八层终点在看新结果前已固定；模块容量或 tissue 名称不满足配置时，正式设计直接失败。左列 breadth 继续逐次加入一种 tissue 的一个模块，Figure 9 继续使用原有同模块预算的 matched-size 配对。图中的区间以五次 bank 设计重复为单位，只描述冻结模块组合的探索性敏感性。
+
+`ccs_code_files` 与 `ccs_code_identity` targets 跟踪项目 `R/ablation.R`、已安装 CCS 包的代码及版本描述，并在表示分析前核验关键函数体一致。`representation_sources` 同时跟踪科学参数和阶段脚本；源码或已安装包变化会触发 targets 失效，源码与已安装代码不一致时先停止正式计算。
+
 ## 正式运行
 
-必须使用 Windows R 4.3.1、项目 renv 和已安装的 CCS 0.8.3。
+必须使用 Windows R 4.3.1、项目 renv 和与仓库 `DESCRIPTION` 版本一致的已安装 CCS 包。
 正式输入快照来自已有的 01-data/inputs.rds，位于同一 cache root 但不会被数据准备阶段覆盖；切勿重新将 01-data/inputs.rds 作为输入。
 当前 renv 锁文件中的 CCS、GSClassifier、luckyBase 缺少可恢复来源，现有机器已安装的包可运行，但跨机器恢复尚需补齐来源。
 
@@ -43,6 +49,8 @@ $input = 'D:/cache/ccs/_ablation-03/formal-inputs.rds'
 & powershell -ExecutionPolicy Bypass -File 'test/ablation-03/scripts/run-targets-renv.ps1' `
   -Action make -InputRds $input -CacheRoot 'D:/cache/ccs/_ablation-03'
 ```
+
+launcher 会在调用 `tar_make()` 或 `tar_watch()` 前，先将 `_targets.yaml` 的 store 指向本次 `-CacheRoot/targets`。切换正式与隔离运行时须通过 launcher 设置 cache root；不要在另一运行仍活动时切换同一项目的 store 配置。正式报告默认写入分析项目根目录和 `reports/`，隔离运行须显式设置 `-OutputRoot`，把 HTML 与图表写入隔离目录。
 
 查看依赖图或监测运行：
 
@@ -107,16 +115,18 @@ Get-Content (Join-Path $cacheRoot 'logs/targets-crew/main-process.log') -Tail 5 
 轻量验收不再是另一种 profile，也不减少 repeats、bootstrap、scaling、null controls 或 decoder。只需把 `-InputRds` 换成正式数据子集或同 schema 的小型 fixture，并使用相同 launcher、相同参数和相同 targets 图：
 
 ```powershell
+$subsetInput = 'D:/path/to/existing-input-subset.rds'  # 换成已存在的同 schema 子集
+$testRoot = 'tmp/tests/depth-seven-tissues'  # 相对于 test/ablation-03
 & powershell -ExecutionPolicy Bypass -File 'test/ablation-03/scripts/run-targets-renv.ps1' `
-  -Action make -InputRds 'test/ablation-03/raw/fixture-inputs.rds' `
-  -CacheRoot 'test/ablation-03/tmp/targets-fixture'
+  -Action make -InputRds $subsetInput `
+  -CacheRoot $testRoot -OutputRoot $testRoot
 ```
 
 样本减少可能使某些端点变为 `not_estimable`，但不得改变分析方法、target 图或参数语义。
 
 ## 环境与包边界
 
-ablation-03 只依赖已安装的 CCS 包，不从仓库 `source()` `R/ablation.R`，也不使用 `pkgload::load_all()`。修改 CCS 源码后，必须先用 `C:/R/R-4.3.1` 构建并覆盖安装版本 `0.8.3`，再运行 targets。
+ablation-03 只依赖已安装的 CCS 包，不从仓库 `source()` `R/ablation.R`，也不使用 `pkgload::load_all()`。修改 CCS 源码后，必须先按项目版本门禁用 `C:/R/R-4.3.1` 构建、检查并安装 `DESCRIPTION` 指定的版本，再运行 targets。
 
 targets store、科学产物和 observability 均位于显式 cache root；不得把大型 RDS 或个人/专有基因组数据提交到仓库。
 报告渲染产生的 JPG 预览位于 cache root 的 `logs/report-previews/`，正式 HTML

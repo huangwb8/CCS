@@ -190,6 +190,8 @@ flowchart LR
 
 ablation-03 的补充统计推断由同一 `_targets.R` 中的 `statistical_inference`、`learning_query_inference`、`geometry_sensitivity` 目标生成。decoder 同时报告原合并 query 逐特征分数和 cohort 等权区间；三个预设损失与 reference 均值／阳性率基准作 cohort 配对比较。检索、readout 与生物锚点的单队列区间只描述队列内 query 波动。结构均值的节点层检验在网络稀疏或模拟覆盖不足时保留 NA；100% 学习曲线的新区间固定训练设计和种子，原设计层 CI／P 值保持 NA。几何 CKA 与距离排序的区间评估 reference 队列组成；kNN Jaccard 固定完整近邻图，只评估 query 队列组成；几何留一 cohort 的范围仅作敏感性描述，不是 95% CI。
 
+ablation-03 的正式配置将 `scaling$depth_tissues` 固定为 ACC、BRCA、CRC、KIRC、PAAD、PRAD、STAD，并将 `scaling$depth_max` 设为 8。深度序列在每次 bank 设计重复中固定这七种 tissue，逐层从每种 1 个模块增加到 8 个，总模块数为 7 至 56，且每层保留上一层的全部模块。构建前使用已筛选的冻结 module manifest 和审计后的 tissue 名称核验名单、唯一模块 ID 与每种 tissue 的容量；不满足条件时报错。未设置这两个参数时，公共 API 保留原有按容量选取 depth tissue 的行为。breadth 仍逐次加入一种 tissue 的一个模块，matched-size 仍使用原有同模块预算配对；两者与七组织深度曲线不是同一个比较设计。旧设计 ID 的评分随机种子保留原行号派生方式；新增 depth 点使用由设计 ID 稳定派生的独立种子，避免插入新行改变 breadth 或 matched-size 数值。
+
 ## `.ablation_*` 子函数职责地图
 
 下表按业务职责组织，而不是按源码出现顺序罗列。

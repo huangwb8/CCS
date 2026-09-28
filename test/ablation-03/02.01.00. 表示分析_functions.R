@@ -60,6 +60,8 @@
     scaling = list(
       enabled = TRUE,
       module_counts = c(10L, 25L, 50L, 75L, 100L, 125L, 150L),
+      depth_tissues = c("ACC", "BRCA", "CRC", "KIRC", "PAAD", "PRAD", "STAD"),
+      depth_max = 8L,
       sequences = 5L,
       direct_feature_type = "all",
       sensitivity_feature_type = "gene_pair",

@@ -422,6 +422,60 @@ scaling_sequence <- dplyr::left_join(
   scaling_sequence_ci,
   by = c("design_label", "metric_name", "scaling_axis")
 )
+depth_tissues <- sort(manifest$config$scaling$depth_tissues)
+depth_max <- manifest$config$scaling$depth_max
+depth_design <- cohort_scaling$design[
+  cohort_scaling$design$design_family == "depth", , drop = FALSE
+]
+if (length(depth_tissues) != 7L || !identical(depth_max, 8L) ||
+    nrow(depth_design) != manifest$config$scaling$sequences * depth_max ||
+    any(depth_design$module_count != 7L * depth_design$level) ||
+    !all(vapply(depth_design$tissues, function(x) {
+      identical(x, depth_tissues)
+    }, logical(1L)))) {
+  stop("Figure 8 requires the preregistered seven-tissue, eight-level depth design.")
+}
+depth_marginal <- cohort_scaling$contrasts |>
+  dplyr::filter(
+    .data$aggregation == "nested_step",
+    .data$component == "depth_child_minus_parent",
+    .data$metric_name %in% scaling_metric_names
+  ) |>
+  dplyr::left_join(
+    depth_design[, c("design_id", "level", "module_count")],
+    by = c("pair_id" = "design_id")
+  )
+if (nrow(depth_marginal) != manifest$config$scaling$sequences *
+    (depth_max - 1L) * length(scaling_metric_names) ||
+    anyNA(depth_marginal$level)) {
+  stop("Depth marginal results do not cover all adjacent levels.")
+}
+depth_marginal_groups <- split(depth_marginal, interaction(
+  depth_marginal$level, depth_marginal$metric_name, drop = TRUE
+))
+depth_marginal_table <- do.call(rbind, lapply(seq_along(depth_marginal_groups), function(i) {
+  part <- depth_marginal_groups[[i]]
+  interval <- .ae_paired_inference(
+    part, "estimate", cluster_column = "repeat_id",
+    n_boot = params$inference_bootstrap,
+    seed = params$inference_seed + 550L + i,
+    unit = "design_repeat",
+    method = "adjacent_depth_repeat_bootstrap",
+    min_clusters = 2L
+  )
+  data.frame(
+    depth_step = paste0(part$level[1L] - 1L, " to ", part$level[1L]),
+    module_count = part$module_count[1L],
+    metric = unname(scaling_metric_labels[part$metric_name[1L]]),
+    change = interval$estimate,
+    ci_low = interval$ci_low,
+    ci_high = interval$ci_high,
+    design_repeats = interval$n_cohort,
+    status = if (interval$n_cohort < 10L) "exploratory" else interval$status,
+    stringsAsFactors = FALSE
+  )
+}))
+rownames(depth_marginal_table) <- NULL
 
 scaling_matched_raw <- cohort_scaling$metrics |>
   dplyr::filter(
@@ -1475,7 +1529,7 @@ d_{1,B}(s)=\bigoplus_{m\in B} f_m(s),\qquad
 M(B)=|B|,\qquad T(B)=|\{t(m):m\in B\}|.
 $$
 
-$t(m)$ 是 module 的真实 tissue，$M(B)$ 是 module 总数，$T(B)$ 是覆盖的 tissue 数；对已覆盖 tissue $t$，深度 $D_t(B)=|\{m\in B:t(m)=t\}|$，全 bank 中该 tissue 的可用模块集合记为 $\mathcal M_t=\{m\in\mathcal M:t(m)=t\}$。因此“二维”指 $T(B)$ 与各 tissue 的 $D_t(B)$ 两种扩充方向，不是把 d1 投影到二维。每个随机设计重复 $r$ 都先打乱 tissue 顺序及各 tissue 内的 module 顺序。Breadth 序列 $B^{\mathrm{br}}_{r,b}$ 取前 $b$ 个 tissue 各自的第一个 module，故 $T(B^{\mathrm{br}}_{r,b})=M(B^{\mathrm{br}}_{r,b})=b$、每个入选 tissue 的深度均为 1。Depth 序列先固定至少拥有两个 module 的 tissue 集合 $\mathcal T_r$，再在每个 tissue 取前 $d$ 个 module，故 $T(B^{\mathrm{de}}_{r,d})=|\mathcal T_r|$、$D_t(B^{\mathrm{de}}_{r,d})=d$，且 $d\leq\min_{t\in\mathcal T_r}|\mathcal M_t|$。序列逐层嵌套。Matched-size 配对则从同一重复中构造 $B^+_{r,M}$ 与 $B^-_{r,M}$，满足 $|B^+_{r,M}|=|B^-_{r,M}|=M$ 且 $T(B^+_{r,M})>T(B^-_{r,M})$；前者轮流从不同 tissue 取 module，后者优先填充 module 较多的 tissue。无法形成 tissue 数差异的模块数不进入配对。
+$t(m)$ 是 module 的真实 tissue，$M(B)$ 是 module 总数，$T(B)$ 是覆盖的 tissue 数；对已覆盖 tissue $t$，深度 $D_t(B)=|\{m\in B:t(m)=t\}|$，全 bank 中该 tissue 的可用模块集合记为 $\mathcal M_t=\{m\in\mathcal M:t(m)=t\}$。因此“二维”指 $T(B)$ 与各 tissue 的 $D_t(B)$ 两种扩充方向，不是把 d1 投影到二维。每个随机设计重复 $r$ 都先打乱 tissue 顺序及各 tissue 内的 module 顺序。Breadth 序列 $B^{\mathrm{br}}_{r,b}$ 取前 $b$ 个 tissue 各自的第一个 module，故 $T(B^{\mathrm{br}}_{r,b})=M(B^{\mathrm{br}}_{r,b})=b$、每个入选 tissue 的深度均为 1。Depth 序列固定 $\mathcal T=\{\mathrm{ACC},\mathrm{BRCA},\mathrm{CRC},\mathrm{KIRC},\mathrm{PAAD},\mathrm{PRAD},\mathrm{STAD}\}$，这七种 tissue 均至少有八个不同的冻结 module；每次重复在各 tissue 内随机排序，再逐层取前 $d=1,\ldots,8$ 个 module，故 $T(B^{\mathrm{de}}_{r,d})=7$、$D_t(B^{\mathrm{de}}_{r,d})=d$、$M(B^{\mathrm{de}}_{r,d})=7d$。序列逐层嵌套。Matched-size 配对仍沿用原设计，从同一重复中构造 $B^+_{r,M}$ 与 $B^-_{r,M}$，满足 $|B^+_{r,M}|=|B^-_{r,M}|=M$ 且 $T(B^+_{r,M})>T(B^-_{r,M})$；前者轮流从不同 tissue 取 module，后者优先填充 module 较多的 tissue。无法形成 tissue 数差异的模块数不进入配对。
 
 几何指标先按固定 reference 估计每列的均值 $\mu_{mj}$ 和标准差 $\sigma_{mj}$，再把同一变换用于 reference 和 query；若标准差为 0 或非有限值，计算中将其置为 1。为避免输出列较多的 module 自动占更大的欧氏距离权重，bank 内每列还乘以 $1/\sqrt{M(B)q_m}$：
 
@@ -1579,7 +1633,11 @@ p8 <- ggplot2::ggplot(
     scales = "free"
   ) +
   ggplot2::scale_x_continuous(breaks = function(limits) {
-    ticks <- pretty(limits, n = 5)
+    ticks <- if (diff(limits) <= 8) {
+      seq.int(ceiling(limits[1]), floor(limits[2]))
+    } else {
+      pretty(limits, n = 5)
+    }
     ticks[ticks %% 1 == 0]
   }) +
   ggplot2::scale_color_manual(values = c(
@@ -1595,7 +1653,11 @@ p8 <- ggplot2::ggplot(
     y = "Estimate",
     color = "Bank design",
     fill = "Bank design",
-    caption = "Bands: exploratory 95% CI across bank-design repeats."
+    caption = paste0(
+      "Depth tissues: ", paste(depth_tissues, collapse = ", "), ".\n",
+      "1-8 modules/tissue = 7-56 total; bands: exploratory 95% CI ",
+      "across bank-design repeats."
+    )
   ) +
   theme_nature_readable(
     base_size = fig8$base_size,
@@ -1612,6 +1674,14 @@ fig8_jpg <- .ae_save_plot(
 )
 knitr::include_graphics(fig8_jpg)
 ```
+
+右列固定 ACC、BRCA、CRC、KIRC、PAAD、PRAD 和 STAD 七种 tissue；横轴 1–8 表示每种 tissue 纳入的模块数，总模块数依次为 7、14、21、28、35、42、49、56。左列仍沿用全部可用 tissue 的逐种纳入顺序，两列的 tissue 集合与模块预算不同，不能由此直接判定哪种扩展路线更优。五次 bank 设计重复的区间只描述当前冻结模块组合的探索性敏感性。
+
+```{r depth-adjacent-table}
+render_dt(depth_marginal_table, pageLength = nrow(depth_marginal_table))
+```
+
+相邻层变化是同一重复内下一层减上一层的指标值，每一步同时增加七个模块；表中区间以完整 bank 设计重复为抽样单位。它显示曲线在哪一步上升或下降，不把局部波动解释为已证实的饱和点。
 
 解读：两列分别是扩大 tissue 种类的 breadth 和增加同 tissue 模块的 depth；每行只在自己的指标尺度上读，纵轴自由缩放，不能跨行比较柱高。当前模块数每翻倍，归一化有效秩沿 breadth 路线的估计变化为 `r fmt(rank_breadth$estimate)`，沿 depth 路线为 `r fmt(rank_depth$estimate)`；正值表示可用方向中被实际占用的份额上升，负值则相反。斜率来自当前冻结 atlas 的设计序列，而不是未来任一新 cohort 的预期收益。还应同时看模块冗余与**不同 bank 组成之间**的近邻稳定性：新增方向若伴随近邻不稳定，其用途仍需在独立生物任务上核验。
 

@@ -65,7 +65,7 @@ if (identical(command, "install-core")) {
   }
   if (is.na(ccs_library) || !nzchar(ccs_library) || !dir.exists(file.path(ccs_library, "CCS"))) {
     stop(
-      "Set CCS_ABLATION_CCS_LIBRARY to a library containing the checked CCS 0.8.3 package.",
+      "Set CCS_ABLATION_CCS_LIBRARY to a library containing the checked CCS package.",
       call. = FALSE
     )
   }
@@ -88,9 +88,12 @@ if (identical(command, "install-core")) {
 } else if (identical(command, "check")) {
   if (!file.exists(project_lock)) stop("Missing renv.lock.", call. = FALSE)
   package_version <- tryCatch(as.character(utils::packageVersion("CCS")), error = function(e) NA_character_)
-  if (is.na(package_version) || package_version != "0.8.3") {
+  required_version <- as.character(read.dcf(file.path(project, "..", "..",
+    "DESCRIPTION"))[1L, "Version"])
+  if (is.na(package_version) || package_version != required_version) {
     found <- if (is.na(package_version)) "not installed" else package_version
-    stop("ablation-03 requires installed CCS 0.8.3; found ", found, call. = FALSE)
+    stop("ablation-03 requires installed CCS ", required_version,
+      "; found ", found, call. = FALSE)
   }
   missing <- required_packages[!vapply(required_packages, requireNamespace, logical(1), quietly = TRUE)]
   if (length(missing)) stop("Missing required packages: ", paste(missing, collapse = ", "), call. = FALSE)

@@ -10,8 +10,16 @@ if (is.na(env_path)) stop("Run from ablation-03 or the repository root.", call. 
 source(env_path, local = TRUE)
 
 .ablation03_ccs_version <- as.character(utils::packageVersion("CCS"))
-if (!identical(.ablation03_ccs_version, "0.8.3")) {
-  stop("ablation-03 requires installed CCS 0.8.3; found ", .ablation03_ccs_version, ".", call. = FALSE)
+.ablation03_version_file <- if (file.exists("DESCRIPTION")) {
+  "DESCRIPTION"
+} else {
+  file.path("..", "..", "DESCRIPTION")
+}
+.ablation03_required_version <- as.character(read.dcf(
+  .ablation03_version_file)[1L, "Version"])
+if (!identical(.ablation03_ccs_version, .ablation03_required_version)) {
+  stop("ablation-03 requires installed CCS ", .ablation03_required_version,
+    "; found ", .ablation03_ccs_version, ".", call. = FALSE)
 }
 .ablation03_ccs_namespace <- asNamespace("CCS")
 .ablation03_ccs_symbols <- grep("^\\.ablation_", ls(.ablation03_ccs_namespace, all.names = TRUE), value = TRUE)

@@ -32,6 +32,12 @@
 #'       breadth-heavy versus depth-heavy contrasts. Infeasible sizes are
 #'       retained in the exclusion audit. Default:
 #'       `c(10L, 25L, 50L, 75L, 100L, 125L, 150L)`.}
+#'     \item{`scaling$depth_tissues`}{Optional exact audited tissue names for a
+#'       fixed within-tissue depth sequence. Use together with `depth_max`.
+#'       `NULL` retains the original capacity-based design.}
+#'     \item{`scaling$depth_max`}{Optional positive integer depth endpoint for
+#'       `depth_tissues`. Every named tissue must contain at least this many
+#'       distinct frozen modules; an ineligible bank fails before scoring.}
 #'     \item{`scaling$sequences`}{Number of independently randomized,
 #'       reproducible bank-design repeats. Each repeat, rather than its samples
 #'       or grid cells, is the uncertainty unit. Default: `10L`.}
@@ -2277,6 +2283,8 @@ ablation <- function(
     scaling = list(
       enabled = FALSE,
       module_counts = c(10L, 25L, 50L, 75L, 100L, 125L, 150L),
+      depth_tissues = NULL,
+      depth_max = NULL,
       sequences = 10L,
       direct_feature_type = "all",
       sensitivity_feature_type = "gene_pair",
@@ -2399,6 +2407,26 @@ ablation <- function(
       "ablation: scaling$module_counts must contain at least two positive integers.",
       call. = FALSE
     )
+  }
+  depth_tissues <- config$scaling$depth_tissues
+  depth_max <- config$scaling$depth_max
+  if (xor(is.null(depth_tissues), is.null(depth_max))) {
+    stop("ablation: scaling$depth_tissues and depth_max must be set together.",
+      call. = FALSE)
+  }
+  if (!is.null(depth_tissues) &&
+      (!is.character(depth_tissues) || length(depth_tissues) == 0L ||
+        anyNA(depth_tissues) || any(!nzchar(depth_tissues)) ||
+        anyDuplicated(depth_tissues))) {
+    stop("ablation: scaling$depth_tissues must contain unique tissue names.",
+      call. = FALSE)
+  }
+  if (!is.null(depth_max) &&
+      (length(depth_max) != 1L || !is.numeric(depth_max) ||
+        is.na(depth_max) || !is.finite(depth_max) || depth_max < 1L ||
+        depth_max != as.integer(depth_max))) {
+    stop("ablation: scaling$depth_max must be one positive integer.",
+      call. = FALSE)
   }
   if (length(config$scaling$sequences) != 1 ||
       !is.finite(config$scaling$sequences) ||
@@ -4773,7 +4801,9 @@ ablation <- function(
     modules,
     module_counts,
     repeats,
-    seed
+    seed,
+    depth_tissues = NULL,
+    depth_max = NULL
 ) {
   required <- c("module_id", "tissue", "cohort")
   if (!all(required %in% colnames(modules))) {
@@ -4786,6 +4816,35 @@ ablation <- function(
   }
   if (anyDuplicated(modules$module_id)) {
     stop("ablation: module IDs must be unique within the bank.", call. = FALSE)
+  }
+  if (xor(is.null(depth_tissues), is.null(depth_max))) {
+    stop("ablation: depth_tissues and depth_max must be set together.",
+      call. = FALSE)
+  }
+  if (!is.null(depth_tissues)) {
+    if (!is.character(depth_tissues) || length(depth_tissues) == 0L ||
+        anyNA(depth_tissues) || any(!nzchar(depth_tissues)) ||
+        anyDuplicated(depth_tissues)) {
+      stop("ablation: depth_tissues must contain unique tissue names.",
+        call. = FALSE)
+    }
+    if (length(depth_max) != 1L || !is.numeric(depth_max) ||
+        is.na(depth_max) || !is.finite(depth_max) || depth_max < 1L ||
+        depth_max != as.integer(depth_max)) {
+      stop("ablation: depth_max must be one positive integer.", call. = FALSE)
+    }
+    capacity <- table(modules$tissue)
+    missing_tissues <- setdiff(depth_tissues, names(capacity))
+    if (length(missing_tissues) > 0L) {
+      stop("ablation: depth tissues absent from audited module bank: ",
+        paste(missing_tissues, collapse = ", "), ".", call. = FALSE)
+    }
+    insufficient <- depth_tissues[capacity[depth_tissues] < depth_max]
+    if (length(insufficient) > 0L) {
+      stop("ablation: depth tissues have fewer than ", depth_max,
+        " frozen modules: ", paste(insufficient, collapse = ", "), ".",
+        call. = FALSE)
+    }
   }
 
   requested_counts <- sort(unique(as.integer(module_counts)))
@@ -4874,8 +4933,12 @@ ablation <- function(
     }
 
     # Depth holds the eligible tissue set fixed and adds one cohort per tissue.
-    depth_tissues <- tissue_order[capacity[tissue_order] >= 2L]
-    if (length(depth_tissues) == 0L) {
+    selected_depth_tissues <- if (is.null(depth_tissues)) {
+      tissue_order[capacity[tissue_order] >= 2L]
+    } else {
+      tissue_order[tissue_order %in% depth_tissues]
+    }
+    if (length(selected_depth_tissues) == 0L) {
       excluded[[excluded_index]] <- data.frame(
         repeat_id = repeat_id,
         design_family = "depth",
@@ -4885,11 +4948,15 @@ ablation <- function(
       )
       excluded_index <- excluded_index + 1L
     } else {
-      max_depth <- min(capacity[depth_tissues])
+      max_depth <- if (is.null(depth_max)) {
+        min(capacity[selected_depth_tissues])
+      } else {
+        as.integer(depth_max)
+      }
       parent <- NA_character_
       for (depth in seq_len(max_depth)) {
         design_id <- sprintf("%s-D%03d", repeat_id, depth)
-        module_ids <- unlist(lapply(depth_tissues, function(x) {
+        module_ids <- unlist(lapply(selected_depth_tissues, function(x) {
           tissue_modules[[x]][seq_len(depth)]
         }), use.names = FALSE)
         rows[[row_index]] <- make_row(
@@ -4977,6 +5044,28 @@ ablation <- function(
     algo = "md5"
   )
   list(design = design, exclusions = exclusions, design_hash = design_hash)
+}
+
+
+# Keep legacy score seeds for existing bank IDs when an explicit depth grid
+# inserts new rows. New depth IDs receive a separate deterministic seed stream.
+.ablation_bank_score_seed_indices <- function(
+    modules, module_counts, repeats, seed, design,
+    depth_tissues = NULL
+) {
+  if (is.null(depth_tissues)) return(seq_len(nrow(design)))
+  legacy <- .ablation_cohort_bank_design(
+    modules, module_counts, repeats, seed
+  )$design
+  indices <- match(design$design_id, legacy$design_id)
+  added <- which(is.na(indices))
+  if (length(added) > 0L) {
+    indices[added] <- vapply(design$design_id[added], function(id) {
+      500000L + strtoi(substr(digest::digest(id, algo = "md5"), 1L, 7L),
+        base = 16L)
+    }, integer(1L))
+  }
+  indices
 }
 
 
@@ -5429,9 +5518,15 @@ ablation <- function(
     modules,
     config$scaling$module_counts,
     config$scaling$sequences,
-    seed
+    seed,
+    depth_tissues = config$scaling$depth_tissues,
+    depth_max = config$scaling$depth_max
   )
   design <- bank_design$design
+  score_seed_indices <- .ablation_bank_score_seed_indices(
+    modules, config$scaling$module_counts, config$scaling$sequences,
+    seed, design, config$scaling$depth_tissues
+  )
   design$d1_feature_count <- vapply(design$module_ids, function(module_ids) {
     sum(lengths(prepared$selected_blocks[module_ids]))
   }, integer(1))
@@ -5632,7 +5727,7 @@ ablation <- function(
       full_balanced,
       full_neighbors,
       config,
-      seed + i
+      seed + score_seed_indices[i]
     )
     neighbor_indices[[design_row$design_id]] <- geometry$neighbors
     metric_parts[[metric_index]] <- geometry$metrics
@@ -5647,7 +5742,7 @@ ablation <- function(
       technical_columns = technical_columns,
       k = local_k,
       search = config$geometry$search,
-      seed = seed + 1000L + i,
+      seed = seed + 1000L + score_seed_indices[i],
       n_trees = config$geometry$n_trees,
       search_k = config$geometry$search_k
     )
@@ -5674,7 +5769,7 @@ ablation <- function(
         label_column = anchor,
         k = local_k,
         search = config$geometry$search,
-        seed = seed + 2000L + i,
+        seed = seed + 2000L + score_seed_indices[i],
         n_trees = config$geometry$n_trees,
         search_k = config$geometry$search_k
       )

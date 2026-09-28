@@ -40,6 +40,18 @@ if (targets::tar_active()) {
 }
 
 list(
+  targets::tar_target(ccs_code_files, .ablation03_ccs_code_files(), format = "file"),
+  targets::tar_target(ccs_code_identity, .ablation03_assert_ccs_code(ccs_code_files)),
+  targets::tar_target(
+    representation_sources,
+    c(
+      "01.02.00. 表示输入准备.R",
+      "02.01.00. 表示分析.R",
+      "02.01.00. 表示分析_functions.R",
+      "scripts/helpers/workflow_helpers.R"
+    ),
+    format = "file"
+  ),
   targets::tar_target(
     input_rds,
     Sys.getenv('CCS_ABLATION_INPUT_RDS'),
@@ -64,7 +76,8 @@ list(
     representation_inputs,
     .ablation03_target_stage(
       "01.02.00. 表示输入准备.R",
-      dependency = data_preparation,
+      dependency = list(data_preparation, ccs_code_identity,
+        representation_sources),
       cache_root = runtime_config$cache_root
     )
   ),
@@ -80,7 +93,7 @@ list(
     representation_analysis,
     .ablation03_target_stage(
       "02.01.00. 表示分析.R",
-      dependency = representation_inputs,
+      dependency = list(representation_inputs, representation_sources),
       cache_root = runtime_config$cache_root
     )
   ),
@@ -184,6 +197,7 @@ list(
   targets::tar_target(
     data_overview_report_sources,
     c("01.04.00. 数据概览.Rmd",
+      "00.Environment.R",
       "01.01.00. 数据准备_functions.R",
       "02.01.00. 表示分析_functions.R",
       "scripts/helpers/nature_colors.R",
@@ -209,6 +223,7 @@ list(
   targets::tar_target(
     representation_report_sources,
     c("02.01.00. 表示分析.Rmd",
+      "00.Environment.R",
       "02.01.00. 表示分析_functions.R",
       "scripts/helpers/nature_colors.R",
       "scripts/helpers/nature_theme.R",
@@ -234,6 +249,7 @@ list(
   targets::tar_target(
     biology_report_sources,
     c("02.02.00. 生物锚点分析.Rmd",
+      "00.Environment.R",
       "02.01.00. 表示分析_functions.R",
       "scripts/helpers/nature_colors.R",
       "scripts/helpers/nature_theme.R",
@@ -258,6 +274,7 @@ list(
   targets::tar_target(
     structural_report_sources,
     c("02.03.00. 结构复现分析.Rmd",
+      "00.Environment.R",
       "02.01.00. 表示分析_functions.R",
       "02.03.00. 结构复现分析_functions.R",
       "scripts/helpers/nature_colors.R",

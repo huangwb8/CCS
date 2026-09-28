@@ -44,6 +44,12 @@ Default: \code{FALSE}.}
 breadth-heavy versus depth-heavy contrasts. Infeasible sizes are
 retained in the exclusion audit. Default:
 \code{c(10L, 25L, 50L, 75L, 100L, 125L, 150L)}.}
+\item{\code{scaling$depth_tissues}}{Optional exact audited tissue names for a
+fixed within-tissue depth sequence. Use together with \code{depth_max}.
+\code{NULL} retains the original capacity-based design.}
+\item{\code{scaling$depth_max}}{Optional positive integer depth endpoint for
+\code{depth_tissues}. Every named tissue must contain at least this many
+distinct frozen modules; an ineligible bank fails before scoring.}
 \item{\code{scaling$sequences}}{Number of independently randomized,
 reproducible bank-design repeats. Each repeat, rather than its samples
 or grid cells, is the uncertainty unit. Default: \code{10L}.}

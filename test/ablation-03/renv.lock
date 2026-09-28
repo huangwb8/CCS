@@ -309,7 +309,7 @@
     },
     "CCS": {
       "Package": "CCS",
-      "Version": "0.8.3",
+      "Version": "0.8.4",
       "Source": "unknown",
       "Type": "Package",
       "Title": "Cohort Congress System",

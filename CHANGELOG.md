@@ -6,6 +6,10 @@
 
 ## [Unreleased]
 
+- 修复 ablation-03 launcher 切换 cache root 时先读取旧 `_targets.yaml`、误把隔离验收判为全部缓存命中的问题；现在在 `tar_make()` 与 `tar_watch()` 前明确设置本次 targets store。隔离验收还可将 HTML 与图表重定向到独立输出根目录，避免覆盖正式报告。
+
+- 将 ablation-03 Figure 8 的 within-tissue depth 固定为七种预先指定的 tissue、每种 1–8 个冻结模块；保留 breadth 与 matched-size 设计及其随机流，补充容量校验、相邻层变化、报告说明和 targets 包代码身份门禁。按项目 ablation 验收门禁将 `DESCRIPTION` 的 patch 版本从 0.8.3 递增到 0.8.4。
+
 - 优化 ablation-03 Figure 8 的两列横轴：breadth 和 depth 各按自身层级缩放，去除 depth 列因共用 1–20 横轴造成的大块留白。
 
 - 优化 ablation-03 主要终点森林图：压缩留白和标签、减轻区间线条，并在图中直接标注差值、95% 区间及 100% 训练设计区间不可估计的状态。

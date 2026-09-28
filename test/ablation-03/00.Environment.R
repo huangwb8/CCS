@@ -61,7 +61,13 @@ if (!nzchar(.ablation03_cache_root)) {
   winslash = "/",
   mustWork = FALSE
 )
-.ablation03_report_path <- function(...) .ablation03_path("reports", ...)
+.ablation03_output_root <- Sys.getenv(
+  "CCS_ABLATION_OUTPUT_ROOT", unset = .ablation03_dir
+)
+.ablation03_output_root <- normalizePath(
+  .ablation03_output_root, winslash = "/", mustWork = FALSE
+)
+.ablation03_report_path <- function(...) file.path(.ablation03_output_root, "reports", ...)
 
 # --- luckyBase（硬前提）---
 if (!requireNamespace("luckyBase", quietly = TRUE)) {

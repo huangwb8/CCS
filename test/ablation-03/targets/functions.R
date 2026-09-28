@@ -24,6 +24,53 @@
   file.path(cache_root, "targets")
 }
 
+.ablation03_ccs_code_files <- function() {
+  source_file <- file.path(getwd(), "..", "..", "R", "ablation.R")
+  package_dir <- find.package("CCS")
+  files <- c(
+    source_file,
+    file.path(getwd(), "..", "..", "DESCRIPTION"),
+    file.path(package_dir, "DESCRIPTION"),
+    file.path(package_dir, "R", "CCS.rdb")
+  )
+  if (!all(file.exists(files))) {
+    stop("ablation-03: CCS source or installed package code is missing.",
+      call. = FALSE)
+  }
+  normalizePath(files, winslash = "/", mustWork = TRUE)
+}
+
+.ablation03_assert_ccs_code <- function(files) {
+  source_version <- as.character(read.dcf(files[2L])[1L, "Version"])
+  installed_version <- as.character(read.dcf(files[3L])[1L, "Version"])
+  if (!identical(source_version, installed_version)) {
+    stop("ablation-03: source and installed CCS versions differ.", call. = FALSE)
+  }
+  definitions <- parse(file = files[1L], keep.source = FALSE)
+  required <- c(".ablation_cohort_bank_design",
+    ".ablation_bank_score_seed_indices", ".ablation_representation_scaling")
+  for (name in required) {
+    selected <- Filter(function(expr) {
+      is.call(expr) && identical(expr[[1L]], as.name("<-")) &&
+        identical(expr[[2L]], as.name(name))
+    }, as.list(definitions))
+    if (length(selected) != 1L) {
+      stop("ablation-03: cannot identify source function: ", name, ".",
+        call. = FALSE)
+    }
+    installed <- tryCatch(getFromNamespace(name, "CCS"),
+      error = function(error) NULL)
+    if (!is.function(installed) ||
+        !identical(deparse(selected[[1L]][[3L]][[3L]]),
+          deparse(body(installed)))) {
+      stop("ablation-03: installed CCS code differs from R/ablation.R (",
+        name, "); install the validated package before tar_make().",
+        call. = FALSE)
+    }
+  }
+  unname(tools::md5sum(files))
+}
+
 .ablation03_observability_config <- function(cache_root = .ablation03_cache_root()) {
   root <- file.path(cache_root, "logs", "targets-crew")
   worker_log_dir <- file.path(root, "workers")
@@ -130,10 +177,16 @@
     }
   }, add = TRUE)
   Sys.setenv(CCS_ABLATION_CACHE_ROOT = cache_root)
+  output_root <- Sys.getenv("CCS_ABLATION_OUTPUT_ROOT", unset = getwd())
+  dir.create(output_root, recursive = TRUE, showWarnings = FALSE)
+  if (!dir.exists(output_root)) {
+    stop("ablation-03 cannot create report output root: ", output_root,
+      call. = FALSE)
+  }
   rendered <- rmarkdown::render(
     input = normalizePath(staged_input, winslash = "/", mustWork = TRUE),
     output_file = output_file,
-    output_dir = normalizePath(getwd(), winslash = "/", mustWork = TRUE),
+    output_dir = normalizePath(output_root, winslash = "/", mustWork = TRUE),
     knit_root_dir = normalizePath(getwd(), winslash = "/", mustWork = TRUE),
     params = list(plot_run_dir = preview_root),
     envir = new.env(parent = globalenv()),
@@ -173,7 +226,8 @@
   run_id <- Sys.getenv("CCS_ABLATION_RUN_ID", unset = "targets")
   package_path <- tryCatch(find.package("CCS"), error = function(e) NA_character_)
   description <- tryCatch(utils::packageDescription("CCS"), error = function(e) NULL)
-  required_version <- "0.8.3"
+  required_version <- as.character(read.dcf(file.path(getwd(), "..", "..",
+    "DESCRIPTION"))[1L, "Version"])
   package_version <- if (is.null(description)) NA_character_ else {
     as.character(description$Version)
   }
@@ -234,7 +288,7 @@
   if (!is.list(inputs)) {
     stop("ablation-03 input RDS must contain a named list.", call. = FALSE)
   }
-  # The staged CCS 0.8.3 workflow uses object/data/metadata.  Preserve
+  # The staged CCS workflow uses object/data/metadata. Preserve
   # compatibility with the existing 01-data product, which names the same
   # values resCCS_ablation/data_all/ablation_metadata.
   aliases <- list(
