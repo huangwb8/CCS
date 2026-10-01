@@ -422,6 +422,25 @@ scaling_sequence <- dplyr::left_join(
   scaling_sequence_ci,
   by = c("design_label", "metric_name", "scaling_axis")
 )
+figure8_endpoints <- function(family, metric) {
+  values <- scaling_sequence[
+    scaling_sequence$design_family == family &
+      scaling_sequence$metric_name == metric,
+    c("scaling_axis", "estimate"),
+    drop = FALSE
+  ]
+  values <- values[order(values$scaling_axis), , drop = FALSE]
+  if (nrow(values) < 2L) stop("Figure 8 needs at least two scaling levels.")
+  c(start = values$estimate[1L], end = values$estimate[nrow(values)])
+}
+figure8_ends <- list(
+  rank_breadth = figure8_endpoints("breadth", "normalized_effective_rank"),
+  rank_depth = figure8_endpoints("depth", "normalized_effective_rank"),
+  redundancy_breadth = figure8_endpoints("breadth", "module_covariance_redundancy"),
+  redundancy_depth = figure8_endpoints("depth", "module_covariance_redundancy"),
+  stability_breadth = figure8_endpoints("breadth", "neighbor_stability"),
+  stability_depth = figure8_endpoints("depth", "neighbor_stability")
+)
 depth_tissues <- sort(manifest$config$scaling$depth_tissues)
 depth_max <- manifest$config$scaling$depth_max
 depth_design <- cohort_scaling$design[
@@ -591,6 +610,33 @@ redundancy_matched <- scaling_contrast(
   "module_covariance_redundancy"
 )
 stability_matched <- scaling_contrast("matched_size", "neighbor_stability")
+scaling_inference_row <- function(type, metric) {
+  result <- scaling_inference[
+    scaling_inference$contrast_type == type &
+      scaling_inference$metric_name == metric,
+    ,
+    drop = FALSE
+  ]
+  if (nrow(result) != 1L) {
+    stop("The scaling inference row must be unique.", call. = FALSE)
+  }
+  result
+}
+si_rank_breadth <- scaling_inference_row("breadth_slope", "normalized_effective_rank")
+si_rank_depth <- scaling_inference_row("depth_slope", "normalized_effective_rank")
+si_redundancy_breadth <- scaling_inference_row(
+  "breadth_slope", "module_covariance_redundancy"
+)
+si_redundancy_depth <- scaling_inference_row(
+  "depth_slope", "module_covariance_redundancy"
+)
+si_stability_breadth <- scaling_inference_row("breadth_slope", "neighbor_stability")
+si_stability_depth <- scaling_inference_row("depth_slope", "neighbor_stability")
+si_rank_matched <- scaling_inference_row("matched_size", "normalized_effective_rank")
+si_redundancy_matched <- scaling_inference_row(
+  "matched_size", "module_covariance_redundancy"
+)
+si_stability_matched <- scaling_inference_row("matched_size", "neighbor_stability")
 scaling_main_contract <- cohort_scaling$diagnostics$direct_contracts[
   cohort_scaling$diagnostics$direct_contracts$contract_role == "main",
   ,
@@ -1590,6 +1636,18 @@ Figure 9 按 $M$ 展示 $\overline\delta_M$；推断表的 matched-size 总体�
 
 令 $v_1,\ldots,v_{R_0}$ 为某个图格或对比在各随机设计重复上的估计值，则展示值是 $\bar v=R_0^{-1}\sum_r v_r$。每次 bootstrap 有放回地抽取 $R_0$ 个**完整重复**，得到 $\bar v^{*(b)}$；95% 区间取这些 bootstrap 均值的 2.5% 与 97.5% 分位数。推断表检验零效应时，对重复级估计作双侧 sign-flip：不超过 18 个重复时遍历 $\epsilon_r\in\{-1,1\}$，比较 $|R_0^{-1}\sum_r\epsilon_r v_r|$ 与 $|\bar v|$；更多重复时改用随机符号抽样，并对多个检验作 Holm 校正。该检验的有效性依赖零假设下重复级效应可交换地改变符号。固定的 query 样本、同一重复内的网格点和 module 均不充当独立重复。这些区间与 $P$ 值只描述当前冻结 bank 的组成敏感性，不是未来新 cohort 的人群推断。
 
+### Figure 8 的三行怎么读
+
+把每个 module 看作给同一批样本画像的一位“观察员”。图中三行分别回答不同问题：
+
+| 图中行 | 它在问什么 | 曲线升高时表示什么 |
+|---|---|---|
+| 有效秩（Effective rank） | 多位观察员拼出的画像，利用了可用变化方向中的多大比例？ | 利用的方向占比更大；下降也可能是可用方向增加得更快，不能直接说原有信息消失。 |
+| 模块冗余（Module redundancy） | 不同观察员在 reference 样本上的主要变化趋势有多相像？ | 这些主要趋势更相似；这里只比较每个模块的第一方向，不能当作全部信息的重复率。 |
+| 近邻稳定性（Neighbor stability） | 按相同规则换一组 module 后，同一 query 样本找到的近邻名单还像不像？ | 不同 bank 组合给出的名单更一致；一致不等于名单符合生物学真值或临床用途。 |
+
+读图时分别沿每一行向右看变化。三行纵轴独立缩放，不能拿不同指标的曲线高度比较“收益”；左右两列的组织集合和模块总数也不同，不能直接据此选出更优扩充路线。
+
 ```{r figure-cohort-evidence-sequences, interp_check=TRUE}
 # ==== Figure 8: Breadth and depth scaling (user-adjustable parameters) ====
 fig8 <- list(
@@ -1677,6 +1735,12 @@ knitr::include_graphics(fig8_jpg)
 
 右列固定 ACC、BRCA、CRC、KIRC、PAAD、PRAD 和 STAD 七种 tissue；横轴 1–8 表示每种 tissue 纳入的模块数，总模块数依次为 7、14、21、28、35、42、49、56。左列仍沿用全部可用 tissue 的逐种纳入顺序，两列的 tissue 集合与模块预算不同，不能由此直接判定哪种扩展路线更优。五次 bank 设计重复的区间只描述当前冻结模块组合的探索性敏感性。
 
+**把这张图想成老师观察小朋友。** 每个 cohort module 像一位老师，同一批 query 样本像一群小朋友。左列每向右一步，就多请一位来自不同班的老师；右列固定七个班，每班再多请一位老师。三排图分别在说：
+
+- **上排，有效秩：** 左列从 `r fmt(figure8_ends$rank_breadth[["start"]])` 降到 `r fmt(figure8_ends$rank_breadth[["end"]])`，右列从 `r fmt(figure8_ends$rank_depth[["start"]])` 降到 `r fmt(figure8_ends$rank_depth[["end"]])`。老师越多，能写观察记录的位置越多；但真正不同的说法没有按同样比例增加，所以“新说法占可用位置的比例”下降。这不表示原有的说法消失了。
+- **中排，模块冗余：** 左列从 `r fmt(figure8_ends$redundancy_breadth[["start"]])` 到 `r fmt(figure8_ends$redundancy_breadth[["end"]])`，总体上升后趋平；右列从 `r fmt(figure8_ends$redundancy_depth[["start"]])` 到 `r fmt(figure8_ends$redundancy_depth[["end"]])`，略降后趋平。也就是说，多请不同班的老师时，他们的主要说法越来越相像；固定七个班再加老师时，这种相像程度没有一起升高。这里只比较每位老师的主要说法，不能断定他们的全部记录都重复。
+- **下排，近邻稳定性：** 左列从 `r fmt(figure8_ends$stability_breadth[["start"]])` 升到 `r fmt(figure8_ends$stability_breadth[["end"]])`，右列从 `r fmt(figure8_ends$stability_depth[["start"]])` 升到 `r fmt(figure8_ends$stability_depth[["end"]])`。按同样规则换一组老师，大家列出的“谁和谁像”名单越来越接近；名单一致，并不保证他们判断正确。
+
 ```{r depth-adjacent-table}
 render_dt(depth_marginal_table, pageLength = nrow(depth_marginal_table))
 ```
@@ -1760,15 +1824,190 @@ fig9_jpg <- .ae_save_plot(
 knitr::include_graphics(fig9_jpg)
 ```
 
-解读：此图先固定横轴的 module 总数，再在相同预算下计算 breadth-heavy 减 depth-heavy；零线是两种分配方式在当前指标上没有观察到差。跨可配对模块数汇总后，归一化有效秩差为 `r fmt(rank_matched$estimate)`，冗余差为 `r fmt(redundancy_matched$estimate)`，近邻稳定性差为 `r fmt(stability_matched$estimate)`。正的有效秩差表示 breadth 的可用方向占用份额较高；正的冗余差表示模块分数更相似；正的稳定性差表示 breadth-heavy bank 在更换同规格模块组合后，query 近邻名单更一致，**不表示它更接近完整 bank**。三者的方向含义不同，不能相加或投票选“赢家”。图中的带状区间来自有限 bank 设计重复，测的是模块组合敏感性；若要选择部署哪种扩展路线，仍须预先指定外部生物终点，在新队列上用相同模块预算比较。
+**还是请老师观察同一批小朋友，但这次每组老师的人数一样。** 一种请法是尽量从更多班级请老师，每班少请几位（breadth-heavy）；另一种是从较少班级请老师，每班多请几位（depth-heavy）。横轴是两组各请了多少位老师。每个点都用“更多班级组的指标 − 较少班级组的指标”计算：点在零线上方，表示更多班级组的该项指标较高；在零线下方则是较少班级组较高。Figure 8 看各自增加老师时怎样变化，Figure 9 则在人数相同的条件下比较两种请法，不能把 Figure 8 的两条曲线直接相减。
+
+三列仍是 Figure 8 的三个问题，只是现在读的是**两组之间的差**：
+
+- **左列，有效秩：** 差值大多贴近零线。两种请法对“实际用到的变化方向占可用方向的比例”没有呈现持续同向的差异；不能把接近零解读为已证明两者等价。跨可配对人数汇总的差值为 `r fmt(rank_matched$estimate)`。
+- **中列，模块冗余：** 小人数时差值在零线下方，随后多在零线上方。正值表示来自更多班级的老师，其主要观察趋势反而略像一些；这里没有比较他们全部记录是否重复。跨可配对人数汇总的差值为 `r fmt(redundancy_matched$estimate)`。
+- **右列，近邻稳定性：** 除最小人数外，点都在零线下方。同样重新挑选一组老师时，来自较少班级、每班人数更多的组合，给小朋友列出的“谁和谁像”名单通常更一致。跨可配对人数汇总的差值为 `r fmt(stability_matched$estimate)`；名单更一致不代表它更正确，也不表示它更接近完整 bank 的名单。
+
+浅色带是反复更换同规格模块组合后，这个差值的探索性 95% 区间；跨过零线时，不宜把该人数下的方向说得很确定。这三列回答的问题不同，不能把数值相加来选“赢家”。当前比较只针对冻结 bank；若要决定实际扩充路线，还需在新队列中用相同模块预算比较预先指定的外部生物终点。
+
+### Figure 8/9：哪些结论比较稳妥
+
+这里的“稳妥”指**在同一批 query、同一个冻结 module 池和本次 `r manifest$config$scaling$sequences` 次 bank 设计重复内，可以如实报告的观察方向**，不等于已通过统计检验或能推广到新 cohort。
+
+- **Figure 8：两条扩充路线的方向较一致。** module 总数每翻倍，归一化有效秩沿 breadth 和 depth 的斜率分别为 `r fmt(si_rank_breadth$estimate)`（探索性 95% CI `r fmt_ci(si_rank_breadth)`）和 `r fmt(si_rank_depth$estimate)`（`r fmt_ci(si_rank_depth)`）；近邻稳定性的斜率分别为 `r fmt(si_stability_breadth$estimate)`（`r fmt_ci(si_stability_breadth)`）和 `r fmt(si_stability_depth$estimate)`（`r fmt_ci(si_stability_depth)`）。因此可以说：在当前冻结 bank 内，两个序列都呈现**归一化有效秩下降、不同 bank 组合的近邻名单更一致**。有效秩是占可用方向的份额，下降不证明原有信息消失；稳定性上升也不证明邻居更正确。
+- **Figure 8：冗余的结论要分路线。** breadth 的模块冗余斜率为 `r fmt(si_redundancy_breadth$estimate)`（`r fmt_ci(si_redundancy_breadth)`），可描述为随 tissue 种类增加而上升；depth 为 `r fmt(si_redundancy_depth$estimate)`（`r fmt_ci(si_redundancy_depth)`），其区间跨零，不能说同一 tissue 内继续增加模块必然降低冗余。
+- **Figure 9：同模块预算下，近邻稳定性偏向 depth-heavy。** breadth-heavy 减 depth-heavy 的跨预算平均差为 `r fmt(si_stability_matched$estimate)`（`r fmt_ci(si_stability_matched)`）；除最小预算外，图中各点也都在零线下方。这只说明当前配对设计中的近邻名单一致性较高。有效秩和模块冗余的总体差分别为 `r fmt(si_rank_matched$estimate)`（`r fmt_ci(si_rank_matched)`）和 `r fmt(si_redundancy_matched$estimate)`（`r fmt_ci(si_redundancy_matched)`），区间均跨零；**没有检出明确差异不等于证明两种分配等价**。
+
+**统计上还不能称为“confirmed”。** 本次仅有 `r manifest$config$scaling$sequences` 次设计重复；上述方向较一致的斜率和等预算近邻差，在推断表中的双侧精确 sign-flip 原始 P 值均为 `r fmt_p(si_stability_matched$p_value)`，Holm 校正后 P 值为 `r fmt_p(si_stability_matched$p_value_adj)`。五次重复下双侧精确检验的最小可达 P 值就是 0.0625；bootstrap 95% 区间即使未跨零，也不能据此改写成“P < 0.05”或“已证实”。这些区间描述的是冻结 bank 的设计组合敏感性，不能推断新训练 cohort 的效果。尤其是更大 bank 之间可能共享更多 module，近邻稳定性上升还需控制组合重叠后再检验。
+
+### 这些结果为何值得进入论文
+
+**纳入论文的核心理由，是这项分析直接检验了 CCS 的一个方法学前提：汇集更多 cohort 的证据，怎样改变同一个患者的表示，以及这种表示对 cohort 选择有多敏感。** 对个性化泛癌分类框架而言，仅报告最终分类分数，仍无法说明多 cohort 证据整合起到了什么作用；本节通过固定评分样本和冻结 module、改变 bank 组成，给出了可以核查的表示性质。它能帮助作者判断“多 cohort 整合”这一设计在论文中应如何解释。
+
+首先，它为多 cohort 整合提供了一个具体的价值解释。当前冻结 bank 中，沿 breadth 扩充时近邻稳定性从 `r fmt(figure8_ends$stability_breadth[["start"]])` 变为 `r fmt(figure8_ends$stability_breadth[["end"]])`，沿 depth 扩充时从 `r fmt(figure8_ends$stability_depth[["start"]])` 变为 `r fmt(figure8_ends$stability_depth[["end"]])`。这表明，在固定 query 样本上，更大的 bank 给出的局部样本关系对**更换同规格模块组合**更一致。若分类所依据的样本关系随 cohort module 的选择大幅改变，后续分型也难以可靠复现；因此，减少这种组成敏感性是一项值得独立报告的积极性质。不过，当前指标只测模块组合扰动下的近邻一致性，尚未测同一患者重复检测、跨中心测量或最终临床决策的一致性。
+
+其次，它约束了“更多 cohort 带来更多信息”的解释。两条扩充路线的归一化有效秩均下降，说明实际使用的方向占可用方向的比例降低；由于分母随 bank 容量变化，不能据此断言原有方向或生物信息消失。结合近邻稳定性上升，可以提出一个值得后续检验的机制假设：**新增 cohort 的作用可能更多地体现为确认已有共同结构，而独特方向没有随表示维度同比增加。** 这使证据互证与方向扩张成为可以分别讨论的问题；当前结果尚未证明这一机制，也不能把归一化有效秩直接当作生物信息总量。
+
+第三，它把 bank 的规模问题推进到组成问题。Figure 9 在相同 module 预算下，breadth-heavy 减 depth-heavy 的近邻稳定性平均差为 `r fmt(si_stability_matched$estimate)`（探索性 95% CI `r fmt_ci(si_stability_matched)`），当前方向偏向 depth-heavy。这提示组织覆盖广度与组织内队列深度可能承担不同作用，能够引出“有限模块预算应如何分配”的研究问题。支撑这一比较的是同预算的 Figure 9；Figure 8 两列的组织集合与模块预算不同，不能直接用两列终点或斜率选出更优路线。当前匹配的是 module 数，也没有保证患者数、输出维度或训练成本完全相同。
+
+### 论文中的定位与后续验证
+
+**当前适合将本节定位为探索性的表示稳健性证据。** 只有 `r manifest$config$scaling$sequences` 次 bank 设计重复；上述等预算稳定性差的精确检验原始 P 值为 `r fmt_p(si_stability_matched$p_value)`，Holm 校正后为 `r fmt_p(si_stability_matched$p_value_adj)`。探索性 bootstrap 区间未跨零也不能替代这一检验，更不能将固定 query 和冻结模块池的结果推广为新 cohort 的预期效果。论文中可以如实表述为：“在当前冻结 cohort bank 和固定 query 中，扩大 bank 伴随模块组合扰动下更一致的近邻关系，同时归一化有效秩下降；同模块预算的比较观察到 depth-heavy 组合的近邻稳定性较高。”这一表述不包含生物学正确性、临床分类改善或最优扩充策略已得到证明的结论。
+
+如果论文主线包含“多 cohort 证据如何形成可靠的个体表示”，正文可保留一个精简面板，突出组成敏感性与容量利用的关系，将完整 Figure 8/9、设计参数和推断表放入补充材料。如果论文主要强调分类性能，本节更适合作为补充诊断，帮助读者理解 bank 设计及其局限。最终取舍应由作者根据论文主线和证据强度决定；**它值得进入论文的理由，是解释并约束 CCS 的证据整合逻辑，当前结果还不足以宣布 depth 是更优策略，或 cohort 增加已经改善临床效果。**
+
+还需区分证据互证与抽样重叠：所有设计重复都从同一个冻结模块池抽取，bank 变大时，不同重复之间共享模块的机会也会增加，近邻稳定性可能因此上升。当前五次设计重复及其区间不能分离这部分影响，更不能说明新训练的 cohort module 必然带来同等收益。后续可按以下顺序检验：
+
+- **控制模块重叠：** 在相同 module 数、tissue 组成和固定 query 下，记录每对 bank 的共享模块比例，比较重叠程度相近的 bank；也可建立保留该重叠结构的随机基线。只有控制共享比例后稳定性仍随证据增加而提高，才更支持多 cohort 证据整合本身带来的稳健性。
+- **检验新增 cohort 与实际决策：** 在独立队列训练此前未进入冻结 bank 的 module，以相同模块预算比较扩充前后的近邻一致性及预先指定的外部生物终点；再用跨中心或重复检测样本检验最终分型的一致性与任务表现。若这些独立检验同向改善，且生物终点和分类性能没有下降，才可进一步讨论临床场景所需的可重复性。
 
 ## 技术来源与癌种锚点的联合评估
 
-这一步问：样本找邻居时，是否优先认出“用哪种相机拍的”，而不是识别它的生物状态？图中分别检查检测类型、平台和数据来源。对每个 query，observed rate 是前 `r params$display_k` 个实际邻居中同技术标签者的比例；expected rate 是其它队列、同癌种 reference 池中的背景比例。单臂 technical excess 等于 observed 减 expected，正值表示实际邻居比该背景更爱按技术标签聚集。
+### 为什么要同时看技术来源与癌种
 
-写成公式即 $E_q^{(m)}=O_q^{(m)}-B_q$：$O$ 是表示 $m$ 找到的邻居中同技术标签的份额，$B$ 是同癌种、其它队列候选池中的该份额。若某相机在候选池中占 40%，近邻中却占 70%，excess 为 0.30；只有看到超出背景的部分，才能避免把本来常见的相机误判成“模型偏爱”。这仍是观察性对比，$B$ 只按当前癌种背景定义，无法控制所有潜在生物差异。
+**我们希望相似样本因为生物状态相近而成为邻居，但检测方式也可能让它们看起来相似。** 例如，某个平台的测量偏差会给不同患者留下共同痕迹。如果模型主要按这些痕迹找邻居，就可能学到一个“技术捷径”：在熟悉的平台上表现不错，换个平台便不稳定。本节分别检查检测类型（`assay_type`）、检测平台（`platform_id`）和数据来源（`source_system`），观察 d1 相对 Direct 是否改变了这种聚集。
 
-**两臂差值的解释要更谨慎。**Direct 与 d1 对同一个 query 扣掉相同的 expected rate，因此 d1−Direct 的 excess 差在代数上正好等于两臂实际同技术近邻比例之差。如果 d1 同时改变了邻居的癌种组成，技术标签比例也可能跟着变化；共同背景值不会自动消除这种混杂。所以负差可以说“技术标签聚集减少”，还不能直接说“技术噪声已被选择性移除”。同 cohort 邻居在两臂中本来就被排除，图也不直接测量同 cohort 聚集是否下降。
+可以把任务想成**给宠物照片找相似照片**：猫和狗对应不同癌种，相机对应检测平台，相册对应 cohort。理想情况下，一张猫照片找到其他相册中的猫，是因为动物本身相似；如果总找到同款相机拍摄的照片，就要检查模型是否被相机色调吸引。可是，“同相机照片少了”也可能只是因为猫照片少了、狗照片多了。因此，技术来源与癌种需要一起看：前者检查邻居是否按测量来源聚集，后者作为保护性参照，检查已知的生物标签关系保留多少。癌种只是生物信息的一部分，还需结合后续独立生物锚点判断。
+
+### 先分清：从哪里找邻居，从哪里算背景
+
+沿用前面的跨队列检索设定，令 $q$ 表示一个待评估的 query 样本，$c_q$ 是它的 cohort，$y_q$ 是它的癌种，$t_q$ 是当前检查的技术标签；$m$ 表示 Direct 或 d1。一次只检查一个技术字段，例如检查平台时，$t_q$ 就是该患者的检测平台。
+
+**实际找邻居时，候选池包含其它 cohort 的所有癌种。** 记这个池为
+
+$$
+\mathcal R_q=\{r\in\mathrm{reference}:c_r\ne c_q\},
+\qquad
+\mathcal N_q^{(m)}(k)=\text{表示 }m\text{ 在 }\mathcal R_q\text{ 中找到的前 }k\text{ 个邻居}.
+$$
+
+本图使用 $k=$ `r params$display_k`。两臂面对同一个 query 和同一个 reference 候选池，但各自根据表示距离排序，因此邻居名单可以不同。排除同 cohort 邻居，是为了防止靠本队列的共同痕迹完成检索；它不等于排除了跨队列的平台或来源差异。
+
+**计算技术背景时，才进一步限制为同癌种。** 记背景池为
+
+$$
+\mathcal P_q=\{r\in\mathcal R_q:y_r=y_q\}.
+$$
+
+回到照片例子：先从其它相册的猫狗照片中找最相似的照片；另从其它相册的猫照片中，统计 query 所用相机有多常见。**背景池限制了癌种，实际近邻池没有限制癌种。** 这是理解后面公式的关键，否则容易误以为图中已经做了癌种内检索。
+
+### 同技术比例与 excess：一步一步算
+
+先计算实际近邻的同技术比例，称为 observed rate。技术标签完整时，其公式为
+
+$$
+O_q^{(m)}=\frac{1}{k}\sum_{r\in\mathcal N_q^{(m)}(k)}
+\mathbf 1(t_r=t_q).
+$$
+
+符号 $\mathbf 1(\cdot)$ 是一个“计数开关”：括号里的条件成立就记 1，否则记 0。把这些 0 和 1 加起来，就是同技术邻居数，再除以邻居总数。例如，10 个邻居中有 7 个与 query 使用同款相机，$O=7/10=0.70$。这里用 10 个邻居方便手算，**以下例子均为教学示例，不是本次分析结果**。
+
+再计算背景同技术比例，称为 expected rate：
+
+$$
+B_q=\frac{1}{|\mathcal P_q|}\sum_{r\in\mathcal P_q}
+\mathbf 1(t_r=t_q).
+$$
+
+$|\mathcal P_q|$ 表示背景池的样本数。若其它相册的 100 张猫照片中，有 40 张来自 query 所用的相机，则 $B=40/100=0.40$。这里的 expected 是**现有同癌种 reference 的经验背景比例**，并非随机模型推导出的理论概率，也不是经过所有混杂因素校正的期望。
+
+上面两式先按标签完整的情况写出，便于理解分母。实际代码计算 $O$ 时剔除无法比较的 NA 匹配；计算 $B$ 时仅保留 query 与 reference 技术标签均非缺失、非空的比较。因此标签不完整时，应分别除以各自的可比较数，不能一律除以 $k$ 或背景池总人数。没有可用背景时，excess 为 NA，不能当作零。
+
+最后计算单臂的技术近邻超额，称为 technical excess：
+
+$$
+E_q^{(m)}=O_q^{(m)}-B_q.
+$$
+
+上例得到 $E=0.70-0.40=0.30$，即近邻的同相机比例比同癌种背景高 **30 个百分点**。$E>0$ 表示高于背景，$E=0$ 表示恰与背景相同，$E<0$ 表示低于背景。它避免把“这种相机本来就很多”直接误判成模型偏爱；但由于 $O$ 可包含其它癌种，这还不是严格的癌种内技术效应。即便 $E=0$，也不能据此宣布表示没有技术偏差。
+
+### 两臂相减时，背景为什么会抵消
+
+对同一个 query，$B_q$ 只由 reference 元数据决定，与选择 Direct 还是 d1 无关。因此，配对差值为
+
+$$
+\begin{aligned}
+\Delta_q^{\mathrm{tech}}
+&=E_q^{(\mathrm{d1})}-E_q^{(\mathrm{Direct})}\\
+&=(O_q^{(\mathrm{d1})}-B_q)-(O_q^{(\mathrm{Direct})}-B_q)\\
+&=O_q^{(\mathrm{d1})}-O_q^{(\mathrm{Direct})}.
+\end{aligned}
+$$
+
+中间一行的 $-B_q$ 与 $+B_q$ 正好抵消。假设 Direct 的同技术比例是 0.70，d1 是 0.50，共同背景是 0.40；两臂 excess 分别为 0.30 和 0.10，差为 $0.10-0.30=-0.20$，与 $0.50-0.70=-0.20$ 完全一致。
+
+**所以 Figure 5 的纵轴可直接读作“d1 − Direct 的同技术近邻比例差”。** 负值表示 d1 找到的同技术邻居比例较低，正值表示较高；$-0.20$ 是低 20 个百分点。d1 此时仍高于背景 10 个百分点，说明“两臂相比减少”与“已经没有超额聚集”是两个不同判断。共同背景帮助解释单臂水平，却不会在两臂差值中自动完成癌种校正。
+
+### 为什么技术比例下降，还要检查癌种
+
+前面的同癌种检索比例可以记为
+
+$$
+A_q^{(m)}=\frac{1}{k}\sum_{r\in\mathcal N_q^{(m)}(k)}
+\mathbf 1(y_r=y_q),
+\qquad
+\Delta_q^{\mathrm{cancer}}=A_q^{(\mathrm{d1})}-A_q^{(\mathrm{Direct})}.
+$$
+
+它与 $O_q^{(m)}$ 检查的是**同一份邻居名单的两个属性**：一个数同癌种，另一个数同技术。二者都以比例为单位，但科学含义不同，不能把两项差值相加，或相除得到所谓“去噪效率”。
+
+下面给一个能手算的反例。query 是相机 A 拍摄的猫，两种表示各找 10 张邻居照片；同癌种背景中的相机 A 比例固定为 $B=0.40$：
+
+| 教学示例 | 猫照片数 | 其中相机 A 拍摄数 | 狗照片数 | 其中相机 A 拍摄数 | 同相机比例 $O$ | 同癌种比例 $A$ |
+|---|---:|---:|---:|---:|---:|---:|
+| Direct | 8 | 6 | 2 | 0 | 0.60 | 0.80 |
+| d1 | 4 | 3 | 6 | 0 | 0.30 | 0.40 |
+
+技术 excess 从 $0.60-0.40=0.20$ 变为 $0.30-0.40=-0.10$，于是 $\Delta^{\mathrm{tech}}=-0.30$；同癌种比例也从 0.80 变为 0.40，$\Delta^{\mathrm{cancer}}=-0.40$。但是，**猫邻居中相机 A 的比例一直是 75%**：Direct 为 $6/8$，d1 为 $3/4$；狗邻居中一直是 0%。同相机比例下降，完全可以由猫狗组成改变产生，根本不要求任何一种动物内部的相机偏好减弱。
+
+这个反例背后的数学只是“分组比例的加权平均”。在技术标签完整时，令 $w_q^{(m)}$ 是同癌种邻居的份额，$p_{q,L}^{(m)}$ 是同癌种邻居内的同技术比例，$p_{q,H}^{(m)}$ 是其它癌种邻居内的同技术比例；$L$ 与 $H$ 只是两个组的记号。则
+
+$$
+O_q^{(m)}=w_q^{(m)}p_{q,L}^{(m)}+
+(1-w_q^{(m)})p_{q,H}^{(m)}.
+$$
+
+意思是：**总体同相机比例 = 猫所占份额 × 猫中同相机比例 + 狗所占份额 × 狗中同相机比例**。技术标签完整时，$w_q^{(m)}=A_q^{(m)}$；有缺失时，$w$ 需在技术可比较的邻居中定义，不能直接套用完整名单的癌种比例。即使两个组内的技术比例完全不变，只要 $w$ 改变且两个组的技术比例不同，总体 $O$ 就会改变。上例中
+
+$$
+O^{(\mathrm{Direct})}=0.80\times0.75+0.20\times0=0.60,
+\qquad
+O^{(\mathrm{d1})}=0.40\times0.75+0.60\times0=0.30.
+$$
+
+这一恒等式解释了**癌种组成变化与癌种内技术聚集变化可能混在同一个差值中**。它用于说明指标的边界；本节没有额外估计两个组内的技术效应，缺少某组邻居时也不能凭空给该组一个比例。
+
+把技术与癌种方向放在一起，可按下表提出后续问题。这里都是解释线索，需要先看区间；接近零或区间跨零不等于证明不变。
+
+| 两侧观察方向 | 当前可以描述什么 | 还要核验什么 |
+|---|---|---|
+| 技术比例下降，癌种检索未见明显下降 | 技术标签聚集减弱，癌种标签关系相对保留 | 癌种内比较是否仍同向；若要声称“保留”，须预设可接受损失界值并做非劣效或等价性分析 |
+| 技术比例与癌种检索都下降 | 两种标签关系一起减弱，存在组成变化或信息损失的解释 | 固定癌种后的技术聚集，以及独立生物锚点是否保留或改善 |
+| 技术比例上升 | 同技术邻居占比增加 | 是测量来源捷径加强，还是邻居生物组成改变 |
+
+### 从一个患者到多个队列：均值和区间怎样来
+
+先对同一个患者计算两臂差，再在队列内平均，最后让各队列等权。对某个技术字段，令 $\mathcal Q_c$ 为 cohort $c$ 中具有可估计配对差的 query 集合，$n_c=|\mathcal Q_c|$，$C$ 为具有可用队列均值的 cohort 数：
+
+$$
+\overline\Delta_c^{\mathrm{tech}}
+=\frac{1}{n_c}\sum_{q\in\mathcal Q_c}\Delta_q^{\mathrm{tech}},
+\qquad
+\widehat\Delta^{\mathrm{tech}}
+=\frac{1}{C}\sum_{c=1}^{C}\overline\Delta_c^{\mathrm{tech}}.
+$$
+
+图中的每个彩色点是 $\overline\Delta_c^{\mathrm{tech}}$，黑色菱形是 $\widehat\Delta^{\mathrm{tech}}$。例如，一个 100 人队列的均值是 $-0.10$，另一个 10 人队列的均值是 $+0.20$，队列等权结果为 $(-0.10+0.20)/2=+0.05$；若直接合并患者，则为 $(100\times(-0.10)+10\times0.20)/110\approx-0.073$。方向甚至可以相反，因为两种汇总回答的问题不同。本图回答的是“每个外部队列给一票时，平均怎样改变”，不会让一个大队列仅凭人数多就决定结论。
+
+95% 区间通过**重抽整个 cohort 的配对均值**得到：每次有放回地抽取 $C$ 个 cohort，再算等权均值，重复 `r params$inference_bootstrap` 次，取分布的 2.5% 与 97.5% 分位数。这保留了队列作为推断单位的设定；不是把每个近邻位置当作独立验证，也没有在每次重采样时重新训练模型或重找邻居。区间描述固定表示、固定 reference 和当前外部队列下的变动，不能覆盖未来训练新模型的全部不确定性。
+
+表中的 P 值采用双侧配对 sign-flip 检验：在零差且队列差值可作正负对称交换的假设下，反复改变完整队列差值的符号，比较零假设下的平均差与观察到的平均差。**bootstrap 的区间与 sign-flip 的 P 值来自不同构造**，不能互相换算。三个技术字段一起做 Holm 校正；字段间可能相关，三项下降不能算三次独立的去噪证明。若要推断未来队列，还需要队列之间足够独立且能代表目标场景；区间与 P 值本身不消除癌种和平台的混杂。
+
+### Figure 5：把公式对应到图上
 
 ```{r figure-technical-excess, interp_check=TRUE}
 # ==== Figure 5: Technical-neighbor excess deltas (user-adjustable parameters) ====
@@ -1862,7 +2101,9 @@ fig5_jpg <- .ae_save_plot(
 knitr::include_graphics(fig5_jpg)
 ```
 
-解读：每个彩色点是一个外部 query cohort 内的平均 d1−Direct 同技术标签邻居比例差；黑色菱形把 cohort 等权平均，竖线给完整 cohort bootstrap 的 95% 区间。三个字段的结果分别是 `r technical_inference_summary`。例如差值为 −0.05 的含义是每 100 个邻居位置约少 5 个同技术标签匹配，**不是**批次效应减少 5%。由于两臂对同一个 query 扣去相同的背景比例，图中负值只直接证明当前邻居更少按该标签聚集；检测方式、平台与来源可能互相关联，且邻居癌种构成也会改变，因此三项负向不能算三次独立的“去技术噪声”证明。
+先看零线：彩色点在下方，表示该 cohort 中 d1 的同技术近邻比例平均较低；在上方则较高。再看点的分散程度：箱体和散点描述 cohort 间的差异，**箱体不是总体均值的 95% 区间**。最后看黑色菱形与竖线，它们才是队列等权均值及其 bootstrap 95% 区间。竖线跨零时，该字段的总体方向仍有不确定性；均值为负也不表示每个 cohort 都下降。
+
+本次三个字段的数值为 `r technical_inference_summary`。比例差乘以 100 就是百分点，例如 $-0.05$ 是同技术邻居比例低 5 个百分点，不能解释为平台误差或批次效应减少 5%。图测的是邻居名单的标签组成，不直接测量测序误差。
 
 ```{r technical-inference-table, echo=FALSE}
 technical_inference_table <- technical_inference[, c(
@@ -1885,7 +2126,19 @@ technical_inference_table <- technical_inference_table[, c(
 render_dt(technical_inference_table, pageLength = 3L)
 ```
 
-解读：`n_query_sample` 数有技术标签的配对 query，`n_cohort` 数进入队列等权推断的外部 cohort；区间和配对检验的独立单位是后者。三个预设字段中绝对差最大的是 `r technical_top_signal$technical_factor`：d1−Direct 为 `r fmt(technical_top_signal$estimate)`，95% cohort bootstrap 区间为 `r fmt_ci(technical_top_signal)`，涉及 `r technical_top_signal$n_cohort` 个 cohort。这个差值描述邻居标签组成，不直接测平台误差；如果 d1 换了邻居的癌种构成，同平台比例也可能随之改变。下一步应在相同癌种与相同 reference 候选池内重算该字段，并留一来源复核；只有负方向仍在、独立生物终点又不下降，才更支持技术捷径被选择性削弱。
+读表时，`n_cohort` 是该字段进入推断的有效外部 cohort 数；当前 helper 的 `n_sample` 也计队列均值这一层的记录，不能当作患者数。`n_query_sample` 汇总的是技术 helper 合并两臂后的 query 记录数；该计数在剔除非有限差值前取得，因此不保证每条记录都贡献了有效技术差。`status` 则帮助识别结果是否可估计，不能把 NA 解读为没有差异。
+
+三个预设字段中，当前绝对点估计最大的是 `r technical_top_signal$technical_factor`：d1−Direct 为 `r fmt(technical_top_signal$estimate)`，95% cohort bootstrap 区间为 `r fmt_ci(technical_top_signal)`，Holm 校正 P 值为 `r fmt_p(technical_top_signal$p_value_adj)`，涉及 `r technical_top_signal$n_cohort` 个 cohort。这里的“最大”只描述本次三个点估计的排序，不表示已检验它显著强于另外两个字段，也不意味着其生物影响最大。
+
+### 与癌种结果合看，当前能得出什么
+
+**本次观察到技术标签聚集与旧癌种恢复同时减弱，需要把两侧的变化一起解释。** 技术侧的三项估计见上图与表；癌种侧，前面的 Top-`r params$display_k` 同癌种比例队列等权差为 `r fmt(retrieval_cohort_mean_delta)`，95% 区间为 `r fmt_ci(retrieval_inference[retrieval_inference$endpoint == "top_k_label_rate", ])`；外部线性 readout 的队列等权 accuracy 差为 `r fmt(readout_inference_delta)`，95% 区间为 `r fmt_ci(readout_cohort_row)`。这些终点分别使用各自的有效样本和推断口径，并未组成一项新的联合检验；方向还需结合各自区间及校正 P 值阅读。
+
+回到猫狗照片的例子：目前知道“同相机照片少了”，也看到“同类动物更难找回或识别”。可能是来源与癌种捆绑的旧边界被弱化，也可能是有用的癌种信息损失，还可能两种变化同时存在。**本节支持描述邻居与标签关系如何改变，尚不能确定被去掉的恰好是技术噪声，也不能证明发现了更好的跨癌种生物状态。**
+
+下一步最直接的检验，是对每个 query 把**实际近邻候选池也限制为其它 cohort 的同癌种 reference**，在相同候选池与相同 $k$ 下分别给两臂重新排序，再比较同技术比例。这样先固定“都在猫照片中找邻居”，才能减少猫狗比例改变带来的解释歧义；还应检查各平台的样本支持，并做留一平台或留一来源敏感性分析。若同癌种 reference 根本没有多个技术标签，这个对比就缺乏区分技术来源所需的条件，不能靠一个很小的 P 值补足。
+
+即使癌种内负差仍在，也只是更支持技术标签聚集被削弱。要进一步讨论表示的生物价值，还需独立 pathway、微环境或其他预设任务的证据；若要声称有用信息“基本保留”，需先规定科学上可接受的损失界值，再用独立队列验证。**本节的联合评估是把技术诊断与癌种保护性参照并列核对，上述癌种内检索属于后续验证方案，并非本图已经完成的分析。**
 
 ## module 贡献的集中程度
 

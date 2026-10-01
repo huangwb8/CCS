@@ -6,6 +6,10 @@
 
 ## [Unreleased]
 
+- 完善 ablation-03“技术来源与癌种锚点的联合评估”：区分实际近邻池与同癌种背景池，逐步推导技术比例、excess 和共同背景抵消，加入照片类比、组成变化反例及队列等权手算；补充区间与检验的口径、图表读法和癌种内后续验证边界，并通过正式 targets 同步 HTML。
+
+- 补充 ablation-03“cohort evidence 的二维 scaling”的论文纳入理由：解释近邻组成稳健性、归一化有效秩与同模块预算比较的意义，明确探索性证据边界及正文/补充材料的取舍依据，并通过正式 targets 同步 HTML。
+
 - 修复 ablation-03 launcher 切换 cache root 时先读取旧 `_targets.yaml`、误把隔离验收判为全部缓存命中的问题；现在在 `tar_make()` 与 `tar_watch()` 前明确设置本次 targets store。隔离验收还可将 HTML 与图表重定向到独立输出根目录，避免覆盖正式报告。
 
 - 将 ablation-03 Figure 8 的 within-tissue depth 固定为七种预先指定的 tissue、每种 1–8 个冻结模块；保留 breadth 与 matched-size 设计及其随机流，补充容量校验、相邻层变化、报告说明和 targets 包代码身份门禁。按项目 ablation 验收门禁将 `DESCRIPTION` 的 patch 版本从 0.8.3 递增到 0.8.4。
