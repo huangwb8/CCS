@@ -31,6 +31,10 @@ ablation-03里 xxx 这一小节的写作太过粗糙。 要不你学一下 ablat
 
 ---
 
+"E:\iProjects\Manuscripts\CCS\Figures.pptx" 里的Figure S3你看一下。 之前，我用 ccs 里的 importance 函数计算出来，似乎有一些cohort的比重可以高达0.1-0.3。如何理解与本次分析里的 module贡献的集中程度的分析 ？ 
+
+---
+
 ablation-03里， module 贡献的集中程度 这一小节的写作太过粗糙。 要不你学一下 技术来源与癌种锚点的联合评估 小节来优化；毕竟它的数学基础、实验设计、结果解读、对论文的价值等方面剖析更加深入浅出、小白友好，我比较喜欢。
 
 ---
