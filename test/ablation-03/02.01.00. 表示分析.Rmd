@@ -733,6 +733,40 @@ module_concentration_top10 <- sum(module_top$variance_share[seq_len(10L)])
 module_equal_share <- 1 / manifest$module_count
 module_equal_top10_share <- 10 / manifest$module_count
 
+# Historical Figure S3 is a saved result summary, not a model fitted by this report.
+figure_s3_gain <- utils::read.csv(
+  .ablation03_path("references", "figure-s3-cohort-gain.csv"),
+  stringsAsFactors = FALSE
+)
+figure_s3_provenance <- utils::read.csv(
+  .ablation03_path("references", "figure-s3-provenance.csv"),
+  stringsAsFactors = FALSE
+)
+figure_s3_gain_columns <- c("gain_all_d1", "gain_all_d2", "gain_merge")
+stopifnot(
+  nrow(figure_s3_provenance) == 1L,
+  nrow(figure_s3_gain) == figure_s3_provenance$module_count,
+  !anyDuplicated(figure_s3_gain$module_id),
+  all(is.finite(as.matrix(figure_s3_gain[figure_s3_gain_columns]))),
+  all(as.matrix(figure_s3_gain[figure_s3_gain_columns]) >= 0),
+  all(abs(colSums(figure_s3_gain[figure_s3_gain_columns]) - 1) < 1e-10),
+  max(abs(figure_s3_gain$gain_merge -
+    (figure_s3_gain$gain_all_d1 + figure_s3_gain$gain_all_d2) / 2)) < 1e-10
+)
+figure_s3_same_modules <- setequal(
+  figure_s3_gain$module_id, module_diagnostics$module_id
+)
+figure_s3_examples <- figure_s3_gain[match(
+  c("GSE19750", "GSE49278", "GSE60329"), figure_s3_gain$cohort_id
+), , drop = FALSE]
+figure_s3_examples$variance_share <- module_diagnostics$variance_share[
+  match(figure_s3_examples$module_id, module_diagnostics$module_id)
+]
+stopifnot(all(is.finite(figure_s3_examples$variance_share)))
+figure_s3_top5_gain <- sum(utils::head(
+  sort(figure_s3_gain$gain_merge, decreasing = TRUE), 5L
+))
+
 decoder_summary <- tradeoffs$decoder$summary
 annoy_recall_direct <- retrieval$search_validation$`Direct-GSClassifier`$recall
 annoy_recall_d1 <- retrieval$search_validation$`Cohort-d1`$recall
@@ -853,6 +887,8 @@ render_dt(overview_table, pageLength = 12)
 | Top-k label rate、MRR@k | 前 $k$ 名同癌种邻居比例；首次同癌种命中的倒数排名，$k$ 名外记零 | 0–1；越高越容易从邻居找回旧癌种；两臂差以零为参照 | 保护性旧标签任务，不等于新亚型发现能力 |
 | Cohort accuracy、pooled balanced accuracy | 分别对外部队列准确率等权平均、对合并样本中各癌种召回率等权平均 | 0–1；越高表示旧癌种越可读；两种权重不相同 | 查旧癌种信息是否受损，不能用一项替换另一项 |
 | Technical excess | 同技术标签近邻比例减同癌种、其它队列 reference 的背景比例 | 零表示与背景相同，正值表示更易按技术标签聚集 | 两臂差中的共同背景会抵消，不能单独证明技术噪声被选择性移除 |
+| 模块原始方差份额 | 模块内各列样本方差取平均，再除以全 bank 同类统计量之和 | 0–1；越高表示原始输出波动较大；等份参照为 $1/M$ | 诊断原始 d1 尺度；没有模块份额的 CI，不是最终距离或任务贡献 |
+| Figure S3 cohort Gain | 辅助 XGBoost 用 d1 重建一个 d3 坐标，按 cohort 汇总归一化分裂 Gain；merge 对两坐标等权平均 | 0–1；越高表示该辅助模型归给该 cohort 的相对分裂增益较多 | 历史结果用于解释指标差异；没有本次重采样区间，不是解释方差、临床获益或因果贡献 |
 | d1−Direct | 在相同 query／设计上先配对相减，再按各终点的单位汇总 | 零表示该指标两臂相同；正负仅表示指标数值方向 | 先看终点定义再判断得失，不能把不同指标差值相加 |
 | `r "95%"` CI 与校正 P 值 | 主终点按完整 cohort 重采样；检验在各自预设指标族内校正 | 区间跨零意味着当前数据兼容两种效应方向 | 几何单次估计及唯一训练设计没有可解释的 CI／P；跨零不证明等价 |
 
@@ -2171,7 +2207,7 @@ render_dt(technical_inference_table, pageLength = 3L)
 
 因此，本节适合作为**表示有效性与信息损失的诊断证据**。与当前结果相符的论文表述是：“d1 降低了跨队列近邻中的技术来源标签聚集；癌种恢复指标的点估计同时下降，提示需要进一步区分技术关联减弱与生物信息损失。”如果论文正文主张 CCS 能形成可迁移的生物表示，可保留一个精简联合面板，把完整队列分布、推断表和指标定义放入补充材料；如果论文主要强调分类性能，本节可作为补充诊断。当前纳入理由是让表示改变的证据与代价可被审查，尚不足以作为“成功去噪且保留生物信息”或“发现更好的跨癌种生物状态”的完成证据。
 
-## module 贡献的集中程度
+## 原始 d1 模块输出的方差集中度
 
 ### 为什么要检查模块之间的输出波动
 
@@ -2179,7 +2215,7 @@ render_dt(technical_inference_table, pageLength = 3L)
 
 可以把 bank 想成一组评委，每位评委给每位选手打几项分数。有的评委对所有人都打得差不多，有的评委会拉开分数。本节先问“谁的分数更有起伏”，由此检查原始输出的尺度差异。**评委打分起伏大，不代表判断更准确；多位评委都有起伏，也不代表他们提供了不同的意见。** 对应到本分析，输出方差既不能代替外部任务性能，也不能证明模块相互独立。
 
-因此，标题中的“贡献”在这里有一个明确口径：**模块内平均列方差在全 bank 同类统计量之和中所占的份额**。它衡量原始 d1 输出波动的分布，不是预测准确率、生物信息或最终近邻距离的贡献百分比。先明确这个口径，才能判断下面的集中程度对论文意味着什么。
+本节的方差份额有一个明确口径：**模块内平均列方差在全 bank 同类统计量之和中所占的份额**。它衡量原始 d1 输出波动的分布，不是预测准确率、生物信息或最终近邻距离的贡献百分比。标题因此使用“方差集中度”，以免与后文 Figure S3 的目标相关 importance 混淆。
 
 ### 这次实验固定了什么，统计了哪些样本
 
@@ -2336,6 +2372,66 @@ knitr::include_graphics(fig6_jpg)
 结果显示，最高模块的份额为 `r fmt_pct(module_top$variance_share[1L])`，等份参照是每个模块 `r fmt_pct(module_equal_share)`。前十个合计为 `r fmt_pct(module_concentration_top10)`，比等份参照 `r fmt_pct(module_equal_top10_share)` 高 `r fmt(100 * (module_concentration_top10 - module_equal_top10_share), 1L)` 个百分点，约为其 `r fmt(module_concentration_top10 / module_equal_top10_share, 2L)` 倍。这描述了原始输出波动的不均匀性，但最高单个模块和前十个合计都只占全 bank 的一小部分，**当前份额没有显示原始波动由一个或前十个模块包揽**。
 
 图中前 `r nrow(module_top)` 个模块合计占 `r fmt_pct(sum(module_top$variance_share))`，未展示模块合计仍占 `r fmt_pct(1 - sum(module_top$variance_share))`。这使我们能够把“高份额模块值得核查”与“其它模块没有变化”分开。对当前 bank，更合适的描述是：原始输出波动有一定集中，但分布在更多模块中；这仍不能回答它们是否携带互补生物信号，或最终近邻是否依赖少数模块。
+
+### 与 Figure S3 的 cohort importance 怎样对应
+
+**此前 Figure S3 中某些 cohort 的 importance 可达 0.1–0.3，而这里同名模块的方差份额约为百分之一；这两项结果可以同时成立。** 关键在于两者问的不是同一个问题：本节问“模块的原始输出波动有多大”，S3 的 cohort 面板问“用 d1 重建 d3 坐标时，辅助模型更多使用哪些 cohort 的输出”。下面只讨论 S3 的 cohort 面板；它的 gene-pair feature 面板还包含另外的权重传播与汇总，不能直接套用 cohort 层的公式。
+
+S3 的计算可沿 `R/importance.R` 中的 `ctImportance()` 与 `mergeImportance()` 核对。先取已保存的 d1 各列作为输入，以一个 d3 坐标的数值作为回归目标，拟合一个辅助 XGBoost 模型；再由 `xgb.importance()` 提取各输入列的归一化 Gain，把同一 cohort 的列相加。这个模型重建的是已有坐标，没有直接用癌种、治疗反应或生存结局作目标。
+
+令 $a$ 表示一个 d3 坐标，$G_{mj}^{(a)}$ 表示辅助树模型中，归给模块 $m$ 第 $j$ 列的未归一化分裂增益之和。Gain 衡量模型沿这列作分裂时获得的目标函数改善；它不是患者人数，也不是这列的样本方差。按 cohort 汇总后的归一化 Gain 可写为
+
+$$
+I_m^{(a)}=
+\frac{\sum_{j=1}^{p_m}G_{mj}^{(a)}}
+{\sum_{h=1}^{M}\sum_{j=1}^{p_h}G_{hj}^{(a)}}.
+$$
+
+这里用一个 cohort 对应一个 module 的记号，与当前核对的 bank 一致。代码实际按 cohort ID 聚合；若其它 bank 中同一 cohort 横跨多个模块，需先统一聚合边界，不能直接比较模块级份额。没有被树模型用于分裂的输入列没有 Gain；本次保存的汇总表将未出现在历史 importance 表中的 cohort 记为零，而不是从图面猜测其数值。
+
+**$I_m^{(a)}=0.30$ 应读作“该坐标重建模型的总分裂 Gain 中，30% 被归给这个 cohort 的输入列”。** 它不能改写成“解释了 d3 方差的 30%”“贡献了 30% 的分类准确率”或“删除这个 cohort 会损失 30% 的性能”。Gain 是特定辅助模型的相对归因，仍取决于拟合设置、输入间相关性和模型如何选择分裂。
+
+S3 的标签还有一个容易混淆的地方：**`allD1`、`allD2` 对应已保存 d3 的第一、第二坐标，原始列名为 `all|D1`、`all|D2`；它们不是未压缩 d1 与中间 d2 两层表示。** `merge` 也不是另一个训练得到的合并表示，而是两个坐标的归一化 Gain 等权平均：
+
+$$
+I_m^{\mathrm{merge}}=
+\frac{I_m^{(\mathrm{allD1})}+I_m^{(\mathrm{allD2})}}{2}.
+$$
+
+两个坐标各先把全部 Gain 归一化到合计为 1，再各占一半；这既没有按坐标方差加权，也没有按辅助模型的预测精度加权，更没有衡量坐标与临床结局的关系。
+
+| 比较项 | 本节原始方差份额 $s_m$ | S3 cohort Gain $I_m^{(a)}$ |
+|---|---|---|
+| 输入与目标 | 固定 reference 患者的原始 d1；不使用预测目标 | 历史样本的 d1，目标为一个已保存 d3 坐标 |
+| 分子 | 模块内各列样本方差的平均 | 归给该 cohort 各输入列的分裂 Gain 之和 |
+| 分母 | 全 bank 模块平均列方差之和 | 该坐标重建模型全部输入列的分裂 Gain |
+| 高值说明什么 | 原始输出在这批患者之间变化较大 | 辅助模型把更多相对分裂增益归给该 cohort |
+| 不确定性 | 本图没有模块份额区间或 P 值 | 历史结果没有 Gain 重采样区间，不能把排名当作已验证的稳定性 |
+| 本次用途 | 诊断原始尺度与波动分布 | 对照说明目标相关归因与输出波动的区别 |
+
+### 同一 cohort 的两种份额：用实际数值解释
+
+以下历史 Gain 来自论文 `Figures.pptx` 第 15 页 Figure S3 对应的已保存结果，其对象文件为 `r figure_s3_provenance$source_object`。报告消费项目内的 [cohort Gain 汇总表](references/figure-s3-cohort-gain.csv) 与 [来源记录](references/figure-s3-provenance.csv)，只导入汇总值，没有复制患者级矩阵，也没有在报告中重新训练模型。来源记录保存原始对象的文件名与内容 MD5，便于核对；本表不是由本次 ablation-03 新生成的 importance 结果。
+
+| 同名 cohort | S3：allD1 Gain | S3：allD2 Gain | S3：merge Gain | 本次原始方差份额 |
+|---|---:|---:|---:|---:|
+| `r figure_s3_examples$cohort_id[1L]` | `r fmt_pct(figure_s3_examples$gain_all_d1[1L], 2L)` | `r fmt_pct(figure_s3_examples$gain_all_d2[1L], 2L)` | `r fmt_pct(figure_s3_examples$gain_merge[1L], 2L)` | `r fmt_pct(figure_s3_examples$variance_share[1L], 2L)` |
+| `r figure_s3_examples$cohort_id[2L]` | `r fmt_pct(figure_s3_examples$gain_all_d1[2L], 2L)` | `r fmt_pct(figure_s3_examples$gain_all_d2[2L], 2L)` | `r fmt_pct(figure_s3_examples$gain_merge[2L], 2L)` | `r fmt_pct(figure_s3_examples$variance_share[2L], 2L)` |
+| `r figure_s3_examples$cohort_id[3L]` | `r fmt_pct(figure_s3_examples$gain_all_d1[3L], 2L)` | `r fmt_pct(figure_s3_examples$gain_all_d2[3L], 2L)` | `r fmt_pct(figure_s3_examples$gain_merge[3L], 2L)` | `r fmt_pct(figure_s3_examples$variance_share[3L], 2L)` |
+
+例如，GSE19750 在第二坐标上的 Gain 为 `r fmt_pct(figure_s3_examples$gain_all_d2[1L], 2L)`，第一坐标只有 `r fmt_pct(figure_s3_examples$gain_all_d1[1L], 2L)`，两者平均后是 `r fmt_pct(figure_s3_examples$gain_merge[1L], 2L)`；当前同名模块的原始方差份额为 `r fmt_pct(figure_s3_examples$variance_share[1L], 2L)`。相反，GSE49278 的 Gain 主要来自第一坐标，为 `r fmt_pct(figure_s3_examples$gain_all_d1[2L], 2L)`，第二坐标为 `r fmt_pct(figure_s3_examples$gain_all_d2[2L], 2L)`。GSE60329 则在第二坐标上为 `r fmt_pct(figure_s3_examples$gain_all_d2[3L], 2L)`，第一坐标为 `r fmt_pct(figure_s3_examples$gain_all_d1[3L], 2L)`。这些数值说明历史归因具有坐标特异性；某一轴的 Gain 很小，不等于该模块对整个表示都没有作用。
+
+可以把这个区别继续放回评委例子：大家打分的波动幅度差不多，但最终排名可能更接近其中两位评委的意见。于是，“谁的评分更有起伏”与“谁的评分更能预测最终排名”会得到不同排序。一列概率即使只在 0.49–0.51 之间变化，只要变化与目标坐标高度一致，树模型仍可能使用它；另一列在 0.1–0.9 之间大幅变化，却可能与该坐标无关。这是教学示例，说明**波动幅度与目标相关的预测作用不需要成比例**。
+
+两次 bank 的模块 ID 集合是否一致：`r if (figure_s3_same_modules) "是" else "否"`。历史汇总对应 `r figure_s3_provenance$module_count` 个模块、`r figure_s3_provenance$d1_column_count` 个 d1 输出列和 `r figure_s3_provenance$sample_count` 个样本；本次方差诊断使用当前 `r manifest$module_count` 个模块及 `r native_geometry$metrics$sample_count[1L]` 个 reference 几何样本。模块 ID 一致仍不保证患者范围、概率数值、定标和目标一致。**本表是不同指标、不同样本范围的解释性对照，不能逐行相减或相除来计算“贡献变化”，也不能把差异归因于单一的模型改动。** 若要研究两种排序的关系，需要先固定同一 bank 和患者范围，再在正式分析设计中同时计算两种指标。
+
+### 两种诊断怎样共同服务论文
+
+结合本次 Figure 6 与历史 S3，合适的叙述是：“原始 d1 的模块输出方差分布较分散；重建 d3 坐标的辅助模型，其 Gain 则集中于部分 cohort，并具有坐标特异性。”前半句来自原始尺度诊断，后半句来自历史坐标重建模型；它们说明表示的不同侧面，不构成同一个终点的重复验证。最终近邻距离采用标准化与 block 平衡，还需要前面的 $d_m(q,r)$ 拆分；Gain 排名不能直接移作标准化近邻距离的贡献排名。
+
+历史 `merge` Gain 最高的五个 cohort 合计为 `r fmt_pct(figure_s3_top5_gain)`。所以，仅凭 S3 多根柱子非零，还不足以声称“embedding 不受少数 cohort 驱动”；Gain 也不是降维过程本身的载荷或真实因果归因。更准确的图注是：“多个 cohort 的输出参与 d3 坐标重建模型，且不同坐标的相对 Gain 分布不同。”这保留了可观察的结果，也避免把辅助模型归因扩大为降维机制的证明。
+
+两项诊断都不能确定关键 cohort 是否不可替代。若几个模块输出高度相关，辅助树模型可能优先选择其中一个，使它取得高 Gain；删除它后，其它模块可能补上。反过来，原始方差不高的模块也可能提供重要的目标相关信息。**要判断任务价值，仍需固定外部 query、reference 候选池和终点，实施模块删除后的配对评估；要判断归因稳定性，则需对辅助模型做适当的重采样、重拟合并检查坐标重建性能。** 这些验证尚未由本节完成，不能从两个份额百分比推导临床价值、独立生物证据数量或因果贡献。
 
 ### 哪些解释需要后续实验才能区分
 

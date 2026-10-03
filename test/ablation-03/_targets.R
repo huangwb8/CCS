@@ -223,6 +223,9 @@ list(
   targets::tar_target(
     representation_report_sources,
     c("02.01.00. 表示分析.Rmd",
+      "references/figure-s3-cohort-gain.csv",
+      "references/figure-s3-provenance.csv",
+      "references/figure-s3-importance.md",
       "00.Environment.R",
       "02.01.00. 表示分析_functions.R",
       "scripts/helpers/nature_colors.R",

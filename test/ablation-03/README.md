@@ -17,6 +17,7 @@ formal 分析与轻量验收使用相同的 targets 图、CCS 版本、参数、
 | `02.04.00` | decoder、局部 query、共享节点及固定训练设计的补充推断 | `statistical-inference` |
 
 R Markdown 文件只消费已完成 target 产物，用于报告渲染，不参与科学计算调度。
+表示报告另消费 `references/` 中 Figure S3 的历史 cohort Gain 汇总与来源记录，用于解释 d3 坐标重建 importance 与原始 d1 方差份额的区别。该输入不含患者级矩阵、不重拟合历史模型，纳入 `representation_report_sources` 文件依赖；当前方差份额仍来自正式 `representation_analysis` 产物。
 四份 HTML 均由正式依赖图中的 file target 直出；不得在 `tar_make()` 之外用独立
 runner 生成正式报告。
 报告共用 `templates/` 下的 Liquid Glass 样式与交互模板；模板文件纳入四个报告的
