@@ -768,6 +768,24 @@ figure_s3_top5_gain <- sum(utils::head(
 ))
 
 decoder_summary <- tradeoffs$decoder$summary
+decoder_fit <- tradeoffs$decoder
+decoder_gp <- decoder_summary[decoder_summary$feature_type == "gene_pair", ]
+decoder_sb <- decoder_summary[decoder_summary$feature_type == "single_bin", ]
+decoder_sp <- decoder_summary[decoder_summary$feature_type == "set_pair", ]
+decoder_cohort <- statistical_inference$decoder$summary
+decoder_gp_cohort <- decoder_cohort[
+  decoder_cohort$feature_type == "gene_pair" &
+    decoder_cohort$metric == "balanced_accuracy", ]
+decoder_sb_cohort <- decoder_cohort[
+  decoder_cohort$feature_type == "single_bin" &
+    decoder_cohort$metric == "spearman", ]
+decoder_sp_cohort <- decoder_cohort[
+  decoder_cohort$feature_type == "set_pair" &
+    decoder_cohort$metric == "spearman", ]
+decoder_baseline <- statistical_inference$decoder$baseline_comparisons
+decoder_gp_loss <- decoder_baseline[decoder_baseline$feature_type == "gene_pair", ]
+decoder_sb_loss <- decoder_baseline[decoder_baseline$feature_type == "single_bin", ]
+decoder_sp_loss <- decoder_baseline[decoder_baseline$feature_type == "set_pair", ]
 annoy_recall_direct <- retrieval$search_validation$`Direct-GSClassifier`$recall
 annoy_recall_d1 <- retrieval$search_validation$`Cohort-d1`$recall
 null_perm_status <- ablation_result$controls$null_perm$status
@@ -1019,29 +1037,31 @@ render_dt(geometry_inference_table, pageLength = 3L)
 
 解读：表中有 `r nrow(geometry_inference)` 行，分别对应 CKA、距离排序和近邻重合。点估计来自同一批 `r native_geometry$metrics$sample_count[1L]` 个 reference 样本及一次冻结表示。CKA 与距离 Spearman 的 95% 区间按 `r geometry_inference$n_cohort[1L]` 个 reference cohort 整组有放回重采样；距离 Spearman 固定样本对，再按两端队列抽中次数加权。这两项量化现有 atlas 的队列组成敏感性。kNN Jaccard 的区间固定完整 reference 近邻图，只对每个患者的近邻名单重合度按 query cohort 整组重采样；它量化当前 atlas 下 query 队列组成变化，不能解释为更换近邻候选库后的性能区间。三项区间都以冻结模型为条件，不是未见队列或重新训练模型的验证；没有预设的自然零假设，故 P 值保持 NA。
 
-## 三项旧癌种标签分析如何互补
+## 已有癌种标签的外部评估
 
-接下来的检索、线性 readout 和 readout 样本效率都使用本次可估计的外部 query，以已有癌种标签检查 d1 相对 Direct 保留了什么。它们共享标签和样本，因此是同一问题的三个观察角度，不能算作三次独立的生物学验证。三项分别检查局部邻居关系、监督可读性和训练队列资源依赖。
+这一节围绕同一个问题展开：**将 Direct 换成 d1 后，已有癌种标签对应的局部关系和预测能力保留得怎样？** 下面依次检查外部 query 的同癌种近邻、线性分类器能否读出标签，以及减少训练队列后读出表现怎样变化，最后汇总各项效应量与不确定性。
+
+检索、线性 readout 和训练队列学习曲线都使用本次可估计的外部 query，以已有癌种标签检查 d1 相对 Direct 保留了什么。它们共享标签和样本，因此是同一问题的三个观察角度，不能算作三次独立的生物学验证。三项分别检查局部邻居关系、监督可读性和训练队列资源依赖。
 
 | 分析 | 独有的问题 | 为什么需要它 |
 |---|---|---|
 | 外部癌种标签检索 | 不拟合癌种分类器，在固定 reference atlas 中按距离找邻居；同癌种样本是否仍靠近外部 query？ | 直接检查旧标签对应的**局部邻居关系**。即使监督分类器能认对癌种，也可能掩盖同癌种近邻已被重排；readout 分数不能替代这一检查。 |
 | 外部癌种线性 readout | 用 reference 的旧癌种标签训练受限线性读出层，再预测未参与拟合的外部 query；分布在表示各列中的信息能否被读出？ | 检查**可读出性**。近邻检索较弱时，旧标签仍可能以需要汇总多个特征的形式存在；只看邻居不能判断这一点。 |
-| 癌种 readout 的样本效率 | 固定外部 query 和 readout 方法，逐步改变用于训练的 **reference cohort 数量**；较少训练队列时，两种表示各能读出多少旧癌种信息？ | 检查**训练资源敏感性**。完整 reference readout 只给出训练资源充足时的一个终点，无法说明结果在训练队列较少时怎样变化。这里的资源单位是 cohort，不是患者人数。 |
+| 训练队列学习曲线 | 固定外部 query 和 readout 方法，逐步改变用于训练的 **reference cohort 数量**；较少训练队列时，两种表示各能读出多少旧癌种信息？ | 检查**训练资源敏感性**。完整 reference readout 只给出训练资源充足时的一个终点，无法说明结果在训练队列较少时怎样变化。这里的资源单位是 cohort，不是患者人数。 |
 
 前两项的主要差值按外部 query cohort 等权汇总，学习曲线则在固定 query 人群上比较不同训练 cohort 设计；三者的分数、区间和 P 值不能直接相加或互借。若它们方向一致，只能更具体地描述旧癌种标签如何变化；若方向不同，先检查局部距离、监督读出和训练队列组成的差别。无论哪种情况，都还需要独立的癌种内或跨癌种生物终点，才能判断这种变化是否有益于新的个性化分型。
 
-## 外部癌种标签检索
+### 外部癌种标签检索：局部邻居关系
 
 这项检索可以理解为：拿一个来自外部队列的样本，在冻结的 reference atlas 中找输入线索最相近的样本，再看邻居是否属于同一旧癌种。它检查**跨队列能否找回已有癌种标签**，不训练新的癌种分类器，也不把 query 的癌种名称交给近邻搜索。癌种标签只在找到邻居后用于计分；因此分数较高表示当前空间更容易按旧癌种聚在一起，并不等于新亚型更好。
 
-### 哪些样本参加，怎样找邻居
+#### 哪些样本参加，怎样找邻居
 
 外部候选先经过癌种支持门槛：一个 query cohort 的癌种必须出现在至少 `r manifest$config$anchors$endpoint_min_reference_cohorts$cancer_retrieval` 个**不同 reference cohort** 中，才进入本节检索。门槛按队列数计算，不是同癌种 reference 样本数；未达门槛的外部候选仍可参加不要求癌种标签的分析。本节实际使用 `r nrow(retrieval$paired[retrieval$paired$k == params$display_k, ])` 个 query、`r length(unique(retrieval$paired$cohort))` 个外部队列，reference atlas 有 `r manifest$reference_sample_count` 个样本。每位 query 都排除与自己同 cohort 的 reference 样本，防止同队列来源让检索显得过于容易；这也意味着同癌种但**其它队列**的样本仍可成为正确邻居。
 
 同一个 query 分别用 Direct 和 d1 搜索**同一批有资格的 reference 样本**，两边都取前 `r params$display_k` 名。Direct 每列按 reference 的均值和标准差标准化；d1 也按 reference 标准化，再给每个冻结 cohort 模块相同的总距离权重。query 沿用各自的 reference 变换，不单独重新定标。近邻按变换后空间的欧氏距离排序；本次搜索方法为 `r manifest$config$geometry$search`。这是近似搜索：在抽取的 `r retrieval$search_validation[["Direct-GSClassifier"]]$query_sample_count` 个 query 上，与精确搜索相比，前 `r params$display_k` 位邻居名单的平均召回率为 Direct `r fmt(annoy_recall_direct)`、d1 `r fmt(annoy_recall_d1)`；它衡量搜索近似程度，不是癌种检索分数。距离只决定各自空间中的排名，不把 Direct 和 d1 的距离数值直接相减。两臂的 query 身份、癌种标签和可选 reference 池一致，因此后续差值比较的是**换表示后邻居名单及排序的变化**。
 
-### 两项分数怎样读
+#### 两项分数怎样读
 
 对一位 query $q$，记前 $k$ 位邻居为 $\mathcal N_k(q)$，癌种标签为 $c$。Top-k 同癌种比例为 $\mathrm{TopKRate}_q=k^{-1}\sum_{j\in\mathcal N_k(q)}\mathbf 1(c_j=c_q)$，取值 0–1；例如前 5 位有 3 位同癌种，分数就是 $3/5=0.6$。它只数**命中多少位**，不区分这 3 位排在前面还是后面。本次主要展示前 `r params$display_k` 位；例子用 5 位只是为了便于手算。
 
@@ -1204,21 +1224,21 @@ render_dt(
 
 解读：此表列出差值两端各最多 `r params$interpret_top_n` 个队列，并在每行给出 query 数。它用于追踪上图的 `r retrieval_top$cohort[1L]` 与 `r retrieval_bottom$cohort[1L]` 等极端点：先核对样本数，再核对同癌种 reference 是否足够、平台和来源是否集中。排名是从当前数据事后挑出的，因此这些行没有额外提供一轮独立验证；若根据它们调参，应另用未参与挑选的队列检验方向是否仍成立。
 
-## 外部癌种线性 readout
+### 外部癌种线性 readout：监督可读性
 
-### 这个实验在问什么
+#### 这个实验在问什么
 
 上节检索只看近邻里有多少同癌种样本；本节多问一步：如果让一个受限的监督分类器学习 reference 样本的旧癌种标签，它能否在**未参与拟合的外部队列**上认出这些标签？这里的 readout 是“从冻结表示中读出标签”的诊断实验，不是重新训练 CCS 或评估最终个性化分型。分别把 Direct 的原始特征、d1 的既有概率列作为输入，拟合两个癌种分类器；两臂使用相同的 reference 样本、同一批外部 query 和同一套真实癌种标签。模型拟合时能看到 reference 的标签，外部 query 的标签只在预测完成后计分。
 
 本节仅纳入其癌种在至少 `r manifest$config$anchors$endpoint_min_reference_cohorts$cancer_readout` 个不同 reference cohort 中有支持的外部 query cohort。本次共有 `r manifest$query_sample_count` 个 query、`r manifest$query_cohort_count` 个队列进入 readout；其他外部候选不因未通过这个**旧癌种任务**的门槛，就自动失去参加无癌种标签分析的资格。每个外部 query cohort 只对应一个癌种，因此逐队列的正确率也可理解为“该癌种在该外部队列中被认对的比例”。它衡量旧标签在新队列上的可读性，不衡量新亚型、预后或治疗获益。
 
-### 分类器怎样训练，为什么叫线性
+#### 分类器怎样训练，为什么叫线性
 
 分类器是 xgboost 的 `gblinear`：它为各输入列学习线性权重，并经 logistic／softmax 输出各癌种概率，预测为概率最高的癌种。训练时按 reference 中的癌种频数给样本反比权重，减少常见癌种主导拟合。这里的“线性”限定**从已经算好的表示到旧癌种标签的读出层**；d1 本身由冻结 cohort 模型生成，不能把整条 Direct→d1→标签路径称作线性。
 
 每一臂先仅在 reference 内按 cohort 分组做 `r manifest$config$validation$inner_folds` 折交叉验证：同一个 reference cohort 不会同时出现在某折训练集和验证集。每折只用训练部分拟合尺度，再把这把尺子用于该折验证部分；用折内 balanced accuracy 选择该臂的正则化参数 $\lambda$。选定后，才用全部 reference 重新拟合尺度和分类器，并一次性预测外部 query。Direct 按各特征的 reference 均值与标准差变换；d1 在 reference 定标后平衡冻结模块的总权重。query 沿用对应的 reference 变换，**不再提前标准化，也不参与选 $\lambda$**。可把它想成先用参考题选评分规则，再用同一规则批改外部考卷；两臂可以各自选出不同的 $\lambda$，但外部考卷和正确答案相同。
 
-### 分数和差值怎样计算
+#### 分数和差值怎样计算
 
 对队列 $c$，$\mathrm{accuracy}_c=\text{该队列预测正确的 query 数}/\text{该队列 query 总数}$；先算 $\Delta_c=\mathrm{accuracy}_{c,\mathrm{d1}}-\mathrm{accuracy}_{c,\mathrm{Direct}}$，再算 $\overline\Delta=C^{-1}\sum_{c=1}^{C}\Delta_c$。正值表示 d1 在外部队列平均更易读出旧癌种，负值表示 Direct 更易读出；例如 $-0.10$ 是**低 10 个百分点**，不是“低 10%”，也不代表每个队列都下降。假设两个队列各有 100 与 10 人，第一队列 Direct／d1 分别认对 80／70 人，第二队列认对 6／8 人：两队列差值分别为 $-0.10$ 和 $+0.20$，队列等权平均为 $+0.05$。这是计算示例，不是本次结果；它说明总体方向不能由人数最多的队列单独决定。
 
@@ -1233,7 +1253,7 @@ readout_inference_table <- readout_inference[, c(
 render_dt(readout_inference_table, pageLength = 1L)
 ```
 
-### 本次结果怎样读
+#### 本次结果怎样读
 
 | 看什么 | 本次结果 | 含义 |
 |---|---|---|
@@ -1325,15 +1345,15 @@ knitr::include_graphics(fig3_jpg)
 
 解读：横轴是每个外部队列的 $\Delta_c$，竖向零线左侧表示 d1 比 Direct 少认对该队列的 query，右侧表示多认对。每个普通点只代表**一个队列的点估计**，没有逐队列区间，不能据其离零远近宣布该队列显著。图中只展示至少 `r params$min_cohort_n` 个 query 的队列；底部 Overall 则对**全部可估计队列**等权平均，横向误差线是队列 bootstrap 95% 区间，而不是单个患者或单个队列的误差线。显示队列中最高的 `r readout_top$cohort[1L]` 为 `r fmt(readout_top$delta_accuracy[1L])`（`r pmax(readout_top$sample_count_d1[1L], readout_top$sample_count_direct[1L])` 个 query），最低的 `r readout_bottom$cohort[1L]` 为 `r fmt(readout_bottom$delta_accuracy[1L])`（`r pmax(readout_bottom$sample_count_d1[1L], readout_bottom$sample_count_direct[1L])` 个 query）；它们是看过数据后挑出的两端，不是独立确认。若同一癌种在不同平台队列中方向不一致，应先核对 reference 中该癌种的队列支持、query 样本数和技术来源，再用预设的生物任务追查机制；这张图本身无法解释为何变化。
 
-## 癌种 readout 的样本效率：训练队列学习曲线
+### 训练队列学习曲线：readout 的资源敏感性
 
-### 为什么做，和前两项看法有何不同
+#### 为什么做，和前两项看法有何不同
 
 通常说“样本效率”，是问模型能否用**更少训练数据达到某个相近的测试表现**。本节把训练资源具体定义为可用于拟合线性 readout 的**独立 reference cohort 数**，每个 cohort 内有多位患者；它并没有单独控制患者样本数。更准确地说，这是一条训练队列学习曲线：看减少训练队列后，Direct 与 d1 对同一批外部 query 的旧癌种标签还能读出多少。报告没有预设“达到多少分才算够好”的门槛，因此不能从曲线直接宣布某臂“只需多少个患者或队列”。
 
 做这项分析，是因为上一节的完整 readout 只回答“**全部 reference 都可用于训练时**，旧癌种标签能否被线性分类器认出”；一个终点看不出两臂的差距是否依赖训练队列数量或具体组成。本节保持分类器类型、外部 query 和旧癌种任务不变，逐步改变训练 cohort，检查哪一臂在训练资源较少时更容易被读出。它也与前面的癌种检索不同：检索**不训练癌种分类器**，看局部同癌种邻居；这里重新训练读出层，看汇总多个表示特征后的监督分类表现。后文的二维 scaling 改变的是冻结 bank 的模块组合，测空间容量、冗余和近邻稳定性；本节不改变 bank，而改变读出层可使用的训练队列。
 
-### 横轴究竟减少了什么
+#### 横轴究竟减少了什么
 
 每个请求比例都按癌种从 reference 中抽取 cohort：某癌种有至少 2 个候选 cohort 时，抽样规则至少保留 2 个；不足 2 个时保留全部。因此图上的 10%、25%、50%、100% 是**请求比例**，实际纳入的队列比例可以更高；它们不是患者样本的抽样比例。两臂在每次重复中使用**同一组训练 cohort**，并在该组内分别重新拟合尺度、选择正则化参数和训练 readout；既有 Direct 与 d1 表示保持冻结，外部 query 始终是同一批 `r manifest$query_sample_count` 个样本。这样，曲线比较的是改变 readout 训练资源后的旧癌种可读性，而不是重新训练 CCS 或创造了新的外部验证队列。
 
@@ -1466,9 +1486,9 @@ knitr::include_graphics(fig4_jpg)
 
 解读：横轴是**请求的**训练 cohort 比例，实际队列数见上表；纵轴是两臂在同一批外部 query 上的旧癌种 BA。最小请求比例 `r scales::percent(min(learning_delta$requested_fraction), accuracy = 1)` 时，d1−Direct 差为 `r fmt(100 * learning_delta$estimate[which.min(learning_delta$requested_fraction)], 2L)` 个百分点；请求 50% 时为 `r fmt(100 * learning_delta$estimate[match(0.5, learning_delta$requested_fraction)], 2L)` 个百分点；全部 reference 都用于训练时为 `r fmt(100 * learning_delta$estimate[match(1, learning_delta$requested_fraction)], 2L)` 个百分点。在本次固定 query 集上，Direct 从较少训练 cohort 到更多训练 cohort 获得了更明显的 BA 增益，d1 没有出现相同幅度的上升；但两臂差值并非严格随比例单调变化，训练 cohort 的身份、癌种覆盖和患者数也随之改变。曲线提示**当前训练资源设计下的敏感性**，不能据此断言表示本身具有普遍的样本效率优势或劣势。带状区间只反映较小比例下不同训练组合的变化；100% 只有一种独立组合，不应把重复拟合当成新的外部证据。
 
-## 主要终点的效应量与不确定性
+### 综合结果：效应量与不确定性
 
-这一节回答一个汇总问题：把 Direct 换成 Cohort-d1 后，**旧癌种信息保留了多少，观察到的得失有多稳定**？前面的检索、线性 readout 和学习曲线分别给出同癌种近邻、旧癌种可读出性以及使用全部训练 cohort 时的表现；只看某一张图，容易漏掉另一项任务的代价。这里把预设终点的 d1−Direct 差值及可估计的区间并列，便于同时检查差异的方向、实际幅度和对队列或训练设计变化的敏感性，再决定哪些变化值得追查。这是对前述结果的汇总，不是新增的独立验证，也不能据此判定个性化亚型或生物学效用更好。
+前三个子节分别检查同癌种近邻、旧癌种可读出性及训练队列资源依赖；这里将它们合在一起，回答一个汇总问题：把 Direct 换成 Cohort-d1 后，**旧癌种任务的表现改变了多少，观察到的得失有多稳定**？只看某一张图，容易漏掉另一项任务的代价。这里把检索、线性 readout 和学习曲线全量训练点的预设终点 d1−Direct 差值及可估计的区间并列，便于同时检查差异的方向、实际幅度和对队列或训练设计变化的敏感性，再决定哪些变化值得追查。这是对前述结果的汇总，不是新增的独立验证，也不能据此判定个性化亚型或生物学效用更好。
 
 森林图把不同终点的方向与 CI 放在同一处；检索 Top-k 和 MRR 衡量近邻标签，readout accuracy 衡量线性分类，100% 学习曲线衡量固定外部 query 下的全量训练设计。它们回答不同问题，统计单位也不相同。
 
@@ -2464,12 +2484,106 @@ $$
 
 ## 输入信息压缩与可恢复性
 
-Decoder 在 reference 上拟合 PCA 加 ridge linear mapping，再重建 query 的 Direct 特征。不同特征类型使用不同损失；图中的指标只能在各自定义下解读。
+### 为什么要从 d1 反过来重建输入
 
-这相当于把原笔记压成一份摘要，再让只看摘要的人尝试复述原笔记：复述成功说明线索仍可读取，复述失败也可能是复述者能力有限。Gene-pair 的 balanced accuracy 是阳性与阴性召回率的平均，随机猜测在平衡类别下约为 0.5；Brier score 是预测概率与 0/1 真值的平方误差平均，越小越好。连续特征用 Spearman 看排序，用 MAE/RMSE 看绝对数值误差，其中 RMSE 对少数大误差更敏感。图为了让“向上”统一表示较易重建，分别画 $1-\mathrm{Brier}$、$1/(1+\mathrm{MAE})$ 和 $1/(1+\mathrm{RMSE})$；这些变换没有把不同指标变成同一单位，不能跨分面比较柱高。有限秩、线性且带 ridge 约束的 decoder 误差，也不是信息论上的不可逆损失证明。
+**前面的检索和 readout 问“d1 能完成什么任务”，本节反过来问“d1 还能读回多少原来的输入线索”。** 冻结的 cohort 模型把 Direct 特征变成概率输出，再拼成 d1。即使癌种标签较难读出，也不能直接判定原始特征都已消失；反过来，即使某些输入能重建，也不能保证新的邻居关系或下游任务更好。Decoder 是一个尝试逆向读取的模型，用来把这两件事分开检查。
+
+可以把 Direct 想成一份记录了多项观察的原笔记，d1 是多位评阅者据此写下的评分。现在让另一位读者只看评分，尝试复述原笔记。若他在此前未见的笔记上也能复述部分内容，说明评分里存在可供读取的线索；若复述失败，可能是评分没有保留，也可能是读者采用的规则太简单。**重建成功是可读取性的证据，重建失败需要同时审查表示和 decoder 的能力。**
+
+这里的“压缩”还要区分两个层次。本次 Direct 有 `r manifest$direct_feature_count` 列，d1 有 `r manifest$d1_feature_count` 列，**d1 的列数反而更多**；从 Direct 到 d1 是任务驱动的重编码，不能称为按列数压缩。Decoder 随后把定标后的 d1 投影到 `r decoder_fit$rank` 个 PCA 坐标，这一步才明确减少了维数。低维坐标占 d1 列数的 `r fmt_pct(decoder_fit$rank / manifest$d1_feature_count)`，只是坐标数量之比，不是“保留了多少信息”的百分比；本实验也没有估计信息熵或互信息。
+
+### 这次实验怎样训练，怎样在外部样本上验收
+
+本节消费正式 `tradeoffs$decoder` 与 `statistical_inference$decoder` 产物，不在报告中重拟合。实验可以按下面的顺序理解：
+
+1. **固定重建目标。** 目标是冻结 GSClassifier 模型用过的全部 Direct 特征，并非完整转录组。当前包含 `r decoder_gp$feature_count` 个 gene-pair、`r decoder_sb$feature_count` 个 single-bin 和 `r decoder_sp$feature_count` 个 set-pair；三类取值不同，分开评分。
+2. **固定训练与验收样本。** 完整 reference/query 分别有 `r manifest$reference_sample_count`／`r manifest$query_sample_count` 人；decoder 实际使用 `r decoder_fit$reference_sample_count` 个 reference 与 `r decoder_fit$query_sample_count` 个外部 query。样本超过配置上限时，按 tissue/cohort 分组、固定种子抽样。不是在图中表现较好的患者里挑选验收样本。
+3. **只在 reference 学习。** 用训练 reference 的逐列均值和标准差定标 d1，并按 module block 宽度平衡；在这批 reference 上求 PCA 方向，保留 `r decoder_fit$rank` 维，再用 ridge 回归学习这些坐标到 Direct 的映射。当前惩罚参数为 `r decoder_fit$lambda`，它来自固定配置；本实验未搜索最优 rank 或惩罚强度。
+4. **冻结后应用于 query。** query 沿用 reference 的定标参数、PCA 方向、回归系数与 Direct 均值。Query Direct 只作为验收真值，不参与 decoder 拟合；gene-pair 的预测值再截到 $[0,1]$，以 0.5 为二分类阈值，连续目标保留原预测值。
+5. **从特征到队列分层汇总。** Figure 7 先在合并 query 上逐特征评分，再对同类特征等权平均；后面的区间和基准检验改为先在每个外部 cohort 内评分，再让 cohort 等权。两种口径分别呈现，不把一个口径的区间套在另一个点估计旁。
+
+这是 **d1 → Direct 的单向重建诊断**，没有 Direct 对照 decoder，也没有重新训练 cohort bank。Reference d1 含 in-sample 生成路径，query d1 来自冻结外部预测；“decoder 没有用 query 拟合”并不消除两侧表示来源的不对称，因此仍保持 `r manifest$evidence_level` 的证据等级。
+
+### 数学基础：PCA 留坐标，ridge 学复述规则
+
+令 $X_R\in\mathbb R^{n_R\times p}$、$X_Q\in\mathbb R^{n_Q\times p}$ 为 reference/query 的 Direct 真值，$D_R,D_Q$ 为对应 d1。矩阵每行是一名患者，每列是一项特征或概率输出。先按 reference 定标并平衡模块，得到 $\widetilde D_R,\widetilde D_Q$；属于模块 $m$ 的列 $\ell$ 变为
+
+$$
+\widetilde D_{i\ell}
+=\frac{D_{i\ell}-\mu_{R\ell}}{s_{R\ell}}
+\frac{1}{\sqrt{M b_m}}.
+$$
+
+$\mu_{R\ell}$、$s_{R\ell}$ 是该列的训练 reference 均值和标准差，$M$ 是模块数，$b_m$ 是模块输出列数；标准差为零或不可用时，代码取 $s_{R\ell}=1$。两批患者使用同一套参数。除以标准差调整列的尺度，再乘模块权重，避免列较多的模块仅凭宽度占更大比重。这里不使用 query 的均值或标准差。
+
+PCA（主成分分析）从 $\widetilde D_R$ 找到输出变化较大的正交方向，组成 $V_r$，并计算
+
+$$
+Z_R=\widetilde D_R V_r,\qquad Z_Q=\widetilde D_Q V_r.
+$$
+
+$r$ 是保留的坐标数，本次为 `r decoder_fit$rank`。可以把它理解为从多项评分中抽出少数综合评分；PCA 按 d1 的变化选方向，**并不知道哪些方向最适合恢复 Direct**，也不能保证低方差方向没有重要线索。
+
+再令 $\bar x_R$ 为训练 reference 的逐特征 Direct 均值，$Y_R=X_R-\mathbf1\bar x_R$ 为减去均值的目标。Ridge（岭回归）求系数矩阵 $B$：
+
+$$
+\widehat B=\arg\min_B
+\left\{\|Y_R-Z_RB\|_F^2+\lambda\|B\|_F^2\right\}
+=(Z_R^\top Z_R+\lambda I)^{-1}Z_R^\top Y_R,
+\qquad
+\widehat X_Q=\mathbf1\bar x_R+Z_Q\widehat B.
+$$
+
+$\|\cdot\|_F^2$ 表示把矩阵里的数逐个平方再相加，$I$ 是单位矩阵，$\lambda$ 控制惩罚强度。第一项让训练重建误差小，第二项限制系数过大，减少依赖偶然波动。预测时先从 query 坐标算出偏离均值的部分，再加回 reference 均值。**这是低秩、带正则化的线性读取器；对 gene-pair 也使用同一回归，随后截断成概率，并非另拟合 logistic 模型。** 实现见 `R/ablation.R` 的 `.ablation_decode_direct_features()`；队列推断见 `targets/statistical_inference.R` 的 `.asi_decoder()`。
+
+### 三类特征为何需要不同的尺子
+
+| 目标类型 | 当前列数 | 重建时检查什么 | 原尺度指标怎么读 |
+|---|---:|---|---|
+| Gene-pair | `r decoder_gp$feature_count` | 冻结输入中的基因对 0/1 关系能否读回 | Balanced accuracy 检查两类召回；Brier 检查概率误差 |
+| Single-bin | `r decoder_sb$feature_count` | 冻结输入中的单项数值编码能否读回 | Spearman 检查患者排序；MAE 检查原特征尺度上的偏差 |
+| Set-pair | `r decoder_sp$feature_count` | 冻结输入中的集合对数值特征能否读回 | Spearman 检查患者排序；RMSE 更强调较大的数值误差 |
+
+特征类型和真值由冻结输入合同确定；这里不把 `single_bin` 的名字当成二分类标签，也不把其误差解释为原始基因表达量误差。下面所有公式先针对**一个特征、同一批验收患者**写出，再按对应口径汇总。
+
+**Gene-pair：方向判对多少，与概率错了多少。** 令真值 $x_i\in\{0,1\}$，截断后的预测概率为 $p_i$，$\widehat x_i=\mathbf1(p_i\ge0.5)$。$n_1,n_0$ 分别为阳性、阴性人数：
+
+$$
+\mathrm{BA}=\frac12\left[
+\frac{\sum_{i:x_i=1}\mathbf1(\widehat x_i=1)}{n_1}
++\frac{\sum_{i:x_i=0}\mathbf1(\widehat x_i=0)}{n_0}
+\right],\qquad
+\mathrm{Brier}=\frac1n\sum_i(p_i-x_i)^2.
+$$
+
+Balanced accuracy（BA）让两类各占一半，范围 $[0,1]$，越高越好；两类都存在且预测与真值无关时，其期望为 0.5，不要求两类人数相等。Brier 范围也为 $[0,1]$，但越低越好，同时受概率把握程度影响。**以下均为教学示例，不是本次结果：** 若 10 人中 8 人阳性，全部猜阳性的普通 accuracy 是 0.8，BA 却为 $(1+0)/2=0.5$；对一个阳性样本，概率 0.9 和 0.6 都判对，Brier 分别为 0.01 和 0.16。因此 BA 较高并不等于概率已准确校准。合并 query 的原实现对可用类别召回取平均；cohort 补充推断要求两类都有，缺类时 BA 为 NA，两处边缘处理不能混为一谈。
+
+**连续目标：顺序对了，还要看数值离得多远。** 记预测为 $\widehat x_i$，则
+
+$$
+\rho_S=\operatorname{cor}\{\operatorname{rank}(x),\operatorname{rank}(\widehat x)\},
+\qquad
+\mathrm{MAE}=\frac1n\sum_i|\widehat x_i-x_i|,
+\qquad
+\mathrm{RMSE}=\sqrt{\frac1n\sum_i(\widehat x_i-x_i)^2}.
+$$
+
+Spearman 用患者的名次算相关，范围 $[-1,1]$；接近 1 表示顺序相似，接近 0 表示缺少单调排序关系，负值表示排序反向。MAE 是平均绝对误差，RMSE 是均方根误差，均越低越好，单位与各自 Direct 特征相同。教学示例中，真值 $(1,2,3)$、预测 $(11,12,13)$ 的 Spearman 为 1，但 MAE 与 RMSE 都为 10：**完美排序仍可伴随很大的数值偏差。** 先平方再开方使 RMSE 对大误差更敏感；这解释了为什么排序与误差要一起读。常量特征或常量预测不能估计相关，代码保留 NA，汇总只平均有限值。
+
+### Figure 7 怎样读
+
+Figure 7 展示合并 query 的重建水平，按三种目标分面。**每个点是同类特征评分的平均，不是一位患者，也不是恢复比例。** 为让向上统一表示重建表现较好，保留 BA 和 Spearman，把三个误差变成
+
+$$
+1-\mathrm{Brier},\qquad
+\frac{1}{1+\mathrm{MAE}},\qquad
+\frac{1}{1+\mathrm{RMSE}}.
+$$
+
+例如教学示例中 MAE 为 1，变换分数便为 0.5；这不意味着恢复了一半输入。连续误差的变换依赖原特征的数值尺度，换单位也会改变分数。**这些变换只统一高低方向，没有统一单位、难度或参考线。** 不跨分面比较哪个点更高，也不把 $1-\mathrm{Brier}$ 读作分类 accuracy。图使用合并 query 的点估计，不附 cohort 等权区间；六项原尺度指标的 cohort 等权区间仍在后表单列。与 reference 均值基准的比较单独呈现在后面的“比只报 reference 平均值多读出了什么”。
 
 ```{r figure-decoder, interp_check=TRUE}
-# ==== Figure 7: Feature-type reconstruction metrics (user-adjustable parameters) ====
+# ==== Figure 7: Feature-type reconstruction scores ====
 fig7 <- list(
   width_in = 8.2,
   height_in = 4.4,
@@ -2504,7 +2618,11 @@ decoder_plot <- rbind(
     )
   )
 )
-p7 <- ggplot2::ggplot(
+decoder_plot$feature_type <- factor(
+  decoder_plot$feature_type,
+  levels = c("gene_pair", "single_bin", "set_pair")
+)
+p7_scores <- ggplot2::ggplot(
   decoder_plot,
   ggplot2::aes(x = .data$metric, y = .data$value, color = .data$metric)
 ) +
@@ -2539,8 +2657,7 @@ p7 <- ggplot2::ggplot(
   ggplot2::labs(
     x = NULL,
     y = "Direction-harmonized score",
-    color = "Metric",
-    caption = "Metrics retain distinct definitions; dot height is not a cross-metric ranking."
+    color = "Metric"
   ) +
   theme_nature_readable(
     base_size = fig7$base_size,
@@ -2548,26 +2665,207 @@ p7 <- ggplot2::ggplot(
     legend_position = fig7$legend_position
   )
 
-# Readability check: facets isolate the three feature contracts, direct metric
-# labels replace a five-item legend, and values remain readable at print size.
 fig7_jpg <- .ae_save_plot(
-  p7, "02.01.00. feature-type-reconstruction", figure_dir,
+  p7_scores, "02.01.00. feature-type-reconstruction", figure_dir,
   preview_dir, fig7, params$plot_preview_dpi
 )
 knitr::include_graphics(fig7_jpg)
 ```
 
-解读：这张图问的是“仅给受限 decoder 看 d1，能否在外部 query 上重建 Direct 线索”。Gene-pair 的 balanced accuracy 为 `r fmt(decoder_summary$balanced_accuracy[decoder_summary$feature_type == "gene_pair"])`，读的是二分类的两类召回率；single-bin 的 Spearman 为 `r fmt(decoder_summary$spearman[decoder_summary$feature_type == "single_bin"])`，只说明连续特征的排序相关，不能保证预测值与真值接近；set-pair 的 Spearman 为 `r fmt(decoder_summary$spearman[decoder_summary$feature_type == "set_pair"])`，需在同一分面结合误差指标阅读。图中 $1-\mathrm{Brier}$、$1/(1+\mathrm{MAE})$ 和 $1/(1+\mathrm{RMSE})$ 只是为了统一绘图方向，柱高不同不代表哪类生物信息更重要。当前结果显示，这个受限 decoder 能从 d1 读回部分 Direct 线索；读不回的部分还可能受 decoder 容量、正则化和训练量限制，不能断定 d1 已不可逆地丢弃它们。
+**Gene-pair 的解读：多数二值关系可以通过这条受限路径读回，但没有达到无误恢复。** 合并 query 的平均 BA 为 `r fmt(decoder_gp$balanced_accuracy)`，Brier 为 `r fmt(decoder_gp$brier)`，图中后者显示为 `r fmt(1 - decoder_gp$brier)`。BA 描述逐特征的两类召回平均，不能说“每名患者恢复了 `r fmt_pct(decoder_gp$balanced_accuracy)` 的全部输入”。它说明 d1 与原基因对关系仍有可利用的联系；概率误差与 BA 必须分别报告，也不能凭平均值判断哪些具体关系丢失。
+
+**Single-bin 的解读：排序可读回，原数值仍有偏差。** 合并 query 的平均 Spearman 为 `r fmt(decoder_sb$spearman)`，MAE 为 `r fmt(decoder_sb$mae)`，后者在图上为 `r fmt(1 / (1 + decoder_sb$mae))`。两者共同支持单项编码的患者差异可被部分读取，但 MAE 要在该编码自身尺度上理解。没有预设可接受误差界值，就不能把这一数值直接称为“足够准确”或用于临床阈值判断。
+
+**Set-pair 的解读：当前这一项恢复得很接近，不代表所有集合关系。** Spearman 为 `r fmt(decoder_sp$spearman)`，RMSE 为 `r fmt(decoder_sp$rmse)`，图中误差变换为 `r fmt(1 / (1 + decoder_sp$rmse))`。它同时具有接近的排序与较小的本尺度误差，是本次这一特征的积极信号；但当前仅有 `r decoder_sp$feature_count` 列，不能把结果推广为广泛通路、微环境或其它集合对特征都已保留。三类特征的数量、尺度和任务难度不同，这里不据点高给它们排“生物信息保留率”。
+
+### 从合并患者到队列等权：区间围绕哪个结果
+
+令 $s_{cj}$ 是在 cohort $c$ 内对特征 $j$ 算出的 BA、相关或损失，$\mathcal F_{c,t}$ 是类型 $t$ 中该指标可估计的特征集合，$C_t$ 是存在可用均值的 cohort 数。队列等权口径为
+
+$$
+\bar s_{c,t}=\frac{1}{|\mathcal F_{c,t}|}\sum_{j\in\mathcal F_{c,t}}s_{cj},
+\qquad
+\widehat s_t^{\mathrm{cohort}}=\frac{1}{C_t}\sum_{c}\bar s_{c,t}.
+$$
+
+它先让队列内同类特征等权，再让队列等权。Figure 7 则先合并全部 query，对每个特征评分，再对同类特征平均。大队列在合并评分中提供更多患者，但 BA 与 Spearman 是非线性统计量，合并值不能简化成各队列分数的患者数加权平均。尤其全体患者间的排序可以受到队列间整体水平差异影响；队列内排序是另一种检查。**两种汇总不同，是估计对象不同，不是一个在给另一个纠错。**
+
+下表 `pooled_query_estimate` 对应 Figure 7 的原尺度指标，`cohort_equal_estimate` 是上式。95% 区间按外部 query cohort 整体重采样，使用 `r decoder_gp_cohort$resamples` 次重复，取可用结果的 2.5% 和 97.5% 分位数；BA 缺类、相关无变异时不以零替代，`n_cohort` 与 `valid_resamples` 分别报告可用队列与重复数。区间只围绕队列等权估计，条件是当前 decoder、bank 与 query atlas 冻结；没有重拟合 decoder，因而不包括训练样本、rank、正则化或 bank 变化的不确定性。
+
+```{r decoder-cohort-inference, echo=FALSE}
+render_dt(statistical_inference$decoder$summary, pageLength = 6L)
+```
+
+队列等权结果中，gene-pair BA 为 `r fmt(decoder_gp_cohort$cohort_equal_estimate)`（95% CI `r fmt_ci(decoder_gp_cohort)`），低于合并 query 的 `r fmt(decoder_gp$balanced_accuracy)`；single-bin Spearman 为 `r fmt(decoder_sb_cohort$cohort_equal_estimate)`（`r fmt_ci(decoder_sb_cohort)`），也低于合并值 `r fmt(decoder_sb$spearman)`。这说明只看合并值会漏掉不同队列内的恢复表现；差值本身没有另作显著性检验，不能归因于某一种平台。Set-pair 的队列等权 Spearman 为 `r fmt(decoder_sp_cohort$cohort_equal_estimate)`（`r fmt_ci(decoder_sp_cohort)`），当前这一个特征在队列内也保持接近的排序。三项分别基于 `r decoder_gp_cohort$n_cohort`、`r decoder_sb_cohort$n_cohort`、`r decoder_sp_cohort$n_cohort` 个可用 cohort；这些区间尚不是对未来任意队列的保证。
+
+### 比只报 reference 平均值多读出了什么
+
+Decoder 预测中本来就加回 reference 均值。如果某项特征在大多数患者里几乎相同，即使完全不看 d1、只报这个均值，误差也可能很小。因此，“误差小”需要一个朴素基准才能解释：**同样面对外部 query，不读取患者 d1，只报 decoder 实际训练 reference 子集的逐特征均值；gene-pair 对应 reference 阳性率。** 这不是用 query 均值构造的基准，也不是 Direct 对照模型。
+
+对预先指定的 gene-pair Brier、single-bin MAE、set-pair RMSE，令 $L_{cj}^{(0)}$、$L_{cj}^{(d)}$ 为同一 cohort、同一特征的基准与 decoder 损失，定义
+
+$$
+\delta_{cj}=L_{cj}^{(0)}-L_{cj}^{(d)},\qquad
+\bar\delta_{c,t}=\frac1{|\mathcal F_{c,t}|}\sum_j\delta_{cj},\qquad
+\widehat\delta_t=\frac1{C_t}\sum_c\bar\delta_{c,t}.
+$$
+
+正值表示 decoder 误差较低，零表示两者损失相同，负值表示 decoder 更差。仍先逐特征计算，再在队列内、队列间依次等权；特别是 RMSE，先在**该队列、该特征**的患者平方误差上取平均并开方，再相减，不能称为“每个患者的 RMSE 差”。教学示例中，基准 Brier 为 0.20、decoder 为 0.08，改善就是 0.12 个 Brier 单位，不是 accuracy 提高 12 个百分点。
+
+基准比较图沿用这三项预设损失差，按外部 cohort 等权汇总。虚线零点表示两者误差相同，点在右侧表示 decoder 误差更低，横线是该配对差的 95% cohort bootstrap 区间。三个分面的横轴独立缩放且损失单位不同，应各自对零线判断，不能比较谁的点更靠右就声称谁保留更多信息；图中区间也不能移到 Figure 7 的合并 query 点估计旁解释。
+
+```{r figure-decoder-baseline, interp_check=TRUE}
+fig7_baseline <- fig7
+fig7_baseline$height_in <- 2.4
+
+# Baseline contrasts already come from the formal statistical_inference target.
+# Save them independently from Figure 7's pooled-query scores.
+decoder_loss_plot <- decoder_baseline
+decoder_loss_plot$feature_type <- factor(
+  decoder_loss_plot$feature_type,
+  levels = c("gene_pair", "single_bin", "set_pair")
+)
+decoder_loss_plot$estimate <- decoder_loss_plot$estimate_baseline_minus_decoder
+decoder_loss_plot$label <- sprintf(
+  "%+.3f [%.3f, %.3f]",
+  decoder_loss_plot$estimate, decoder_loss_plot$ci_low, decoder_loss_plot$ci_high
+)
+decoder_loss_span <- pmax(
+  abs(decoder_loss_plot$ci_low), abs(decoder_loss_plot$ci_high),
+  abs(decoder_loss_plot$estimate)
+)
+decoder_loss_plot$x_min <- pmin(0, decoder_loss_plot$ci_low) - 0.15 * decoder_loss_span
+decoder_loss_plot$x_max <- pmax(0, decoder_loss_plot$ci_high) + 0.15 * decoder_loss_span
+decoder_loss_plot$label_x <- (decoder_loss_plot$x_min + decoder_loss_plot$x_max) / 2
+p7_baseline <- ggplot2::ggplot(
+  decoder_loss_plot,
+  ggplot2::aes(x = .data$estimate, y = 1, color = .data$feature_type)
+) +
+  ggplot2::geom_blank(ggplot2::aes(x = .data$x_min)) +
+  ggplot2::geom_blank(ggplot2::aes(x = .data$x_max)) +
+  ggplot2::geom_vline(xintercept = 0, linetype = "dashed", color = "grey45") +
+  ggplot2::geom_segment(
+    ggplot2::aes(x = .data$ci_low, xend = .data$ci_high, yend = 1),
+    linewidth = 0.8
+  ) +
+  ggplot2::geom_segment(
+    ggplot2::aes(x = .data$ci_low, xend = .data$ci_low, y = 0.94, yend = 1.06),
+    linewidth = 0.6
+  ) +
+  ggplot2::geom_segment(
+    ggplot2::aes(x = .data$ci_high, xend = .data$ci_high, y = 0.94, yend = 1.06),
+    linewidth = 0.6
+  ) +
+  ggplot2::geom_point(size = fig7_baseline$point_size) +
+  ggplot2::geom_text(
+    ggplot2::aes(x = .data$label_x, y = 1.32, label = .data$label),
+    size = fig7_baseline$value_text_size, color = "black"
+  ) +
+  ggplot2::facet_wrap(
+    ggplot2::vars(.data$feature_type), nrow = 1, scales = "free_x",
+    labeller = ggplot2::as_labeller(c(
+      gene_pair = "Gene pair: Brier", single_bin = "Single bin: MAE",
+      set_pair = "Set pair: RMSE"
+    ))
+  ) +
+  ggplot2::scale_color_manual(values = c(
+    gene_pair = nature_colors[["red"]], single_bin = nature_colors[["blue"]],
+    set_pair = nature_colors[["green"]]
+  )) +
+  ggplot2::scale_x_continuous(breaks = scales::breaks_pretty(n = 3)) +
+  ggplot2::scale_y_continuous(limits = c(0.75, 1.48), breaks = NULL) +
+  ggplot2::labs(
+    x = "Baseline loss - decoder loss", y = NULL
+  ) +
+  theme_nature_readable(
+    base_size = fig7_baseline$base_size, x_text_angle = 0, legend_position = "none"
+  ) +
+  ggplot2::theme(
+    axis.ticks.y = ggplot2::element_blank()
+  )
+
+fig7_baseline_jpg <- .ae_save_plot(
+  p7_baseline, "02.01.00. decoder-baseline-comparison", figure_dir,
+  preview_dir, fig7_baseline, params$plot_preview_dpi
+)
+knitr::include_graphics(fig7_baseline_jpg)
+```
+
+**基准比较的解读：三个区间都在零线右侧，支持 decoder 比只报训练均值减少误差。** Gene-pair Brier、single-bin MAE、set-pair RMSE 的改善分别为 `r fmt(decoder_gp_loss$estimate_baseline_minus_decoder)`、`r fmt(decoder_sb_loss$estimate_baseline_minus_decoder)`、`r fmt(decoder_sp_loss$estimate_baseline_minus_decoder)`，对应 95% 区间直接标在图中。此图回答相对朴素基准的改善，Figure 7 回答重建水平；两图采用不同汇总口径，不能用此图区间解释 Figure 7 的点。
+
+下表的 95% 区间重采样 cohort 的配对损失差；双侧符号翻转检验检查平均改善相对于零的证据，依赖 cohort 层差值在零假设下可作符号翻转的假定，并非患者级随机对照。当前使用 Monte Carlo 翻转，三项预设损失比较一起做 Holm 校正；BA、Spearman 与图中变换分数不另作事后零值检验。
+
+```{r decoder-baseline-comparisons, echo=FALSE}
+render_dt(statistical_inference$decoder$baseline_comparisons, pageLength = 3L)
+```
+
+结果显示，gene-pair Brier 的基准减 decoder 为 `r fmt(decoder_gp_loss$estimate_baseline_minus_decoder)`（95% CI `r fmt_ci(decoder_gp_loss)`，Holm 校正 P = `r fmt_p(decoder_gp_loss$p_value_adj)`）；single-bin MAE 改善 `r fmt(decoder_sb_loss$estimate_baseline_minus_decoder)`（`r fmt_ci(decoder_sb_loss)`，校正 P = `r fmt_p(decoder_sb_loss$p_value_adj)`）；set-pair RMSE 改善 `r fmt(decoder_sp_loss$estimate_baseline_minus_decoder)`（`r fmt_ci(decoder_sp_loss)`，校正 P = `r fmt_p(decoder_sp_loss$p_value_adj)`）。三项区间均位于零以上，支持当前读取器使用 d1 比仅报训练均值减少了外部重建误差。改善属于三种不同的损失单位，不能据其数值大小决定哪类信息保留最多；对当前均值基准的优势也不能证明胜过所有基准或达到最优恢复。
+
+### 哪些问题已经回答，哪些还需要专门实验
+
+**当前能回答的是：固定这条读取路径后，d1 中仍有可在外部样本上读回的 Direct 线索，而且恢复优于只报训练均值。** 结果同时包含两个约束：恢复并非全部无误；表现也随合并 query 或队列等权口径而变。误差可能来自模型重编码、PCA 截断、线性函数形式、ridge 惩罚、有限训练量，以及 reference/query 的分布差异。本实验只检验它们叠加后的表现，没有把各部分误差独立拆开。
+
+| 希望进一步判断什么 | 应固定什么、改变什么 | 怎样的结果更支持该判断 |
+|---|---|---|
+| PCA 或线性读取是否限制了恢复 | 同一冻结 bank、训练 reference 与完全独立验收 query；预先规定 rank/惩罚网格和非线性 decoder，调参只在 reference 内分组验证 | 增加 rank 或换读取器后外部损失下降，说明原误差至少部分来自读取限制；未下降仍不足以证明信息论上的不可逆损失 |
+| 恢复的是癌种间差异，还是癌种内患者差异 | 固定癌种，并按完整外部 cohort 留出；同时比较 reference 均值基准和仅用癌种的基准 | 癌种内恢复仍优于这些基准，且跨 cohort 方向稳定，才更支持患者层线索可读取 |
+| 能读回的内容是否对科研任务有用 | 在未见 cohort 上预先指定 pathway、微环境或治疗反应终点，并比较 Direct/d1 的实际任务表现 | 重建诊断与独立任务证据共同支持预设目标；若要声称保留，另预设可接受损失界值及非劣效/等价性检验 |
+
+这些是后续实验设计，当前报告没有执行新增 decoder、癌种条件基准或非劣效检验。诊断中的“能恢复”指冻结 Direct 特征可被读取，不能直接扩展成完整转录组、因果机制或临床效用都已保留。
+
+### 为什么值得写入论文
+
+本节为“多队列重编码”补上一条**从表示回到输入的证据链**。几何指标告诉读者邻居怎样重排，技术来源与癌种联合评估揭示重排的潜在收益和代价；decoder 则说明，任务表现下降并不等于原始线索全都消失。当前 gene-pair 的队列等权 BA 为 `r fmt(decoder_gp_cohort$cohort_equal_estimate)`，三项预设损失相对均值基准均改善，使“d1 仍可读取部分冻结输入关系”有了外部数值依据。与此同时，本节明确表示列数未减少、读取器受限、set-pair 只有 `r decoder_sp$feature_count` 项，避免把它包装成无损压缩或全面生物信息保留。
+
+与本次证据相符的论文表述可以是：“在冻结 bank 条件下，基于 `r decoder_fit$rank` 维 PCA 与 ridge 的 decoder 可从 d1 重建部分外部 query 的冻结 Direct 特征。Gene-pair 的队列等权 balanced accuracy 为 `r fmt(decoder_gp_cohort$cohort_equal_estimate)`（95% CI `r fmt_ci(decoder_gp_cohort)`），三类预设重建损失均低于 reference 均值基准；该诊断描述受限读取器下的可恢复性，未证明无损或不可逆信息损失。”
+
+若论文的主张涉及“输入线索经 cohort 模型重编码后仍可利用”，可在正文保留问题、读取路径、gene-pair 队列结果与基准比较，把完整 Figure 7、三类指标定义和队列推断放入补充材料；若主张集中于分类性能，本节更适合作为补充机制诊断。**它的价值是让重编码保留了什么、读取有什么限制都可被审查；实际生物与分类收益仍由独立任务实验回答。**
 
 ## 讨论与分析
 
-本轮先确定 d1 究竟改变了什么。CKA `r fmt(metric_value("linear_cka"))` 与距离 Spearman `r fmt(metric_value("distance_spearman"))` 表明整体关系及远近次序仍有相似性，前 `r max(manifest$config$geometry$k)` 名邻居的 Jaccard `r fmt(metric_value("knn_jaccard"))` 则表明具体近邻发生重排。在旧癌种任务中，top-k 同类比例的 cohort 等权差为 `r fmt(retrieval_cohort_mean_delta)`，线性 readout 的 cohort accuracy 差为 `r fmt(readout_inference_delta)`，后者 95% 区间为 `r fmt_ci(readout_cohort_row)`。这几项共同说明 d1 不是 Direct 的无损重命名；它们只检查原有几何与旧标签，不测新个性化亚型。两项癌种端点中绝对差最大的是 `r primary_top_signal$endpoint`（`r fmt(primary_top_signal$estimate)`），仅表示当前预设终点中的量级排序。
+### d1 重排了患者关系，价值取决于保留了什么
 
-最值得并列阅读的是技术与生物两侧。本次检测方式、平台和来源的同标签近邻差均向下，最大为 `r technical_top_signal$technical_factor` 的 `r fmt(technical_top_signal$estimate)`；这说明旧技术边界在当前跨队列邻居任务中弱化。与此同时，癌种恢复也有负向结果，二者可能共享同一组由癌种与测量来源共同决定的方向。不能把“技术标签少了”直接解释成“去掉的恰好是技术噪声”，也不能因为癌种标签较难读出就宣布发现了跨癌种共享状态。生物锚点报告进一步检查局部表达邻居，结构报告检查跨队列的大体状态地图：前者与后者回答的尺度不同，应一起判断重编码的代价与可能收益。
+这轮消融最清楚的发现，是多队列概率重编码确实改变了患者之间的关系。Direct 用原始 GSClassifier 特征描述患者；d1 则用冻结 cohort modules 的概率输出描述患者，相当于让多个已有队列模型分别给同一个患者作判断，再用这一组判断寻找相似患者。因此 d1 的好坏取决于这些判断是否保留了目标任务需要的差异。
 
-增加 cohort 证据也不是单调的加法。Breadth 增加组织背景，depth 增加同背景重复，matched-size 对照才尝试在相同 module 预算下比较；当前只有 `r manifest$config$scaling$sequences` 条设计序列，区间主要描述这些冻结设计的敏感性。本次受限 decoder 的 gene-pair balanced accuracy 为 `r fmt(decoder_gene_pair_accuracy)`，说明一部分 Direct 线索仍能读回；受限 decoder 的误差不足以断言哪些信息必然消失。这些检查共同约束了“多队列重编码”的解释，但还没有给出独立下游任务的胜负。
+本次 Linear CKA 为 `r fmt(metric_value("linear_cka"))`，距离 Spearman 为 `r fmt(metric_value("distance_spearman"))`，说明两种表示的整体关系仍有相似性；前 `r max(manifest$config$geometry$k)` 名邻居的 Jaccard 为 `r fmt(metric_value("knn_jaccard"))`，则说明具体邻居发生重排。这几项衡量的尺度不同：一张地图可以仍把几个城区放在相似位置，却改变每条街上最近的住户。整体相关不能保证局部排序保留，局部重排也不能单独证明新关系更有生物意义。几何区间及留一队列检查只衡量当前冻结表示下的稳定性，不包含重新训练整个 bank 的波动。
 
-**证据边界必须保留。** reference d1 含 in-sample 生成路径，query d1 来自冻结外部预测；两侧来源不对称，本报告维持 `r manifest$evidence_level` 等级。本次修复了 query 重复标准化、资格范围传递和非配对组成等历史路径，旧 readout、learning curve 与 anchor 数值不应继续引用。下一轮宜先预定独立 pathway、微环境或治疗反应目标，在未见队列中比较两臂，判据是跨队列方向稳定且有意义的癌种内差异仍可重现；再固定癌种、平台和候选池检查技术聚集是否持续下降。若要正式宣称生物结构基本保留，应先给出科学上可接受的损失界值，并用独立队列区间检验，而不是见到区间跨零就宣布等价。
+### 旧癌种任务显示了什么代价，尚不能确认什么
+
+在外部检索中，Top-`r params$display_k` 同癌种邻居比例的 cohort 等权差为 `r fmt(100 * retrieval_cohort_mean_delta, 2L)` 个百分点，95% 区间为 [`r fmt(100 * retrieval_inference$ci_low[retrieval_inference$endpoint == "top_k_label_rate"], 2L)`, `r fmt(100 * retrieval_inference$ci_high[retrieval_inference$endpoint == "top_k_label_rate"], 2L)`] 个百分点。外部线性 readout 的 cohort accuracy 差为 `r fmt(100 * readout_inference_delta, 2L)` 个百分点，区间为 [`r fmt(100 * readout_cohort_row$ci_low, 2L)`, `r fmt(100 * readout_cohort_row$ci_high, 2L)`] 个百分点，来自 `r readout_cohort_row$n_cohort` 个 cohort、`r readout_cohort_row$n_sample` 个 query。前者问“附近是否仍是同癌种患者”，后者问“统一的线性分类器能否读回旧标签”；它们的负向点估计共同提示旧标签恢复的潜在代价，但当前两项区间均跨零，尚不能确认总体下降。
+
+这里也不能反过来宣布癌种信息无损。区间跨零表示当前精度同时容许若干正向和负向效应；要主张“损失小到可以接受”，必须先规定用途所允许的损失界值，再检查区间。不同队列的正负差还可能互相抵消，所以队列图中的异质性应与总体均值一起读。合并 query 的 balanced accuracy 又按癌种而非队列等权，与主结果回答不同问题，不能挑其中较有利的数值作为最终胜负。
+
+对个性化泛癌分类而言，旧癌种标签是一项重要的保留检查，却还不是新分型的成功判据。若希望 d1 找到跨癌种的共享状态，就必须证明这些新邻居在事先指定的状态或结局上更一致；仅仅让旧标签更难读出，还没有完成这一步。
+
+### 技术聚集减少，为什么仍需生物侧的证据
+
+本次三个技术字段的同标签近邻差均向下；其中绝对点估计最大的是 `r technical_top_signal$technical_factor`，cohort 等权差为 `r fmt(100 * technical_top_signal$estimate, 1L)` 个百分点，95% 区间为 [`r fmt(100 * technical_top_signal$ci_low, 1L)`, `r fmt(100 * technical_top_signal$ci_high, 1L)`] 个百分点，Holm 校正 P 值为 `r fmt_p(technical_top_signal$p_value_adj)`。这证明换表示改变了邻居与已记录技术标签的关系，但不能把比例下降换算成“去除了多少批次噪声”。尤其 Platform 字段主要含 `unknow`，其变化实际反映未知标签的聚集变化，不能替代已知平台间的比较。
+
+一个容易误判的情形是：某癌种恰好主要来自某种检测来源。若表示弱化了该癌种的区分，同来源邻居也可能随之减少，即使模型没有把技术噪声与生物信号分开。当前技术侧下降与癌种侧负向点估计因此需要并列报告，它们没有组成新的联合检验，也不能据此确定因果关系。可检验的判断是：固定癌种、补齐技术标签并保持同一候选池后，技术聚集是否仍减少，同时目标生物差异是否仍保留。
+
+生物锚点报告测量的是邻居的连续表达接近度，结构报告测量的是跨队列的高低状态距离排序。两者能检查重排的不同代价：局部表达接近度下降而粗状态地图接近原水平，在逻辑上可以同时发生。但这只与“保留较粗状态、弱化精细排序”的假说相容，目前没有直接分解信息尺度，也没有证明重排后出现了更有用的新亚型。
+
+### 更多 cohort modules 为什么不等于更多有效信息
+
+Breadth 增加组织背景，depth 在固定的 `r length(depth_tissues)` 种组织内逐层增加模块；当前 depth 从每组织一个模块增加到 `r depth_max` 个。这类似增加不同专长的观察者与增加同专长的观察者：前者可能补充新的视角，后者可能稳定已有判断，也可能提供相近输出。究竟是哪一种，需看有效秩、冗余和近邻稳定性，而不能只数模块数量。
+
+在同模块预算的 matched-size 比较中，breadth−depth 的归一化有效秩差为 `r fmt(si_rank_matched$estimate)`，95% 设计重复区间为 `r fmt_ci(si_rank_matched)`；近邻稳定性差为 `r fmt(si_stability_matched$estimate)`，区间为 `r fmt_ci(si_stability_matched)`。有效秩描述输出分散在多少相对独立方向上，近邻稳定性则比较子 bank 与完整 bank 的邻居重合。后者较高表示接近完整 bank 的答案，而完整 bank 本身尚未被证明是生物真值。当前只有 `r manifest$config$scaling$sequences` 条冻结设计序列，这些区间不能代表新增患者、新队列或重训模块的全部不确定性。
+
+模块方差集中度回答的又是另一层问题：哪个原始 d1 输出波动较多。它没有直接衡量模块对标准化距离、预测或生物结局的贡献。历史 Figure S3 Gain 与当前方差份额使用不同目标和分母，即使某模块在两张表中都靠前，也不能据此确定应保留或删除它；需在固定模块预算和未见队列任务中实际删除该模块，再观察预设终点怎样变化。
+
+### decoder 让“信息丢失”变得更可检验
+
+当前受限 decoder 从 d1 尝试恢复 Direct 特征，gene-pair 的合并 query balanced accuracy 为 `r fmt(decoder_gene_pair_accuracy)`；与 reference 均值基准相比，预设 gene-pair 损失的“基准减 decoder”队列等权差为 `r fmt(decoder_gp_loss$estimate_baseline_minus_decoder)`，95% 区间为 `r fmt_ci(decoder_gp_loss)`。这两个量分别回答恢复到了什么水平、是否优于只猜 reference 平均水平，不能互换，也不能把分类分数与其他特征族的相关或误差相加。
+
+恢复出来的信息说明 d1 中仍有可被该 decoder 利用的线索；没有恢复出来的部分则可能来自表示的信息损失，也可能来自 PCA 限制、线性解码能力、训练量或跨队列分布差异。好比摘要能答对部分原文问题，但答错一道题不能证明原文线索完全消失。因此当前结果不足以宣布 d1 无损，也不足以逐项确定哪些原始特征永久丢失。若要区分这些原因，可在 reference 内预先选择解码复杂度和强度，在未见 query 上比较恢复误差及基准差；性能是否随解码能力改善，才是区分“难以读出”与“持续不可恢复”的一条证据。
+
+### 下一轮怎样判断重编码是否值得
+
+目前较有依据的表述是：多队列概率重编码改变了原始几何和近邻组成，技术标签聚集减少，同时旧癌种恢复存在不确定的负向变化；其独立下游价值仍需验证。reference d1 含 in-sample 生成路径，query d1 来自冻结外部预测，两侧来源不对称，所以本报告维持 `r manifest$evidence_level` 等级。学习曲线只减少下游 readout 使用的 reference cohorts，没有从零重训 cohort bank，不能据此宣称整个 CCS 框架只需很少训练数据。本次修复了 query 重复标准化、资格范围传递和非配对组成等历史路径，旧 readout、learning curve 与 anchor 数值不应继续引用。
+
+下一轮应先固定一种与输入测量不同的生物或临床目标，例如独立测量的微环境状态或治疗反应，并将整组未见 cohort 留作验证。在两臂使用同一有效患者、同一调参规则的前提下，预先规定有意义的收益或可接受损失，报告队列等权效应、区间及癌种内结果；跨队列迁移稳定且重要的癌种内差异仍可辨认，才支持这种重编码用于该任务。
+
+另一项验证应专门拆解技术与生物的关联：补齐已知平台标签，在同癌种、同候选池条件下比较技术聚集，并同步检查独立生物目标。若技术侧减少只出现在癌种组成改变时，就应限制“减弱技术影响”的解释；若在这些条件下仍减少且生物目标满足预设判据，才能把技术改善与任务价值联系起来。两条路径都应保留不利结果，最终按具体用途判断取舍。
 
 ## 数字准确性验证
 
@@ -2587,17 +2885,7 @@ knitr::include_graphics(fig7_jpg)
 render_dt(geometry_sensitivity$values, pageLength = 15L)
 ```
 
-受限 decoder 的六项指标分别列出原报告的合并 query 点估计，以及冻结 decoder 条件下的外部 query cohort 等权点估计和对应 95% cohort bootstrap 区间。`pooled_query_estimate` 是先在全部 query 上逐特征算 balanced accuracy、Spearman 或损失，再对同类特征等权平均；balanced accuracy 和 Spearman 属于非线性指标，不能称为简单的“样本加权均值”。表中的区间只围绕 `cohort_equal_estimate`，不能移到 `pooled_query_estimate` 旁解释。`valid_resamples` 记录能够计算该指标的重复次数；二分类缺少某一类或连续特征无变异时，该次结果不以零替代。
-
-```{r decoder-cohort-inference, echo=FALSE}
-render_dt(statistical_inference$decoder$summary, pageLength = 6L)
-```
-
-预先指定的三项损失比较分别是 gene-pair Brier、single-bin MAE 与 set-pair RMSE；基准预测用 decoder 实际训练 reference 子集的逐特征阳性率或均值。在同一外部 cohort 内，先对每个特征分别计算基准与 decoder 的损失并相减，再对同类特征及 cohort 依次等权平均；尤其 RMSE 是先对该 cohort、该特征的平方误差求平均并开方，不能描述为“每个 query 的 RMSE 差”。正值表示 decoder 损失较低。P 值在 cohort 层对配对差做双侧符号翻转，三项预设比较一起做 Holm 校正。Balanced accuracy、Spearman 和绘图变换分数只给区间，不另选临时零值。
-
-```{r decoder-baseline-comparisons, echo=FALSE}
-render_dt(statistical_inference$decoder$baseline_comparisons, pageLength = 3L)
-```
+受限 decoder 的 cohort 等权区间及三项预设基准损失比较已在“输入信息压缩与可恢复性”中与 Figure 7 联合呈现；两张表仍消费同一正式统计产物，此处不重复展示。
 
 下面的区间只描述**同一外部 cohort 内的 query 波动**。检索使用配对 Top-30 同癌种邻居比例差，readout 使用同一 query 的配对 accuracy 差；均在 cohort 内重采样 query，且至少需要 20 个可用 query。它们不估计更换 cohort 时的稳定性，也不对事后挑出的最大或最小格子给 P 值。
 

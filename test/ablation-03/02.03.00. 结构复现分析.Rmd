@@ -677,13 +677,43 @@ render_dt(
 
 ## 讨论与分析
 
-本轮结构检查提供了一个与局部表达锚点不同的视角。局部报告问每个患者身边的邻居是否有更接近的连续分数；本报告问八个高低状态作为整体，在不同 cohort 之间的远近排序是否可重现。本次正向与反向的平均结构差分别为 `r fmt(structural_forward_all$mean_delta, 4L)` 和 `r fmt(structural_reverse_all$mean_delta, 4L)`。这两个小平均差说明当前测量的粗粒度地图并未出现同局部效用一样整齐的负向位移；它们不能覆盖所有生物细节，也不能单靠跨零区间证明结构无损。当前按绝对点估计较大的方向是 `r structural_direction_top$direction_label`（`r fmt(structural_direction_top$mean_delta, 4L)`），这里的“较大”不代表确认性优势。
+### 本次保留的是哪一层结构
 
-本次正向比较包含 `r structural_all$cohort_pair_count` 对有效 cohort；它们共享队列节点，因此不能按独立队列对的数量来计算精确度。
+本报告将预设表达锚点的高低分组作为状态，比较这些状态在不同 cohort 中的远近排序是否一致。每个锚点分别选取队列内分数的低端和高端患者；不同锚点的状态可以包含同一名患者，因此这些状态不是互斥的新亚型，也没有为每名患者生成一套新的分类标签。它测量的是“状态地图能否跨队列重现”：若某组状态在一个队列较接近，在另一个队列是否仍较接近？本次正向 Direct 的平均结构相似度为 `r fmt(structural_forward_all$mean_direct_similarity)`，d1 为 `r fmt(structural_forward_all$mean_d1_similarity)`。这说明两种表示都能呈现一定的跨队列距离排序一致性，d1 的均值略高，但是否存在可靠优势还需看成对差及区间。
 
-另一种解释是大体方向主要受哪些 cohort modules 被纳入影响。本次每侧使用 `r structural_matched_modules` 个模块的 tissue-matched 重复设计中，正向与反向效应中位数分别为 `r fmt(structural_matched_forward_all$mean_delta_median, 4L)` 和 `r fmt(structural_matched_reverse_all$mean_delta_median, 4L)`。重复点的范围只描述这批固定目标样本上换 bank 组成后的敏感性，不是新患者抽样的置信区间。正反方向同时改变 bank 与 target，且共享冻结 Direct 合同，不能把方向差直接解释为完全对称实验。
+这张地图的精细度有限。可以把它想成比较不同城市中“医院、学校、车站”几类地点之间的布局：布局相似，不要求每位居民住处相同，也不要求每条街的长度相同。当前状态来自预设锚点的相对高低划分，同名高状态不必对应同一个绝对表达分数；Spearman 相似度又只看距离排序。因此本报告没有检验每名患者的精细表达状态、绝对距离或所有生物过程是否保留。
 
-如果要正式主张“生物结构基本保留”，下一步先根据科学用途规定可接受的损失界值，再在未见 cohort 上核对区间下界是否越过该界值；当前正向区间为 `r paste0("[", fmt(structural_forward_all$mean_delta_ci_low, 4L), ", ", fmt(structural_forward_all$mean_delta_ci_high, 4L), "]")`，反向为 `r paste0("[", fmt(structural_reverse_all$mean_delta_ci_low, 4L), ", ", fmt(structural_reverse_all$mean_delta_ci_high, 4L), "]")`。还应固定癌种与平台组成、改用与输入来源不同的生物或临床状态复测；判据是状态排序跨队列稳定，同时重要的癌种内差异仍可辨认。
+### 小的正向平均差应怎样理解
+
+完整 bank 的正向平均差为 `r fmt(structural_forward_all$mean_delta, 4L)`，95% 节点 bootstrap 区间为 `r paste0("[", fmt(structural_forward_all$mean_delta_ci_low, 4L), ", ", fmt(structural_forward_all$mean_delta_ci_high, 4L), "]")`；反向平均差为 `r fmt(structural_reverse_all$mean_delta, 4L)`，区间为 `r paste0("[", fmt(structural_reverse_all$mean_delta_ci_low, 4L), ", ", fmt(structural_reverse_all$mean_delta_ci_high, 4L), "]")`。两方向点估计都靠近零，区间同时容许改善和损失，所以目前较稳妥的判断是：没有确定的平均优势，也尚未排除一定幅度的结构损失。
+
+平均差还会隐藏队列对的得失。正向 d1 不低于 Direct 的队列对占 `r fmt_pct(structural_forward_all$fraction_d1_ge_direct)`，反向占 `r fmt_pct(structural_reverse_all$fraction_d1_ge_direct)`；这说明均值不能代表所有比较都得到改善。热图中的极端格子应回到共有状态数、来源和癌种核查，不能仅凭亮色选择支持 d1 的实例。
+
+局部锚点报告出现较一致的负差，而这里的粗结构差靠近零，两者在逻辑上并不矛盾。按粗状态分组后取中心，会弱化一部分组内患者差异；保留下来的组间排序可能相似，患者身边的连续表达邻居却已改变。这与“概率重编码弱化精细排序、保留部分粗结构”的假说相容，但当前两个终点并未直接测量或分解信息尺度，不能把这种解释写成已经确认的机制。
+
+### 为什么很多队列对仍不等于很多独立实验
+
+正向有 `r structural_forward_all$cohort_count` 个有效 cohort、`r structural_forward_all$cohort_pair_count` 对比较；反向有 `r structural_reverse_all$cohort_count` 个 cohort、`r structural_reverse_all$cohort_pair_count` 对比较。一个 cohort 会同时与多个 cohort 比较：若它的状态测量偏移，所有连到它的比较都可能一起变化。这像一个学校参与多场联赛，同一支队伍状态不佳会影响多场成绩，不能把每场比赛都当作完全独立的一支队伍。
+
+因此主区间按共享 cohort 节点重采样，报告末尾的零假设检验也先检查节点结构及模拟覆盖；无法可靠估计的格子保留 NA。队列对数较大不能替代节点数，更不能将普通成对行检验产生的小 P 值当作外部复现证据。
+
+同癌种子集进一步减少“癌种本来不同”的影响。本次正向有 `r structural_same_cancer_pair_count` 对同癌种比较，`r structural_same_cancer_summary`。它只适用于能形成这些队列对的癌种；即便均值靠近零，也不能推出所有癌种均保留结构。平台、疾病阶段和样本构成仍可能不同，同癌种分析没有自动消除这些差异。
+
+### 双向与 matched-bank 各自解决了什么问题
+
+正向用 reference modules 描述 external targets，反向用 external modules 描述 reference targets，两方向都确保 bank 与 target 患者不重叠。但完整正向 bank 有 `r structural_forward_all$bank_module_count` 个模块，反向有 `r structural_reverse_all$bank_module_count` 个，目标 cohort 数及组成也不同；共同的冻结 Direct 特征合同仍来自原有设计。因此双向检查增加了迁移视角，不能把两个差值直接作差，解释成完全对称的因果实验。
+
+Matched-bank 再把每侧模块预算固定为 `r structural_matched_modules` 个，并匹配 tissue 组成。正向 `r unique(structural_matched_forward_all$repeat_count)` 次设计的中位差为 `r fmt(structural_matched_forward_all$mean_delta_median, 4L)`，范围为 `r fmt(structural_matched_forward_all$mean_delta_min, 4L)` 至 `r fmt(structural_matched_forward_all$mean_delta_max, 4L)`；反向中位差为 `r fmt(structural_matched_reverse_all$mean_delta_median, 4L)`，范围为 `r fmt(structural_matched_reverse_all$mean_delta_min, 4L)` 至 `r fmt(structural_matched_reverse_all$mean_delta_max, 4L)`。当前两个全体队列对的设计范围都跨零，说明目标患者不变、只换模块成员，平均差的方向就可能变化。
+
+这让完整 bank 的小正向均值更适合被解释为当前配置下的结果，尚不能视为对模块选择不敏感的优势。Matched-bank 控制了模块数与组织组成，却没有让模块训练样本量、特征数和模型质量完全一致；重复设计也共享模块。它的范围及分位数描述有限设计的敏感性，不能冒充新增患者或新增队列的置信区间。
+
+### 如何把“结构基本保留”变成可以验证的主张
+
+若实际用途允许一定的结构损失，应先规定有科学依据的非劣效界值，并在独立未见 cohort 中估计同一效应。只有区间下界高于负的可接受损失界值，才支持在该用途下损失可接受；若要主张等价，还需区间整体落入预设的双侧等价范围。界值必须在看验证结果前确定，不能围绕当前区间挑选。
+
+另一项验证应更换状态的测量来源，例如使用病理或蛋白测量定义状态，并在同癌种、已知平台组成受控的队列中重复当前结构比较。同时检查重要癌种内状态是否仍可区分；若总体地图相似但关键亚群被合并，泛癌分类用途仍可能受损。这样才能检验跨队列的排序稳定是否具有独立生物意义，而不只反映共享表达数据的稳定性。
+
+目前这项分析的价值是补充局部锚点所看不到的较大尺度关系，并显示结论对模块组成的敏感性。论文中可报告当前粗状态结构未出现明确平均改善或下降，同时保留区间、同癌种范围和局部表达代价；“新个性化亚型已获验证”仍需要独立目标上的证据。
 
 ## 数字准确性验证
 

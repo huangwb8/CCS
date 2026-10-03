@@ -504,9 +504,29 @@ render_dt(biology_coverage_display, pageLength = 15)
 
 ## 讨论与分析
 
-本次数据审计确认了 `r remapped_cohort_count` 个历史 `Undefined` cohort 可以追溯到已核验的组织，未解析样本为 `r unresolved_sample_count`，且恢复前后样本与 cohort 总数不变。它为各项比较画出边界：共有 `r raw_cohort_count` 个原始 cohort，但 reference/query 的组织、队列大小和来源分布并不均衡。若把同队列内数百名患者当成数百次独立重复，或把某种来源占主导的组织当成多种独立测量，置信区间会显得过于可靠。因此主要效应按 cohort 汇总，来源与大队列的影响应继续用分层或留一敏感性分析检查。
+### 组织标签恢复改变了什么
 
-该审计不评价 d1 的优劣。冻结 bank 继续使用历史 key 追溯模型，恢复后的 tissue key 用于真实组织分层；两套名称各有用途，不能互换。biology anchor 另外从完整表达矩阵中提取 `r biology_profile$required_gene_count` 个基因，当前缓存覆盖 `r biology_profile$sample_count` 个目标样本。读者进入 `r experiment_report_name` 时，应先核对**每个终点实际纳入多少外部 cohort 和样本**，再解释其结果，而不能直接把本报告中的全量数据画像当作每张结果图的分析总体。
+本次审计覆盖 `r raw_sample_count` 个样本、`r raw_cohort_count` 个 cohort。历史 `Undefined` 中的 `r remapped_cohort_count` 个 cohort、`r remapped_sample_count` 个样本恢复到已核验的组织，组织组数由 `r raw_tissue_count` 变为 `r resolved_tissue_count`，未解析样本为 `r unresolved_sample_count`；样本与 cohort 总数保持不变。这项修正的意义是让同一批证据进入正确的组织分层。例如，研究“增加一种组织背景是否有用”时，一个本来已知组织的 cohort 若仍留在 `Undefined`，就可能被当成另一种背景，误导 breadth 的解释。
+
+这里相当于给图书馆中放错书架的书重新归类：书的内容没有改变，可供阅读的书也没有增加，但按主题比较时终于能比较正确的对象。因此冻结 bank 仍用历史 key 追溯已有模型，恢复后的 tissue key 用于组织分层；修复标签本身不产生新的独立验证，更不证明 d1 表示有所改善。
+
+### 大样本与多队列各自提供什么证据
+
+当前最大单一 cohort 是 `r largest_cohort$tissue` 的 `r largest_cohort$cohort`，有 `r largest_cohort$sample_count` 人，而全体 cohort 的中位规模为 `r stats::median(data_profile$cohort_profile$sample_count)` 人。一个大队列能帮助估计其内部患者差异，但这些患者可能共享采样流程、平台和处理方法；要判断换到另一家机构是否仍有同方向结果，还需来自其他 cohort 的证据。患者很多与独立队列很多，解决的是两个问题。
+
+下游主要比较先对同一患者计算两臂差值，再在 cohort 内平均，最后对 cohort 等权。这样回答的是“对当前纳入的一组队列各给一票，换表示后平均怎样变化”；它与“随机抽一名患者会怎样”不同，不能把队列等权结果直接写成所有泛癌患者的平均获益。等权也没有消除来源混杂：多个队列仍可能来自同一数据库或使用相近平台。因此来源热图用于定位哪些组织缺少多来源支持，cohort bootstrap 则保留当前队列之间的波动；两者都不能代替新增来源的外部验证。
+
+### 基因可用性与生物效用之间还隔着一步
+
+Direct 主输入包含 `r main_feature_count` 个特征，生物锚点另从完整表达矩阵提取 `r biology_profile$required_gene_count` 个所需基因，缓存覆盖 `r biology_profile$sample_count` 个目标样本。在 `r nrow(biology_profile$coverage)` 条 cohort–anchor 记录中，`r sum(biology_profile$coverage$status == "estimable")` 条达到计算门槛，`r sum(biology_profile$coverage$coverage < 1)` 条未达完整覆盖。这里核对的是能否按同一份签名清单计算分数；基因齐全不表示 d1 找到的邻居更接近，也不表示签名已通过临床验证。
+
+部分覆盖还带来一个具体的可比性问题：不同队列的同名签名可能由不同基因子集计算。如果一个队列缺失的恰好是变化最大的基因，它的分数波动就可能与完整覆盖队列不同。后续若在该队列看到异常效应，应先核对缺失基因、配对 query 数和来源，再讨论表示机制。当前表达签名与模型输入共享表达数据来源，能够检查表达信息是否保留，但仍需其他测量或临床结局检验其独立用途。
+
+### 如何把这份审计带入后续结果
+
+全量画像中的外部 query 有 `r external_sample_count` 个样本，但每个分析还要满足各自的标签、候选邻居和锚点资格。进入 `r experiment_report_name` 时，应分别核对该终点纳入的 query 与 cohort 数、汇总权重及缺失原因；生物锚点与结构报告也应使用各自的有效总体。不能把本页的原始样本总数写到所有结果图旁边，作为同样充分的外部证据。
+
+后续数据验证可以沿两条具体路径进行。其一，在来源信息完整且组织相同的队列中复核当前方向，并固定候选池做留一来源分析；若结论只在某一来源存在，应将适用范围限制到该来源。其二，对部分覆盖的锚点预先规定共同基因集，重新准备分数并通过正式 targets 流程比较效应；若差值因覆盖口径改变而明显变号，应优先解释测量可比性。这两项尚未在本次数据审计中执行，当前报告提供的是设计与输入边界。
 
 ## 数字准确性验证
 
