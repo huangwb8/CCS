@@ -2315,6 +2315,8 @@ $$
 
 ### Figure 6：把公式、柱子和本次结果对应起来
 
+**本次结论是：模块之间的原始输出波动不均匀，但没有集中到一个或前十个模块身上；即使取份额最高的前 `r nrow(module_top)` 个模块，它们合计也只有 `r fmt_pct(sum(module_top$variance_share))`，其余 `r manifest$module_count - nrow(module_top)` 个模块仍占 `r fmt_pct(1 - sum(module_top$variance_share))`。** 因此，这张图支持“原始输出的变化分布在许多模块中”，但尚不能据此判断哪些模块对预测或生物学任务最重要。
+
 横轴是 $s_m$，即平均列方差在全部 `r manifest$module_count` 个模块中的份额；纵轴是模块名称，按份额从大到小排列。标签中的 tissue/cohort 标识模块的来源，不表示这根柱子只在该 tissue 的患者上计算。所有柱子都使用前述同一批 reference 患者。柱子越长，表示原始输出在这些患者上的平均列波动越大。
 
 **图上只有前 `r nrow(module_top)` 名，分母仍包含整个 bank。** 因此图中柱长不必加起来等于 100%；没有画出的模块仍参与归一化、也仍用于正式 d1 检索。图中没有误差线：当前模块份额只计算了一次，没有针对它们生成 bootstrap 区间或 P 值，不能借用其它几何指标的区间为模块排序背书。
@@ -2369,9 +2371,15 @@ knitr::include_graphics(fig6_jpg)
 | `r gsub("|", " / ", as.character(module_top$module_label[2L]), fixed = TRUE)` | `r fmt(module_top$mean_column_variance[2L], 4L)` | `r fmt_pct(module_top$variance_share[2L], 2L)` |
 | `r gsub("|", " / ", as.character(module_top$module_label[3L]), fixed = TRUE)` | `r fmt(module_top$mean_column_variance[3L], 4L)` | `r fmt_pct(module_top$variance_share[3L], 2L)` |
 
-结果显示，最高模块的份额为 `r fmt_pct(module_top$variance_share[1L])`，等份参照是每个模块 `r fmt_pct(module_equal_share)`。前十个合计为 `r fmt_pct(module_concentration_top10)`，比等份参照 `r fmt_pct(module_equal_top10_share)` 高 `r fmt(100 * (module_concentration_top10 - module_equal_top10_share), 1L)` 个百分点，约为其 `r fmt(module_concentration_top10 / module_equal_top10_share, 2L)` 倍。这描述了原始输出波动的不均匀性，但最高单个模块和前十个合计都只占全 bank 的一小部分，**当前份额没有显示原始波动由一个或前十个模块包揽**。
+可以从三个层次判断“集中到什么程度”：
 
-图中前 `r nrow(module_top)` 个模块合计占 `r fmt_pct(sum(module_top$variance_share))`，未展示模块合计仍占 `r fmt_pct(1 - sum(module_top$variance_share))`。这使我们能够把“高份额模块值得核查”与“其它模块没有变化”分开。对当前 bank，更合适的描述是：原始输出波动有一定集中，但分布在更多模块中；这仍不能回答它们是否携带互补生物信号，或最终近邻是否依赖少数模块。
+- **单个模块没有占据大部分份额。** 最高的是 `r gsub("|", " / ", as.character(module_top$module_label[1L]), fixed = TRUE)`，占 `r fmt_pct(module_top$variance_share[1L], 2L)`；如果所有模块的平均列方差相同，每个应占 `r fmt_pct(module_equal_share, 2L)`。最高模块约为等份参照的 `r fmt(module_top$variance_share[1L] / module_equal_share, 2L)` 倍，但它本身仍只占全 bank 的百分之一左右。
+- **前十个的份额高于完全均匀分布，但合计仍只占约一成。** 前十个合计为 `r fmt_pct(module_concentration_top10)`，等份参照为 `r fmt_pct(module_equal_top10_share)`，约为其 `r fmt(module_concentration_top10 / module_equal_top10_share, 2L)` 倍。这说明模块之间确实不均匀；同时，其余 `r manifest$module_count - 10L` 个模块仍占 `r fmt_pct(1 - module_concentration_top10)`，所以不能说原始输出波动主要由前十个模块承担。
+- **图外模块合计承担了大部分份额。** 图上前 `r nrow(module_top)` 个模块合计占 `r fmt_pct(sum(module_top$variance_share))`，其余 `r manifest$module_count - nrow(module_top)` 个未画出的模块合计占 `r fmt_pct(1 - sum(module_top$variance_share))`。也就是说，图中只展示了份额最大的一部分，不能因它们排在前面，就忽略图外模块占据的约八成份额。
+
+这里的“波动”具体指**同一个模块面对不同 reference 患者时，输出概率变化有多大**：对所有患者都给出相近概率的模块，方差较小；患者之间概率差异较大的模块，方差较大。上述百分比是各模块**平均列方差**的份额，不能读成分类准确率的贡献百分比，也不能读成最终近邻距离的贡献百分比。实际检索还使用逐列标准化和 block 权重，高原始方差不会按图中份额直接转化为高距离贡献。
+
+因此，本图可以明确回答的是：**在这批 reference 患者上，原始 d1 输出变化分布在许多模块中，头部模块的份额偏高，但一个或前十个模块并未包揽大部分波动。** 它尚未检验这些变化来自生物差异还是技术差异，也没有检验模块之间是否重复。要判断某个模块是否改善外部任务，需要删除该模块后比较近邻和任务性能；本图没有完成这一实验，也没有给出模块份额的重采样区间，当前结论限于这批样本的描述性结果。
 
 ### 与 Figure S3 的 cohort importance 怎样对应
 
