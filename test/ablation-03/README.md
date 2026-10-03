@@ -21,9 +21,12 @@ R Markdown 文件只消费已完成 target 产物，用于报告渲染，不参�
 四份 HTML 均由正式依赖图中的 file target 直出；不得在 `tar_make()` 之外用独立
 runner 生成正式报告。
 报告共用 `templates/` 下的 Liquid Glass 样式与交互模板；模板文件纳入四个报告的
-targets 文件依赖。R 代码默认折叠，可在 HTML 中按需展开。
+targets 文件依赖。图表代码输出到 HTML 并默认折叠，可点击各代码块的 Code 按钮展开，
+或用报告顶部的 Code → Show All Code 一次展开全部代码；setup 初始化代码不输出。
 生物锚点报告附带配对效应、cohort 异质性和基因覆盖三张 PDF，并在
 `reports/tables/` 导出队列级配对差值，供核对图中每个格子的样本数与方向。
+配对效应图采用紧凑森林图与独立统计列，逐行显示差值及 95% CI、有效 cohort 数、
+配对 query 人数和 BH 校正 P 值；统计列不参与效应横轴缩放，锚点顺序沿用冻结配置。
 补充推断由 `statistical_inference`、`learning_query_inference` 和
 `geometry_sensitivity` 三个 target 生成；报告分别依赖这些 target。
 decoder 的 cohort 等权区间与原合并 query 逐特征分数分列；结构均值检验先检查共享节点

@@ -187,7 +187,7 @@ plot_label <- function(en, zh) if (plot_zh) zh else en
 
 | 指标 | 怎样从数据得到 | 尺度、方向与边界 |
 |---|---|---|
-| 基因覆盖率 | 当前 cohort 可用的签名基因数／预设签名基因数 | 0–1；1 表示基因齐全，只衡量能否按同一基因集计算，不衡量邻居质量 |
+| 基因覆盖率 | 当前 cohort 输入中存在的签名基因数／预设签名基因数 | 0–1；1 表示输入基因齐全，不保证全部基因具备有效 reference 标尺或实际进入评分，也不衡量邻居质量 |
 | Anchor utility | 先对每个 query–邻居对计算 $\exp(-|s_q-s_j|)$，再平均前 `r 15L` 个邻居 | 0–1；同分数为 1，差得越远越接近 0；是表达状态接近度，不是临床效用 |
 | d1−Direct | 同一 query 的两臂 utility 先相减，再在 cohort 内和 cohort 间依次平均 | 零表示当前锚点的平均接近度相同；正值是 d1 更高，负值是 Direct 更高 |
 | `r "95%"` CI 与 BH 校正 P 值 | 对完整 cohort 重采样得到区间，锚点组内校正检验 | 区间反映队列间波动；跨零不证明等价，样本级区间不能替代队列级区间 |
@@ -196,15 +196,96 @@ plot_label <- function(en, zh) if (plot_zh) zh else en
 
 ## 连续表达锚点 readout
 
-四个 anchor 按配置中的 signature 名称精确选取；它们独立于癌种标签，却仍来自表达数据，不能视为独立测量的临床结局。完整 reference 样本先为每个基因确定共同的 z-score 标尺，再应用到两种表示找到的邻居：像先固定一把尺子，再量两组人，避免每组重新定义“一厘米”。每个 query 只有在两臂 top-`r 15L` 邻居的锚点分数都完整时才进入配对比较；这样差值才是在**同一个 query** 上换表示造成的，而非两批不同患者造成的。
+### 为什么癌种相同，还要看连续表达状态
 
-具体地，基因 $g$ 在样本 $i$ 中的标准化值为 $z_{gi}=(x_{gi}-\mu_g^{\rm ref})/\sigma_g^{\rm ref}$，一个 anchor 的分数是该样本可用签名基因 $z_{gi}$ 的平均。对 query $q$ 与邻居 $j$，先算 $u_{qj}=\exp(-|s_q-s_j|)$，再把前 `r 15L` 位邻居的 $u_{qj}$ 取平均作为该 query 的 utility。比如两个分数相同，$u=1$；相差 1 个标准化分数单位时，$u\approx0.37$。它把“表达状态有多近”压到 0 与 1 之间，但不是预测正确率或患者获益。先逐邻居求 $u$ 再平均，也不能误写成对平均分数差取指数。
+**本节问的是：同一个患者换用 d1 找邻居后，邻居的增殖、免疫和基质等表达状态是否仍与自己接近？** 癌种标签只告诉我们患者属于哪一类，不能说明这一类内部的状态。例如，两名乳腺癌患者可以拥有相同的癌种标签，却分别处于免疫相关表达较高和较低的状态；同癌种检索把两人都算作命中，连续表达锚点则能辨认这种差别。
+
+可以把癌种看成学生所在的年级，连续表达状态看成具体科目的成绩：找到同年级的学生，并不保证数学成绩接近。本节用几组预先指定的基因作为“科目”，把每位患者的表达汇总成连续分数，再检查两种表示各自找到的同伴。这里的 readout 是**在已有邻居名单上读出表达接近度**，没有另训练一个签名预测器；它与前一报告的癌种线性 readout 是不同的任务。
+
+四个 anchor 按 `raw/config/biological-anchors.yml` 中的名称选取，多个签名组成一个 anchor 时先合并基因、去除重复，再等权评分，不根据哪项结果更好而临时挑选。
+
+| 锚点 | 配置指定的签名 | 连续分数提供什么参照 |
+|---|---|---|
+| `proliferation` | `Tumor proliferation rate` | 增殖相关基因的相对表达水平 |
+| `immune_tme` | `TME_A_Immune2` | 免疫微环境相关基因的相对表达水平 |
+| `stromal_tme` | `TME_B_Stromal2` | 基质微环境相关基因的相对表达水平 |
+| `ifn_il6` | `IFNγ signaling` 与 `IL6-JAK-STAT3 signaling` 的基因并集 | 两组炎症信号相关基因的综合表达水平；本节未分别估计两条通路 |
+
+这些分数是表达签名的代理指标，不能直接读成细胞比例、实际增殖速度或通路因果活性。它们提供了癌种标签以外的一把尺子，但仍来自表达数据；本分析没有通过排除 CCS 输入重叠基因建立测量独立性。因此，这是表达信息保留的诊断，不能当成独立临床结局验证。
+
+### 实验固定什么，只改变什么
+
+两臂消费已经冻结的 Direct-GSClassifier 和 Cohort-d1 表示，以及表示分析产出的跨队列邻居名单。reference 是已有样本库，query 是本次样本契约中的外部患者；本节不会因增加表达锚点而另招一批患者，也不重训 cohort 模型。
+
+| 实验要素 | 本节怎样控制 | 为什么这样做 |
+|---|---|---|
+| 患者与候选池 | 同一个 query，在同一 reference 库中检索；排除同 cohort 样本，候选包含其它 cohort 的所有癌种 | 避免把不同患者或不同候选池的差异混入两臂比较；仍需检查跨队列的平台与癌种组成 |
+| 邻居名单 | 沿用各臂既定定标、距离和排序，只取前 `r 15L` 位 | 改变的是表示所定义的邻居关系；此处的邻居数与技术联合评估使用的 Top-k 口径应分别阅读 |
+| 表达尺子 | 用 reference 样本确定每个基因的均值与标准差，对 query 和两臂邻居应用同一变换 | 不能让两臂或各队列分别重新定义高低分；query 不参与拟合这把尺子 |
+| 有效配对 | 对每个 anchor，只保留两臂均有完整 top-`r 15L` 锚点分数的 query | 两臂均值基于同一批患者；不同 anchor 的有效患者集合仍须分别核对 |
+| 主要汇总 | 患者内相减，cohort 内平均，再对 cohort 等权 | 不让大队列仅凭人数主导跨队列结论 |
+
+**表达分数固定，邻居名单可以改变。** 如果某位患者的免疫分数是 0.8，这个 0.8 在两臂中相同；Direct 和 d1 可能为他找到不同的邻居，差异由这些邻居与 0.8 的距离产生。完整 top-`r 15L` 指的是分数齐全，不要求两臂选中同一批邻居，也不等于所有签名基因齐全。
+
+### 从多个基因得到一个连续分数
+
+令 $x_{gi}$ 表示样本 $i$ 中基因 $g$ 的表达值。先从 reference 中该基因的有限表达观测计算均值 $\mu_g^{\mathrm{ref}}$ 与标准差 $\sigma_g^{\mathrm{ref}}$，再计算
+
+$$
+z_{gi}=\frac{x_{gi}-\mu_g^{\mathrm{ref}}}{\sigma_g^{\mathrm{ref}}}.
+$$
+
+减去均值是在问“比 reference 的通常水平高多少”，除以标准差则把不同基因换到可比较的尺度。$z=0$ 表示位于该基因的 reference 均值，$z=1$ 表示高一个 reference 标准差，负值表示低于均值。reference 中不足两个有限观测、或标准差为零的基因不参与评分；这里的 reference 均值按可用样本合并计算，**不是先求各 cohort 均值再等权**。后面的 cohort 等权用于效应汇总，不能倒推评分尺子也采用了相同权重。
+
+对 anchor $a$，令 $G_{a,i}^{\mathrm{use}}$ 为样本所在 cohort 实际具备、reference 标尺有效且该样本标准化值非缺失的签名基因集合。实现先要求该 cohort 至少有两个可定标基因，再按样本对非缺失的 $z$ 值取均值：
+
+$$
+s_{a,i}=\frac{1}{|G_{a,i}^{\mathrm{use}}|}
+\sum_{g\in G_{a,i}^{\mathrm{use}}}z_{gi}.
+$$
+
+以下手算均为**教学示例，不是本次数据结果**。某基因的 reference 均值为 10、标准差为 2，患者表达为 12，则 $z=(12-10)/2=1$。若一组签名的三个可用基因分别为 $1$、$0$、$-0.5$，分数就是 $(1+0-0.5)/3\approx0.167$。平均能减轻单个基因偶然波动的影响，但也会丢掉基因间的细节：两个患者都得 0.167，不代表逐基因表达相同。
+
+共同标尺使跨队列的差值有相同定义，却不会自动消除平台偏差或不同基因子集的影响。尤其是 $s$ 是多个基因 z-score 的平均，**它本身没有再标准化到方差为 1**；分数相差 1 个单位不能称为“整个签名相差一个标准差”。不同锚点的基因数和相关结构不同，utility 的量级也不能直接当作各生物过程重要性的排名。
+
+### 从分数距离到邻居接近度
+
+令 $q$ 是 query，$j$ 是其邻居。先计算两人的锚点分数距离，再用指数函数转换为接近度：
+
+$$
+d_{a,qj}=|s_{a,q}-s_{a,j}|,
+\qquad
+u_{a,qj}=\exp(-d_{a,qj}).
+$$
+
+绝对值表示只关心距离，不关心邻居的分数偏高还是偏低。距离为零时 $u=1$；距离增大时 $u$ 向零靠近。选择这种转换，是为了让每个邻居的贡献落在同一有界接近度尺度，避免一个很远的邻居用无限大的距离主导平均；它也规定了对远近的惩罚方式，因而是本实验的度量选择，并非天然的临床效用函数。
+
+| 教学示例：分数距离 $d$ | 接近度 $e^{-d}$ | 怎样读 |
+|---:|---:|---|
+| 0 | 1.000 | 两人的签名均分相同 |
+| 0.5 | 0.607 | 相差半个签名分数单位 |
+| 1 | 0.368 | 相差一个签名分数单位 |
+| 2 | 0.135 | 相差两个签名分数单位，接近度更低 |
+
+对表示 $m\in\{\mathrm{Direct},\mathrm{d1}\}$ 找到的邻居集合 $\mathcal N_q^{(m)}(k)$，患者的 anchor utility 为
+
+$$
+U_{a,q}^{(m)}=\frac{1}{k}\sum_{j\in\mathcal N_q^{(m)}(k)}
+\exp\bigl(-|s_{a,q}-s_{a,j}|\bigr),
+\qquad k=\text{`r 15L`}.
+$$
+
+它回答“这份邻居名单平均与患者有多接近”。这里每位邻居等权，靠前的邻居不另加权；接近度也没有超过某个阈值就记作成功。因此 $U=0.60$ 不能读成 60% 的邻居正确，或 60% 的患者受益。
+
+**计算顺序不能交换。** 用两个邻居方便手算：如果分数距离分别为 0 和 2，正确的 utility 为 $(e^0+e^{-2})/2\approx0.568$；先平均距离再取指数则为 $e^{-(0+2)/2}\approx0.368$。两者不同，因为指数转换不是直线。若邻居分数分别位于 query 两侧，先平均邻居分数还可能让高低偏差相互抵消，误以为名单很接近。当前实现先逐邻居计算接近度，再平均；也不能反过来从平均 utility 推出平均表达距离。
+
+下面依次核查签名基因覆盖、各臂 utility、配对效应及队列分布：先确认“尺子用到了哪些基因”，再判断“邻居改变了多少，以及变化是否跨队列一致”。
 
 ### 锚点基因覆盖
 
-在比较邻居之前，先核对每个队列能否算出同一套签名分数。对 anchor $a$ 和 cohort $c$，覆盖率 $h_{a,c}=|G_a\cap G_c|/|G_a|$，分母是预设基因集，分子是当前队列可用的基因；100% 表示基因齐全，部分覆盖表示分数依赖较少的基因。好比用同一张菜谱比较各家菜品：先看每家拿到了多少原料，才能解释味道差异。覆盖率决定结果的可解释范围，不能直接当作效用或独立验证。
+在比较邻居之前，先核对每个队列的表达输入包含多少预设签名基因。对 anchor $a$ 和 cohort $c$，覆盖率 $h_{a,c}=|G_a\cap G_c|/|G_a|$，其中 $G_a$ 是预设基因集，$G_c$ 是该队列表达矩阵的基因行名集合；100% 表示预设基因都在输入中，部分覆盖表示其中一些基因不存在。好比用同一张菜谱比较各家菜品：先看每家拿到了多少原料，才能解释味道差异。**输入中存在的基因仍可能因 reference 标准差无效或样本表达缺失而不进入评分**，所以覆盖率不是最终评分基因的完整性，更不能直接当作效用或独立验证。
 
-```{r figure-biology-anchor-coverage, echo=FALSE, interp_check=TRUE}
+```{r figure-biology-anchor-coverage, echo=TRUE, interp_check=TRUE}
 fig_coverage <- list(width_in = 8.4, height_in = 5.8, base_size = 10,
   point_size = 1.6, median_size = 2.8)
 coverage_plot <- biology_coverage
@@ -255,9 +336,9 @@ coverage_jpg <- .ae_save_plot(p_coverage,
 knitr::include_graphics(coverage_jpg)
 ```
 
-解读：横轴每个点是一项 cohort–锚点的基因覆盖率，1 表示该队列具备该签名的全部基因。当前 `r external_cohort_count` 个外部 cohort 与 `r length(anchor_order)` 个锚点组成的审计中，有 `r partial_external_count` 个组合覆盖不足 100%；实际缺失分数的 query–邻居对为 `r missing_pair_count` 个。部分覆盖意味着不同队列的分数可能由不同基因子集计算，若该队列效应很大，应先检查缺了哪些基因及最终配对 query 是否减少。基因齐全也只保证可按预设签名计算，不能证明这些表达签名独立于 CCS 输入或已验证生物效用。
+解读：横轴每个点是一项 cohort–锚点的输入基因覆盖率，1 表示该队列表达矩阵包含该签名的全部基因行名。当前 `r external_cohort_count` 个外部 cohort 与 `r length(anchor_order)` 个锚点组成的审计中，有 `r partial_external_count` 个组合覆盖不足 100%；实际缺失分数的 query–邻居对为 `r missing_pair_count` 个。部分覆盖意味着不同队列的分数可能由不同基因子集计算，若该队列效应很大，应先检查缺了哪些基因、哪些基因有有效 reference 标尺，以及最终配对 query 是否减少。基因齐全只说明预设基因在输入中存在，不保证每个基因都实际进入评分，也不能证明这些表达签名独立于 CCS 输入或已验证生物效用。
 
-```{r biology-anchor-coverage, echo=FALSE}
+```{r biology-anchor-coverage, echo=TRUE}
 biology_coverage_widget <- htmltools::tagList()
 if (identical(biology_status, "complete")) {
   biology_coverage_widget <- render_dt(biology_coverage, pageLength = 10)
@@ -265,9 +346,9 @@ if (identical(biology_status, "complete")) {
 biology_coverage_widget
 ```
 
-解读：coverage 表的 `r nrow(biology_coverage)` 行分别对应一个 cohort–锚点组合；`genes_required` 是预设基因数，`genes_found` 是该 cohort 实际能用的基因数，二者相除才是 `coverage`。对效果异常的队列，应先在这一行核对基因缺口，再到缺失分数表核对 query–邻居对是否完整；若不同队列依据的基因子集不同，同名锚点分数也未必严格可比。`status=estimable` 仅表示达到计算门槛，不能由此推断签名与模型输入独立。
+解读：coverage 表的 `r nrow(biology_coverage)` 行分别对应一个 cohort–锚点组合；`genes_required` 是预设基因数，`genes_found` 是该 cohort 输入矩阵中存在的签名基因数，二者相除才是 `coverage`。对效果异常的队列，应先在这一行核对输入基因缺口，再结合 reference 标尺与缺失分数表核对评分和 query–邻居对是否完整；若不同队列依据的基因子集不同，同名锚点分数也未必严格可比。此表的 `status=estimable` 仅表示输入中至少存在两个签名基因；最终评分还要求至少两个基因具有有效 reference 标尺，样本分数须有限。它与后面推断表要求至少 `r 3L` 个有效 cohort 的同名状态含义不同，不能混读为同一种资格，更不能由此推断签名与模型输入独立。
 
-```{r biology-anchor-utility, echo=FALSE}
+```{r biology-anchor-utility, echo=TRUE}
 biology_utility_widget <- htmltools::tagList()
 if (identical(biology_status, "complete")) {
   biology_utility_widget <- render_dt(biology_utility, pageLength = 10)
@@ -277,68 +358,140 @@ biology_utility_widget
 
 解读：表中每个锚点有 Direct 和 d1 两行，`utility` 是各自找到的前 `r 15L` 个邻居与 query 的平均表达接近度。例如增殖锚点的 Direct 为 `r fmt(biology_utility$utility[biology_utility$anchor == "proliferation" & biology_utility$representation == "Direct-GSClassifier"])`，d1 为 `r fmt(biology_utility$utility[biology_utility$anchor == "proliferation" & biology_utility$representation == "Cohort-d1"])`；这两个数是对同一批完整配对 query 分别汇总的单臂水平，不能直接拿它们的差代替后面的 cohort 等权效应。表内单臂区间按样本重采样，只描述当前 query 样本均值的变化，没有处理同 cohort 内依赖；向新 cohort 推广的判断应看下一节的配对差与 cohort bootstrap 区间。
 
-读这张表时，可以先在同一 anchor 下对照两行分臂 utility：这回答“各自找到的邻居有多近”，尚未回答“换表示后平均改变多少”。后一个问题必须回到每个 query 的成对差 $u_{q,d1}-u_{q,Direct}$；若一个队列患者很多，不能让它仅凭人数盖过其他外部队列。
+读这张表时，可以先在同一 anchor 下对照两行分臂 utility：这回答“各自找到的邻居有多近”，尚未回答“换表示后平均改变多少”。后一个问题必须回到每个 query 的成对差 $U_{a,q}^{(\mathrm{d1})}-U_{a,q}^{(\mathrm{Direct})}$；若一个队列患者很多，不能让它仅凭人数盖过其他外部队列。
 
 ### 配对效应与不确定性
 
-本节改用配对效应，是因为同一患者的表达分数固定，变化的是 Direct 或 d1 为其选出的邻居。先对每个 query 计算 $\Delta_q=u_{q,d1}-u_{q,Direct}$；例如某患者的 d1 utility 为 0.55、Direct 为 0.65，则该患者的 $\Delta_q=-0.10$，表示 d1 邻居的连续签名平均接近度低 0.10。然后在 cohort $c$ 内平均，$\bar\Delta_c=n_c^{-1}\sum_{q\in c}\Delta_q$；最后对 $C$ 个可估计 cohort 各给一票，$\bar\Delta=C^{-1}\sum_c\bar\Delta_c$。零表示当前锚点两臂平均接近度相同，正值偏向 d1，负值偏向 Direct。cohort bootstrap 每次重新抽取整组 cohort，因而区间反映队列间波动，不把同队列数百名患者误当成数百个独立外部验证。
+本节改用配对效应，是因为同一患者的表达分数固定，变化的是两臂为其选出的邻居。对某个 anchor，令 $\mathcal Q_{a,c}$ 为 cohort $c$ 中两臂分数完整的 query 集合，$n_{a,c}$ 为其人数，$C_a$ 为具有有效配对患者的 cohort 数：
 
-```{r figure-biology-anchor-inference, echo=FALSE, interp_check=TRUE}
-fig_inference <- list(width_in = 9.2, height_in = 4.7, base_size = 10,
-  point_size = 2.8, line_size = 0.8)
+$$
+\begin{aligned}
+\Delta_{a,q}&=U_{a,q}^{(\mathrm{d1})}-U_{a,q}^{(\mathrm{Direct})},\\
+\bar\Delta_{a,c}&=\frac{1}{n_{a,c}}\sum_{q\in\mathcal Q_{a,c}}\Delta_{a,q},\\
+\widehat\Delta_a&=\frac{1}{C_a}\sum_{c=1}^{C_a}\bar\Delta_{a,c}.
+\end{aligned}
+$$
+
+这三行分别对应**一位患者、一个队列、全部有效队列**。例如，某患者 d1 的 utility 为 0.55、Direct 为 0.65，则 $\Delta=-0.10$，表示接近度分数低 0.10。零表示两臂平均接近度相同，正值偏向 d1，负值偏向 Direct；差值范围为 $[-1,1]$。这里的 $-0.10$ 是接近度的绝对差，不能读成准确率低 10 个百分点，也不能读成原 utility 相对下降 10%。
+
+队列等权与合并患者可以给出不同答案。教学示例中，队列 A 有 100 人、平均差为 $-0.10$；队列 B 有 10 人、平均差为 $+0.20$。队列等权是 $(-0.10+0.20)/2=+0.05$，而合并患者是 $(100\times(-0.10)+10\times0.20)/110\approx-0.073$。前者问“各队列给一票，平均怎样改变”，后者问“当前合并患者中，平均怎样改变”。本节主效应采用前者；上面的单臂 utility 表按患者汇总，两行相减对应后者，不能代替这里的主效应。
+
+95% 区间对**完整 cohort 的配对均值**有放回地抽样：每次抽取 $C_a$ 个队列均值、求等权平均，按当前产物记录重复 `r paste(unique(biology_inference$n_boot), collapse = "、")` 次，取 2.5% 与 97.5% 分位数。重采样没有重训模型、重估 reference 尺子或重找邻居，区间条件于这些已冻结的对象。它反映当前外部队列组合的波动，不把一位患者的 `r 15L` 个邻居或一个队列的数百位患者当成独立外部验证；要推广到未来队列，还需当前队列之间足够独立且能代表目标场景。
+
+P 值另用双侧配对 sign-flip 检验：在零假设下队列差值的符号可交换的前提下，保留每个差值的大小、改变正负号，检查所得平均差的绝对值有多常达到观察值。最多 `r 18L` 个 cohort 时枚举全部符号组合，更多时用 Monte Carlo 并做加一校正；当前方法为 `r if (nrow(biology_inference_estimable)) paste(unique(biology_inference_estimable$p_method), collapse = "、") else "无可估计锚点，未报告检验"`。区间与 P 值来自不同构造，不能互相换算；跨零不证明等价，未跨零也不能替代多重检验结论。
+
+可估计锚点作为一个检验族做 Benjamini–Hochberg（BH）校正，表中 `p_value_adj` 用于控制该检验族的假发现率，不能读成某一结论出错的概率。少于 `r 3L` 个有效 cohort 时，仅保留描述性点估计，区间和 P 值为 NA。四项签名可能共享表达过程，因此同向结果也不能算作四次独立机制验证。
+
+```{r figure-biology-anchor-inference, echo=TRUE, interp_check=TRUE}
+fig_inference <- list(width_in = 8.6, height_in = 3.0, base_size = 10,
+  point_size = 2.6, line_size = 0.55)
 inference_plot <- biology_inference
-inference_plot$anchor <- factor(inference_plot$anchor,
-  levels = rev(anchor_order))
-inference_plot$summary <- paste0(
-  "n=", inference_plot$cohort_count,
-  " | q=", format(inference_plot$query_count, big.mark = ",", trim = TRUE),
-  " | BH p", ifelse(is.na(inference_plot$p_value_adj), "=NA",
-    ifelse(inference_plot$p_value_adj < 0.001, "<0.001",
-      paste0("=", formatC(inference_plot$p_value_adj,
-        digits = 3L, format = "f"))))
+inference_plot$plot_row <- match(inference_plot$anchor, rev(anchor_order))
+anchor_labels <- if (plot_zh) {
+  c(proliferation = "增殖", immune_tme = "免疫微环境",
+    stromal_tme = "基质微环境", ifn_il6 = "IFN / IL6")
+} else {
+  c(proliferation = "Proliferation", immune_tme = "Immune TME",
+    stromal_tme = "Stromal TME", ifn_il6 = "IFN / IL6")
+}
+inference_plot$effect_label <- paste0(
+  fmt(inference_plot$estimate), " [", fmt(inference_plot$ci_low),
+  ", ", fmt(inference_plot$ci_high), "]"
 )
+inference_plot$p_label <- ifelse(is.na(inference_plot$p_value_adj), "NA",
+  ifelse(inference_plot$p_value_adj < 0.001, "<0.001",
+    fmt(inference_plot$p_value_adj)))
+row_limits <- c(0.45, length(anchor_order) + 1.15)
+header_y <- length(anchor_order) + 0.75
 effect_limits <- range(c(inference_plot$estimate,
   inference_plot$ci_low, inference_plot$ci_high, 0), na.rm = TRUE)
-label_x <- effect_limits[2L] + max(0.012, diff(effect_limits) * 0.12)
-right_padding <- max(0.10, diff(effect_limits) * 1.1)
-p_inference <- ggplot2::ggplot(inference_plot,
-  ggplot2::aes(x = .data$estimate, y = .data$anchor)) +
+effect_padding <- max(0.005, diff(effect_limits) * 0.08)
+p_effect <- ggplot2::ggplot(inference_plot,
+  ggplot2::aes(x = .data$estimate, y = .data$plot_row)) +
   ggplot2::geom_vline(xintercept = 0, linetype = "dashed",
-    color = "grey50", linewidth = 0.55) +
-  ggplot2::geom_errorbar(ggplot2::aes(xmin = .data$ci_low,
-    xmax = .data$ci_high), orientation = "y",
+    color = "grey60", linewidth = 0.4) +
+  ggplot2::geom_errorbar(data = inference_plot[
+    inference_plot$inference_status == "estimable", , drop = FALSE],
+    ggplot2::aes(xmin = .data$ci_low, xmax = .data$ci_high),
+    orientation = "y", width = 0.12, color = nature_colors[["navy"]],
     linewidth = fig_inference$line_size, na.rm = TRUE) +
   ggplot2::geom_point(ggplot2::aes(shape = .data$inference_status),
     size = fig_inference$point_size, color = nature_colors[["navy"]]) +
-  ggplot2::geom_text(ggplot2::aes(x = label_x, label = .data$summary),
-    hjust = 0, size = 3, color = "grey25") +
   ggplot2::scale_shape_manual(values = c(
     "estimable" = 16, "not_estimable" = 1
   ), guide = "none") +
-  ggplot2::coord_cartesian(xlim = c(effect_limits[1L] - 0.01,
-    label_x + right_padding), clip = "off") +
+  ggplot2::scale_y_continuous(breaks = seq_along(anchor_order),
+    labels = unname(anchor_labels[rev(anchor_order)]),
+    limits = row_limits, expand = ggplot2::expansion(mult = 0)) +
+  ggplot2::scale_x_continuous(breaks = scales::breaks_pretty(n = 4),
+    labels = scales::label_number(accuracy = 0.01),
+    limits = effect_limits + c(-effect_padding, effect_padding),
+    expand = ggplot2::expansion(mult = 0)) +
   ggplot2::labs(
-    x = plot_label("Cohort-equal paired utility difference (d1 - Direct)",
-      "队列等权配对效用差（d1 − Direct）"), y = NULL,
-    caption = plot_label(
-      "Points: cohort-equal estimates; lines: 95% cohort bootstrap CI; dashed line: zero.",
-      "圆点：队列等权估计；线段：95% 队列 bootstrap 区间；虚线：零差值。")
+    x = plot_label("Paired utility difference (d1 - Direct)",
+      "配对效用差（d1 − Direct）"), y = NULL
   ) +
   theme_nature_readable(base_size = fig_inference$base_size,
-    legend_position = "none")
+    legend_position = "none") +
+  ggplot2::theme(
+    panel.border = ggplot2::element_blank(),
+    axis.line.y = ggplot2::element_blank(),
+    axis.line.x = ggplot2::element_line(color = "grey45", linewidth = 0.35),
+    axis.ticks.y = ggplot2::element_blank(),
+    axis.ticks.x = ggplot2::element_line(color = "grey45", linewidth = 0.35),
+    axis.title.x = ggplot2::element_text(size = 9, face = "plain",
+      margin = ggplot2::margin(t = 8)),
+    axis.text.y = ggplot2::element_text(margin = ggplot2::margin(r = 10)),
+    plot.margin = ggplot2::margin(6, 12, 6, 6)
+  )
+# The statistics use a separate panel, so annotation cannot stretch the effect axis.
+stat_columns <- c(effect = 0, cohorts = 2.65, queries = 3.55, p = 4.55)
+stat_headers <- data.frame(
+  x = unname(stat_columns),
+  label = c(plot_label("Difference [95% CI]", "差值 [95% CI]"),
+    plot_label("Cohorts", "队列数"), plot_label("Queries", "患者数"), "BH P")
+)
+p_statistics <- ggplot2::ggplot(inference_plot,
+  ggplot2::aes(y = .data$plot_row)) +
+  ggplot2::geom_hline(yintercept = length(anchor_order) + 0.4,
+    color = "grey80", linewidth = 0.35) +
+  ggplot2::geom_text(ggplot2::aes(x = stat_columns[["effect"]],
+    label = .data$effect_label), hjust = 0, size = 3.2, color = "grey20") +
+  ggplot2::geom_text(ggplot2::aes(x = stat_columns[["cohorts"]],
+    label = .data$cohort_count), size = 3.2, color = "grey20") +
+  ggplot2::geom_text(ggplot2::aes(x = stat_columns[["queries"]],
+    label = format(.data$query_count, big.mark = ",", trim = TRUE)),
+    size = 3.2, color = "grey20") +
+  ggplot2::geom_text(ggplot2::aes(x = stat_columns[["p"]],
+    label = .data$p_label), size = 3.2, color = "grey20") +
+  ggplot2::geom_text(data = stat_headers,
+    ggplot2::aes(x = .data$x, y = header_y, label = .data$label),
+    inherit.aes = FALSE, hjust = c(0, 0.5, 0.5, 0.5),
+    size = 3.2, fontface = "bold", color = "grey20") +
+  ggplot2::scale_y_continuous(limits = row_limits,
+    expand = ggplot2::expansion(mult = 0)) +
+  ggplot2::scale_x_continuous(limits = c(-0.05, 5.05),
+    expand = ggplot2::expansion(mult = 0)) +
+  ggplot2::theme_void(base_size = fig_inference$base_size,
+    base_family = getOption("bensz.base_family", "sans")) +
+  ggplot2::theme(plot.margin = ggplot2::margin(6, 6, 6, 0))
+p_inference <- patchwork::wrap_plots(p_effect, p_statistics,
+  nrow = 1, widths = c(1, 1.35))
 inference_jpg <- .ae_save_plot(p_inference,
   "02.02.00. anchor-paired-effect", figure_dir, preview_dir,
   fig_inference, params$plot_preview_dpi)
 knitr::include_graphics(inference_jpg)
 ```
 
-解读：圆点是同一 query 的 d1−Direct 效用差先在 cohort 内平均、再对 cohort 等权平均；横线是重抽完整 cohort 得到的 95% 区间，零线左侧表示 Direct 的邻居在该表达签名上更接近。当前 `r biology_inference_summary`。绝对差最大的预设锚点是 `r biology_top_signal$anchor`，点估计 `r fmt(biology_top_signal$estimate)`，涉及 `r biology_top_signal$cohort_count` 个 cohort，区间为 `r paste0("[", fmt(biology_top_signal$ci_low), ", ", fmt(biology_top_signal$ci_high), "]")`。这是本次**局部连续表达邻居任务**的可量化代价；它不说明 d1 在所有生物任务上都较差。P 值采用配对 sign-flip，并对可推断锚点做 BH 校正；应与效应大小、区间和基因覆盖一起读，而非只凭星号或阈值下结论。
+解读：纵轴每一行是一个预设锚点，顺序沿用配置；圆点对应公式中的队列等权 $\widehat\Delta_a$，横线是该锚点的 95% cohort bootstrap 区间，虚线为零差值。点在零线左侧表示 d1 邻居的接近度较低；整段横线在左侧，则该区间支持负向平均差。右侧独立统计列依次列出差值及区间、有效 cohort 数（Cohorts）、配对 query 人数（Queries）和 BH 校正 P 值（BH P），患者数不再缩写为易与 FDR 混淆的 `q`。未达推断门槛时仅绘空心点，区间与 P 值保留 NA。当前 `r biology_inference_summary`，`r sum(biology_inference_estimable$ci_high < 0)` 项可估计区间完全低于零，`r sum(biology_inference_estimable$p_value_adj < 0.05)` 项 BH 校正 P 值低于 0.05。
+
+绝对差最大的预设锚点是 `r biology_top_signal$anchor`，点估计 `r fmt(biology_top_signal$estimate)`，涉及 `r biology_top_signal$cohort_count` 个 cohort、`r biology_top_signal$query_count` 位 query，区间为 `r fmt_ci(biology_top_signal)`。例如增殖锚点在单臂表中的 d1−Direct 差为 `r fmt(biology_contrasts$d1_minus_direct_utility[biology_contrasts$anchor == "proliferation"])`，而此图的队列等权差为 `r fmt(biology_inference$estimate[biology_inference$anchor == "proliferation"])`；二者的差别来自患者与队列的权重，不是计算矛盾。当前图量化的是**局部连续表达邻居任务的接近度代价**；不能据此判断临床影响，也不宜因某项点更靠左就宣布对应生物过程受损最严重。
 
 ### 队列间效应分布
 
 总体平均可能掩盖方向相反的队列，因此热图保留每个 cohort 的 $\bar\Delta_c$。它像看全班平均分之后再看每个班：多数班同向比单个超大班拉动均值更有说服力；但每个格子仍是描述值，没有单独的置信区间或显著性结论。若某格特别深，应连同该队列的有效 query 数、签名基因覆盖和测量来源一起核查。
 
-```{r figure-biology-cohort-heterogeneity, echo=FALSE, interp_check=TRUE}
+```{r figure-biology-cohort-heterogeneity, echo=TRUE, interp_check=TRUE}
 fig_cohort <- list(width_in = 9.1, height_in = 11.2, base_size = 9)
 cohort_levels <- sort(unique(biology_cohort$query_cohort))
 cohort_grid <- expand.grid(
@@ -380,7 +533,7 @@ knitr::include_graphics(cohort_jpg)
 
 解读：热图每行是一个外部 query cohort，每列是一个表达锚点；格子颜色来自该 cohort 内 `r min(biology_cohort$query_count)` 至 `r max(biology_cohort$query_count)` 个两臂配对 query 的平均 d1−Direct utility 差。当前 `r fmt_pct(cohort_negative_fraction)` 的可估计格子为负值，不是单个异常队列造成的整图负向。最负向的是 `r biology_cohort$query_cohort[which.min(biology_cohort$delta_d1_minus_direct)]` 的 `r biology_cohort$anchor[which.min(biology_cohort$delta_d1_minus_direct)]`（`r fmt(min(biology_cohort$delta_d1_minus_direct))`，`r biology_cohort$query_count[which.min(biology_cohort$delta_d1_minus_direct)]` 个 query）；最正向的是 `r biology_cohort$query_cohort[which.max(biology_cohort$delta_d1_minus_direct)]` 的 `r biology_cohort$anchor[which.max(biology_cohort$delta_d1_minus_direct)]`（`r fmt(max(biology_cohort$delta_d1_minus_direct))`）。两端格子应回查签名基因覆盖和来源构成；它们是从当前热图事后选出的描述性极值，单格没有独立 P 值，颜色深浅也不能充当显著性。
 
-```{r biology-anchor-inference, echo=FALSE}
+```{r biology-anchor-inference, echo=TRUE}
 biology_inference_widget <- htmltools::tagList()
 if (identical(biology_status, "complete")) {
   biology_inference_widget <- render_dt(
@@ -396,6 +549,23 @@ biology_inference_widget
 ```
 
 解读：表中的 `estimate` 先在同一 query 上相减、再对完整 cohort 等权；`ci_low/ci_high` 来自 cohort bootstrap，`p_value_adj` 在预设的锚点族内做 BH 校正。当前 `r sum(biology_inference$estimate < 0)`／`r nrow(biology_inference)` 项点估计为负；绝对差最大的 `r biology_top_signal$anchor` 为 `r fmt(biology_top_signal$estimate)`，区间 `r paste0("[", fmt(biology_top_signal$ci_low), ", ", fmt(biology_top_signal$ci_high), "]")`，涉及 `r biology_top_signal$cohort_count` 个 cohort。这支持在当前连续表达签名的邻居任务中存在局部接近度代价，不能推广为所有生物任务的损失。若某行未达预设 cohort 门槛，区间和 P 值应保持 NA；即使调整后 P 值很小，也仍须结合差值量级、基因覆盖及共享表达来源判断。
+
+当前各可估计锚点的校正 P 值为 `r if (nrow(biology_inference_estimable)) paste(paste0(biology_inference_estimable$anchor, "：", fmt_p(biology_inference_estimable$p_value_adj)), collapse = "；") else "无可估计锚点，未报告检验"`。对采用 Monte Carlo 的行，加一校正使最小可报告原始 P 值为 $1/(B+1)$，其中 $B$ 是模拟次数；本次推断记录的重复次数为 `r paste(unique(biology_inference$n_boot), collapse = "、")`。若多行达到相同下限，只说明模拟分辨率已用尽，不能据此给几项证据强弱排序；精确枚举行则不采用这个下限。
+
+### 这项分析怎样进入论文的论证
+
+**本节为“技术标签聚集减弱”补上了一个必须检查的代价问题：原有连续表达关系保留了多少？** 技术联合评估已经说明，同技术邻居减少也可能伴随癌种组成改变，不能单独证明去噪成功。连续锚点进一步检查标签内部和跨标签的表达关系，避免把“不再按旧标签聚集”自动写成“更接近有用生物状态”。但本节同样没有固定癌种内检索，表达分数也可能携带平台痕迹，所以负差尚不能分解为纯生物信号损失或技术信号去除。
+
+当前 `r sum(biology_inference$estimate < 0)`／`r nrow(biology_inference)` 项预设锚点平均差为负，热图中 `r fmt_pct(cohort_negative_fraction)` 的可估计格子为负。这使论文能够报告一个具体、可核查的限制：**d1 在当前跨队列检索设置下，未比 Direct 更好地保留这组连续表达签名的局部接近度。** 其中区间与校正检验支持的平均负差，应与技术来源结果并列呈现，不能因其方向不利而省略，也不能把它扩大为所有生物任务或每位患者都更差。
+
+| 论文中的位置 | 本节提供的证据 | 仍需什么才能进一步判断 |
+|---|---|---|
+| 表示消融的主结果 | 同一患者、共同候选池和共同表达标尺下的 cohort 等权效应及区间 | 若主张有意义的保留或可接受损失，需事先规定效应界值；本轮未做非劣效或等价性检验 |
+| 技术来源分析的配套解释 | 技术标签关系变化之外，连续表达邻居关系也存在可量化代价 | 癌种、平台与来源分层，以及完整共同基因集下的敏感性分析 |
+| 补充材料的可复核性 | 签名定义、覆盖表、有效 query 数、逐队列差值和推断方法 | 极端格子用于提出机制问题，后续在未见队列确认 |
+| 个性化分类的效用论证 | 明确当前表示的局部表达限制及适用任务 | 用病理、蛋白或治疗结局等不同来源目标开展独立验证，不能用当前同源签名替代 |
+
+结构报告检查高低表达状态之间的较大尺度关系，与本页的患者近邻连续距离互补；粗状态结构接近不能抵消局部负差。若论文的核心用途是寻找表达状态尽量相近的患者，本页直接对应这一任务；若核心用途是跨队列分层，则应结合结构复现与独立目标评价。正文宜保留主要效应图和这一任务边界，覆盖明细与队列热图可放补充材料；两处都应交代共同表达来源和权重口径。
 
 ## 讨论与分析
 
@@ -446,6 +616,6 @@ Direct 保留用于比较的原始特征，d1 则把患者变成多个冻结模�
 
 下表对每个预设 anchor 和 query cohort 在**同一 cohort 内**重采样完整配对 query，给出 utility 差的点式 95% 区间。只有至少 20 个可用 query 的格子才估计区间；其余格子保留 NA 和原因。此区间衡量当前 cohort 内患者组成的波动，与上文跨 cohort 的主效应区间不同。热图中事后选出的极值仍只供追查，不提供单格 P 值。
 
-```{r biology-local-query-inference, echo=FALSE}
+```{r biology-local-query-inference, echo=TRUE}
 render_dt(statistical_inference$biology_local, pageLength = 20L)
 ```

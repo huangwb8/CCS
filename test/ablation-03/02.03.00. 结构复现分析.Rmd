@@ -310,7 +310,7 @@ reference 与 external bank 分别包含 `r structural_reference_modules` 和 `r
 
 正向使用 reference d1 modules 投影 external targets，反向使用 external d1 modules 投影 reference targets。这样做像用两套不同学校的阅卷经验去看另一侧的答卷，用于检查结论是否过度依赖某一套模型。**反向 Direct 仍沿用正向的冻结特征合同**，只交换尺度拟合侧；所以反向是固定 Direct 基准下的敏感性检查，不能写成两臂所有学习步骤均完全对称地重新外部化。
 
-```{r structural-directional-summary, echo=FALSE, interp_check=TRUE}
+```{r structural-directional-summary, echo=TRUE, interp_check=TRUE}
 render_dt(
   structural_directional_summary[, c(
     "direction", "bank_role", "target_role", "scope",
@@ -326,13 +326,13 @@ render_dt(
 
 解读：`bank_role` 标明冻结模块来自哪一侧，`target_role` 标明接受投影的患者来自哪一侧。正向用 `r structural_forward_all$bank_module_count` 个 reference 模块，从 `r structural_forward_all$fit_sample_count` 个拟合侧样本投影到 `r structural_forward_all$target_sample_count` 个 external target；平均 d1−Direct 结构差为 `r fmt(structural_forward_all$mean_delta, 4L)`，节点 bootstrap 区间为 `r paste0("[", fmt(structural_forward_all$mean_delta_ci_low, 4L), ", ", fmt(structural_forward_all$mean_delta_ci_high, 4L), "]")`。反向用 `r structural_reverse_all$bank_module_count` 个 external 模块，目标侧改为 `r structural_reverse_all$target_sample_count` 个 reference 样本；平均差为 `r fmt(structural_reverse_all$mean_delta, 4L)`，区间为 `r paste0("[", fmt(structural_reverse_all$mean_delta_ci_low, 4L), ", ", fmt(structural_reverse_all$mean_delta_ci_high, 4L), "]")`。两方向都只见小幅平均差，但 bank 数量、目标人群同时改变，反向还沿用正向冻结的 Direct 特征合同；它们是投影方向敏感性检查，不能当成两次完全对称、独立的人群验证。
 
-```{r structural-entity-audit, echo=FALSE, interp_check=TRUE}
+```{r structural-entity-audit, echo=TRUE, interp_check=TRUE}
 render_dt(structural_entity_audit, pageLength = 12)
 ```
 
 解读：这张审计表先说明哪些 cohort 实际形成了可比较的高低状态：候选外部队列有 `r manifest$external_candidate_cohort_count` 个，正向有效比较涉及 `r structural_all$cohort_count` 个。每行的状态样本数应达到 `r structural_result$method$min_entity_n`；未达到、签名基因不足或分位边界并列的状态，不会被强行填补。因而后续结构相似度只适用于**两队列共同具备的状态**，不能自动推广到所有候选 cohort 或把 cohort 内的“高”当作跨平台统一的绝对阈值。
 
-```{r structural-pair-table, echo=FALSE, interp_check=TRUE}
+```{r structural-pair-table, echo=TRUE, interp_check=TRUE}
 render_dt(
   structural_pairs[, c(
     "cohort_a", "cohort_b", "cancer_type_a", "cancer_type_b",
@@ -538,7 +538,7 @@ knitr::include_graphics(fig13_jpg)
 
 解读：此图沿用 Direct 热图的格子位置和 −1 至 1 色阶，所以同一个格子的颜色差才对应同一对 cohort 的结构变化。d1 的平均相似度为 `r fmt(structural_all$mean_d1_similarity)`，相对 Direct 的平均差为 `r fmt(structural_all$mean_delta, 4L)`；变化最正向的队列对是 `r structural_best$cohort_a` 与 `r structural_best$cohort_b`（差 `r fmt(structural_best$delta_d1_minus_direct)`），最负向的是 `r structural_worst$cohort_a` 与 `r structural_worst$cohort_b`（差 `r fmt(structural_worst$delta_d1_minus_direct)`）。这些具体格子说明平均值可能遮住方向不同的队列对；挑选极端格子只用于追查共享状态数和来源构成，不可事后当作新发现。这里仅比较四个锚点构成的八种相对状态，总体不确定性仍以共享 cohort 节点的重采样区间判断。
 
-```{r structural-summary-table, echo=FALSE, interp_check=TRUE}
+```{r structural-summary-table, echo=TRUE, interp_check=TRUE}
 render_dt(
   structural_summary[, c(
     "scope", "cohort_count", "cohort_pair_count",
@@ -661,7 +661,7 @@ knitr::include_graphics(fig14_jpg)
 
 解读：完整正向 bank 有 `r structural_forward_all$bank_module_count` 个模块，反向有 `r structural_reverse_all$bank_module_count` 个，直接比较会把模块预算与来源混在一起。此图固定 tissue 组成，每侧抽取 `r structural_matched_modules` 个模块，重复 `r unique(structural_matched_forward_all$repeat_count)` 次；散点是每次设计的 d1−Direct 平均结构差，空心菱形是对应完整 bank 的差。正向设计范围为 `r fmt(structural_matched_forward_all$mean_delta_min, 4L)` 至 `r fmt(structural_matched_forward_all$mean_delta_max, 4L)`，反向为 `r fmt(structural_matched_reverse_all$mean_delta_min, 4L)` 至 `r fmt(structural_matched_reverse_all$mean_delta_max, 4L)`。范围越宽，结论越依赖具体选了哪些模块；它固定了目标患者，不能解释成新患者或新队列的置信区间。
 
-```{r structural-matched-summary-table, echo=FALSE, interp_check=TRUE}
+```{r structural-matched-summary-table, echo=TRUE, interp_check=TRUE}
 render_dt(
   structural_matched_summary[, c(
     "direction", "scope", "repeat_count", "bank_module_count",
@@ -729,12 +729,12 @@ Matched-bank 再把每侧模块预算固定为 `r structural_matched_modules` �
 
 以下四行分别对应正反方向和全部／同癌种队列对。均值、辅助中位数及 d1 不低于 Direct 的比例都按**共享 cohort 节点**重采样。均值的零假设检验使用删一节点 jackknife 标准误，并先在当前网络上用节点效应及边噪声模拟检查 95% 覆盖；节点稀疏或覆盖未通过的格子保留 NA。有效 P 值在预设四行比较族内采用 Holm 校正。队列对数只是网络边数，不是独立样本数。
 
-```{r structural-node-inference, echo=FALSE}
+```{r structural-node-inference, echo=TRUE}
 render_dt(statistical_inference$structural, pageLength = 4L)
 ```
 
 Matched-bank 的 2.5%—97.5% 分位范围只描述当前患者及冻结模块池下，20 次组成设计的分布中心。重复设计共享模块，故此处不报告人口层 P 值，也不把分位范围写成新 cohort 的 95% 置信区间。
 
-```{r matched-bank-distribution, echo=FALSE}
+```{r matched-bank-distribution, echo=TRUE}
 render_dt(statistical_inference$matched_bank, pageLength = 4L)
 ```

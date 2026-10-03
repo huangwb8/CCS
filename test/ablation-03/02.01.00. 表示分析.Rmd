@@ -1359,7 +1359,7 @@ knitr::include_graphics(fig3_jpg)
 
 纵轴的 balanced accuracy（BA）是先算每个癌种在固定外部 query 中被认对的比例，再对癌种等权平均；越高表示旧标签越容易从该臂读出。每个比例先对同一训练 cohort 组合计算 $\Delta_f=\mathrm{BA}_{d1,f}-\mathrm{BA}_{Direct,f}$：负值表示在**该训练资源水平**下 Direct 较高。它与上一节按外部 cohort 等权的 accuracy 主结果不同，不能把两个差值或各自的区间混为一谈。
 
-```{r learning-resource-summary, echo=FALSE}
+```{r learning-resource-summary, echo=TRUE}
 learning_resource <- learning_curve$paired[
   !duplicated(learning_curve$paired$requested_fraction),
   c("requested_fraction", "train_cohort_count_direct",
@@ -2180,7 +2180,7 @@ knitr::include_graphics(fig5_jpg)
 
 本次三个字段的数值为 `r technical_inference_summary`。比例差乘以 100 就是百分点，例如 $-0.05$ 是同技术邻居比例低 5 个百分点，不能解释为平台误差或批次效应减少 5%。图测的是邻居名单的标签组成，不直接测量测序误差。
 
-```{r technical-inference-table, echo=FALSE}
+```{r technical-inference-table, echo=TRUE}
 technical_inference_table <- technical_inference[, c(
   "technical_factor", "estimate", "ci_low", "ci_high", "p_value",
   "p_value_adj", "n_cohort", "n_sample", "resamples", "p_resamples",
@@ -2484,6 +2484,10 @@ $$
 
 ## 输入信息压缩与可恢复性
 
+**本次结论是：d1 中仍然保留着一部分原始输入线索，在未参与 decoder 训练的外部样本上也能读回来；但当前结果既不能证明无损压缩，也不能断言读不回来的信息已永久丢失。** 基因对关系的队列等权平衡准确率为 `r fmt(decoder_gp_cohort$cohort_equal_estimate)`（95% CI `r fmt_ci(decoder_gp_cohort)`），三类特征的预设重建误差均低于“对所有人只报训练 reference 均值”的基准，说明 d1 中确实存在可利用的输入线索。
+
+恢复不完整的原因尚未分清：可能来自模型重编码，也可能来自只保留 `r decoder_fit$rank` 个 PCA 坐标、线性读取器能力有限或训练与外部样本的分布差异。因此，本节支持“部分输入信息仍可恢复”；这些信息是否足够支持更好的生物学发现或临床预测，还需由独立任务实验回答。
+
 ### 为什么要从 d1 反过来重建输入
 
 **前面的检索和 readout 问“d1 能完成什么任务”，本节反过来问“d1 还能读回多少原来的输入线索”。** 冻结的 cohort 模型把 Direct 特征变成概率输出，再拼成 d1。即使癌种标签较难读出，也不能直接判定原始特征都已消失；反过来，即使某些输入能重建，也不能保证新的邻居关系或下游任务更好。Decoder 是一个尝试逆向读取的模型，用来把这两件事分开检查。
@@ -2692,7 +2696,7 @@ $$
 
 下表 `pooled_query_estimate` 对应 Figure 7 的原尺度指标，`cohort_equal_estimate` 是上式。95% 区间按外部 query cohort 整体重采样，使用 `r decoder_gp_cohort$resamples` 次重复，取可用结果的 2.5% 和 97.5% 分位数；BA 缺类、相关无变异时不以零替代，`n_cohort` 与 `valid_resamples` 分别报告可用队列与重复数。区间只围绕队列等权估计，条件是当前 decoder、bank 与 query atlas 冻结；没有重拟合 decoder，因而不包括训练样本、rank、正则化或 bank 变化的不确定性。
 
-```{r decoder-cohort-inference, echo=FALSE}
+```{r decoder-cohort-inference, echo=TRUE}
 render_dt(statistical_inference$decoder$summary, pageLength = 6L)
 ```
 
@@ -2795,7 +2799,7 @@ knitr::include_graphics(fig7_baseline_jpg)
 
 下表的 95% 区间重采样 cohort 的配对损失差；双侧符号翻转检验检查平均改善相对于零的证据，依赖 cohort 层差值在零假设下可作符号翻转的假定，并非患者级随机对照。当前使用 Monte Carlo 翻转，三项预设损失比较一起做 Holm 校正；BA、Spearman 与图中变换分数不另作事后零值检验。
 
-```{r decoder-baseline-comparisons, echo=FALSE}
+```{r decoder-baseline-comparisons, echo=TRUE}
 render_dt(statistical_inference$decoder$baseline_comparisons, pageLength = 3L)
 ```
 
@@ -2881,7 +2885,7 @@ Breadth 增加组织背景，depth 在固定的 `r length(depth_tissues)` 种组
 
 作为区间的辅助诊断，这里逐个删除一个 reference cohort，重新计算原标准化尺度上的 CKA、距离 Spearman 与 kNN Jaccard；距离排序使用同一批预先抽取的样本对，删队列时只排除涉及该队列的样本对，以免每行因重新抽样而额外波动。这是**冻结模型和现有 atlas 条件下的留一队列敏感性**。下表每行是一个被删除的 cohort；留一范围本身不是 95% CI。三项指标的 cohort bootstrap 区间见前面的几何推断表，P 值因没有预设零假设仍为 NA。
 
-```{r geometry-leave-one-sensitivity, echo=FALSE}
+```{r geometry-leave-one-sensitivity, echo=TRUE}
 render_dt(geometry_sensitivity$values, pageLength = 15L)
 ```
 
@@ -2889,13 +2893,13 @@ render_dt(geometry_sensitivity$values, pageLength = 15L)
 
 下面的区间只描述**同一外部 cohort 内的 query 波动**。检索使用配对 Top-30 同癌种邻居比例差，readout 使用同一 query 的配对 accuracy 差；均在 cohort 内重采样 query，且至少需要 20 个可用 query。它们不估计更换 cohort 时的稳定性，也不对事后挑出的最大或最小格子给 P 值。
 
-```{r local-query-inference, echo=FALSE}
+```{r local-query-inference, echo=TRUE}
 render_dt(rbind(statistical_inference$retrieval_local,
   statistical_inference$readout_local), pageLength = 20L)
 ```
 
 100% 学习曲线只固定一个独立训练 cohort 组合。下表选用原合同的第 1 次拟合种子，先对照重算两臂的调参选择、accuracy、balanced accuracy 与 macro AUROC，全部一致后才对相同 query 的 accuracy 差按外部 cohort 重采样。新增区间只回答**固定训练设计和拟合种子，变化外部 query cohort**时的条件敏感性；原设计层 CI 与 P 值继续为 NA。其余重复种子不是新的训练 cohort 设计。
 
-```{r learning-query-conditional-inference, echo=FALSE}
+```{r learning-query-conditional-inference, echo=TRUE}
 render_dt(learning_query_inference$summary, pageLength = 1L)
 ```
