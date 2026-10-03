@@ -27,6 +27,8 @@ targets 文件依赖。图表代码输出到 HTML 并默认折叠，可点击各
 `reports/tables/` 导出队列级配对差值，供核对图中每个格子的样本数与方向。
 配对效应图采用紧凑森林图与独立统计列，逐行显示差值及 95% CI、有效 cohort 数、
 配对 query 人数和 BH 校正 P 值；统计列不参与效应横轴缩放，锚点顺序沿用冻结配置。
+数据概览与生物锚点报告的四张正式锚点图共用 `scripts/helpers/anchor_plot_labels.R`，
+英文图统一显示 Proliferation、Immune TME、Stromal TME、IFN / IL6；内部数据键保持原有命名。
 补充推断由 `statistical_inference`、`learning_query_inference` 和
 `geometry_sensitivity` 三个 target 生成；报告分别依赖这些 target。
 decoder 的 cohort 等权区间与原合并 query 逐特征分数分列；结构均值检验先检查共享节点

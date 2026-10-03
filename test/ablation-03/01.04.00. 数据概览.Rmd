@@ -42,8 +42,10 @@ source(.ablation03_path("01.01.00. 数据准备_functions.R"))
 source(.ablation03_path("02.01.00. 表示分析_functions.R"))
 source(.ablation03_path("scripts", "helpers", "nature_colors.R"))
 source(.ablation03_path("scripts", "helpers", "nature_theme.R"))
+source(.ablation03_path("scripts", "helpers", "anchor_plot_labels.R"))
 source(.ablation03_path("scripts", "helpers", "plot_delivery_helpers.R"))
 source(.ablation03_path("scripts", "helpers", "datatables_helper.R"))
+anchor_labels <- .ablation03_anchor_labels(params$plot_language)
 
 result_dir <- .wf_output("01-data")
 .wf_validate(result_dir)
@@ -435,7 +437,7 @@ biology_coverage_plot$anchor <- factor(
 )
 anchor_axis_labels <- with(
   biology_profile$anchor_summary,
-  paste0(anchor, "\n", genes_required, " genes\n",
+  paste0(unname(anchor_labels[anchor]), "\n", genes_required, " genes\n",
          estimable_cohort_count, "/", cohort_count, " estimable")
 )
 stopifnot(

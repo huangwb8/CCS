@@ -46,6 +46,7 @@ source(bootstrap, local = TRUE)
 source(.ablation03_path("02.01.00. 表示分析_functions.R"), local = TRUE)
 source(.ablation03_path("scripts", "helpers", "nature_colors.R"))
 source(.ablation03_path("scripts", "helpers", "nature_theme.R"))
+source(.ablation03_path("scripts", "helpers", "anchor_plot_labels.R"))
 source(.ablation03_path("scripts", "helpers", "plot_delivery_helpers.R"))
 source(.ablation03_path("scripts", "helpers", "datatables_helper.R"))
 
@@ -165,6 +166,7 @@ missing_pair_count <- sum(biology_missing$missing_score_pairs)
 cohort_negative_fraction <- mean(biology_cohort$delta_d1_minus_direct < 0)
 plot_zh <- identical(params$plot_language, "zh")
 plot_label <- function(en, zh) if (plot_zh) zh else en
+anchor_labels <- .ablation03_anchor_labels(params$plot_language)
 ```
 
 本报告是 `r analysis_name` 实验的生物学分析模块，只读取已经完成的邻居检索与 anchor 评估结果。前一份表示报告问“邻居的癌种或技术标签是否相同”；这里换一把尺子，问**邻居的连续表达状态是否接近**。例如，两位患者即使同属一个癌种，免疫活性也可能相差很远；仅凭癌种标签无法发现这类局部差异。
@@ -311,7 +313,8 @@ p_coverage <- ggplot2::ggplot(coverage_plot,
   ) +
   ggplot2::geom_point(data = coverage_median,
     shape = 18, size = fig_coverage$median_size, color = "black") +
-  ggplot2::facet_wrap(~anchor, ncol = 2) +
+  ggplot2::facet_wrap(~anchor, ncol = 2,
+    labeller = ggplot2::labeller(anchor = ggplot2::as_labeller(anchor_labels))) +
   ggplot2::scale_x_continuous(limits = c(0, 1.02),
     breaks = c(0, 0.25, 0.5, 0.75, 1),
     labels = scales::label_percent(accuracy = 1)) +
@@ -387,13 +390,6 @@ fig_inference <- list(width_in = 8.6, height_in = 3.0, base_size = 10,
   point_size = 2.6, line_size = 0.55)
 inference_plot <- biology_inference
 inference_plot$plot_row <- match(inference_plot$anchor, rev(anchor_order))
-anchor_labels <- if (plot_zh) {
-  c(proliferation = "增殖", immune_tme = "免疫微环境",
-    stromal_tme = "基质微环境", ifn_il6 = "IFN / IL6")
-} else {
-  c(proliferation = "Proliferation", immune_tme = "Immune TME",
-    stromal_tme = "Stromal TME", ifn_il6 = "IFN / IL6")
-}
 inference_plot$effect_label <- paste0(
   fmt(inference_plot$estimate), " [", fmt(inference_plot$ci_low),
   ", ", fmt(inference_plot$ci_high), "]"
@@ -509,6 +505,7 @@ p_cohort <- ggplot2::ggplot(cohort_plot,
   ggplot2::aes(x = .data$anchor, y = .data$query_cohort,
     fill = .data$delta_d1_minus_direct)) +
   ggplot2::geom_tile(color = "white", linewidth = 0.25) +
+  ggplot2::scale_x_discrete(labels = anchor_labels) +
   ggplot2::scale_fill_gradient2(
     low = nature_colors[["navy"]], mid = "white",
     high = nature_colors[["orange"]], midpoint = 0,
