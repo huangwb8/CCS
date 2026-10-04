@@ -105,6 +105,8 @@ units:
       - "reports/figures/02.02.00. anchor-gene-coverage.pdf"
       - "reports/figures/02.02.00. anchor-paired-effect.pdf"
       - "reports/figures/02.02.00. anchor-cohort-heterogeneity.pdf"
+      - "reports/figures/02.02.00. anchor-within-cohort-inference.pdf"
+      - "reports/tables/02.02.00. anchor-within-cohort-inference.csv"
     completion: "生物锚点结果、队列级配对差、推断、来源凭据、三张 PDF 与 HTML 均有效"
   - id: "02.03.00"
     name: "结构复现分析"

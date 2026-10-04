@@ -32,6 +32,10 @@ ablation-03里{chapter}的写作太过粗糙。 你学一下ablation-03里`输�
 
 ---
 
+基于 docs\plans\2026-10-04-ablation03-连续生物锚点根因辨别与优化计划.md 优化 albation-03 里“生物锚点”的相关分析。
+
+---
+
 "E:\iProjects\Manuscripts\CCS\Figures.pptx" 里的Figure S3你看一下。 之前，我用 ccs 里的 importance 函数计算出来，似乎有一些cohort的比重可以高达0.1-0.3。如何理解与本次分析里的 module贡献的集中程度的分析 ？ 
 
 ---

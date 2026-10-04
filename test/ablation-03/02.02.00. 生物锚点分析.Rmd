@@ -483,9 +483,32 @@ knitr::include_graphics(inference_jpg)
 
 绝对差最大的预设锚点是 `r biology_top_signal$anchor`，点估计 `r fmt(biology_top_signal$estimate)`，涉及 `r biology_top_signal$cohort_count` 个 cohort、`r biology_top_signal$query_count` 位 query，区间为 `r fmt_ci(biology_top_signal)`。例如增殖锚点在单臂表中的 d1−Direct 差为 `r fmt(biology_contrasts$d1_minus_direct_utility[biology_contrasts$anchor == "proliferation"])`，而此图的队列等权差为 `r fmt(biology_inference$estimate[biology_inference$anchor == "proliferation"])`；二者的差别来自患者与队列的权重，不是计算矛盾。当前图量化的是**局部连续表达邻居任务的接近度代价**；不能据此判断临床影响，也不宜因某项点更靠左就宣布对应生物过程受损最严重。
 
+```{r biology-anchor-inference, echo=TRUE}
+biology_inference_widget <- htmltools::tagList()
+if (identical(biology_status, "complete")) {
+  biology_inference_widget <- render_dt(
+    biology_inference[, c(
+      "anchor", "estimate", "ci_low", "ci_high", "p_value",
+      "p_value_adj", "p_method", "cohort_count", "query_count",
+      "min_cohorts", "inference_status"
+    )],
+    pageLength = 10
+  )
+}
+biology_inference_widget
+```
+
+解读：表中的 `estimate` 先在同一 query 上相减、再对完整 cohort 等权；`ci_low/ci_high` 来自 cohort bootstrap，`p_value_adj` 在预设的锚点族内做 BH 校正。当前 `r sum(biology_inference$estimate < 0)`／`r nrow(biology_inference)` 项点估计为负；绝对差最大的 `r biology_top_signal$anchor` 为 `r fmt(biology_top_signal$estimate)`，区间 `r paste0("[", fmt(biology_top_signal$ci_low), ", ", fmt(biology_top_signal$ci_high), "]")`，涉及 `r biology_top_signal$cohort_count` 个 cohort。这支持在当前连续表达签名的邻居任务中存在局部接近度代价，不能推广为所有生物任务的损失。若某行未达预设 cohort 门槛，区间和 P 值应保持 NA；即使调整后 P 值很小，也仍须结合差值量级、基因覆盖及共享表达来源判断。
+
+当前各可估计锚点的校正 P 值为 `r if (nrow(biology_inference_estimable)) paste(paste0(biology_inference_estimable$anchor, "：", fmt_p(biology_inference_estimable$p_value_adj)), collapse = "；") else "无可估计锚点，未报告检验"`。对采用 Monte Carlo 的行，加一校正使最小可报告原始 P 值为 $1/(B+1)$，其中 $B$ 是模拟次数；本次推断记录的重复次数为 `r paste(unique(biology_inference$n_boot), collapse = "、")`。若多行达到相同下限，只说明模拟分辨率已用尽，不能据此给几项证据强弱排序；精确枚举行则不采用这个下限。
+
 ### 队列间效应分布
 
-总体平均可能掩盖方向相反的队列，因此热图保留每个 cohort 的 $\bar\Delta_c$。它像看全班平均分之后再看每个班：多数班同向比单个超大班拉动均值更有说服力；但每个格子仍是描述值，没有单独的置信区间或显著性结论。若某格特别深，应连同该队列的有效 query 数、签名基因覆盖和测量来源一起核查。
+先看各队列的平均配对差如何分布，再看同一格子的均值对队列内患者组成有多敏感。热图与区间图使用同一组 cohort–anchor 格子，分别呈现效应分布和各均值的不确定性。
+
+#### 队列配对均值
+
+总体平均可能掩盖方向相反的队列，因此热图保留每个 cohort 的 $\bar\Delta_c$。它像看全班平均分之后再看每个班：多数班同向比单个超大班拉动均值更有说服力；热图只编码各格子的描述性均值，对应的队列内 query 区间见下一小节；颜色深浅不代表显著性。若某格特别深，应连同该队列的有效 query 数、签名基因覆盖和测量来源一起核查。
 
 ```{r figure-biology-cohort-heterogeneity, echo=TRUE, interp_check=TRUE}
 fig_cohort <- list(width_in = 9.1, height_in = 11.2, base_size = 9)
@@ -530,24 +553,110 @@ knitr::include_graphics(cohort_jpg)
 
 解读：热图每行是一个外部 query cohort，每列是一个表达锚点；格子颜色来自该 cohort 内 `r min(biology_cohort$query_count)` 至 `r max(biology_cohort$query_count)` 个两臂配对 query 的平均 d1−Direct utility 差。当前 `r fmt_pct(cohort_negative_fraction)` 的可估计格子为负值，不是单个异常队列造成的整图负向。最负向的是 `r biology_cohort$query_cohort[which.min(biology_cohort$delta_d1_minus_direct)]` 的 `r biology_cohort$anchor[which.min(biology_cohort$delta_d1_minus_direct)]`（`r fmt(min(biology_cohort$delta_d1_minus_direct))`，`r biology_cohort$query_count[which.min(biology_cohort$delta_d1_minus_direct)]` 个 query）；最正向的是 `r biology_cohort$query_cohort[which.max(biology_cohort$delta_d1_minus_direct)]` 的 `r biology_cohort$anchor[which.max(biology_cohort$delta_d1_minus_direct)]`（`r fmt(max(biology_cohort$delta_d1_minus_direct))`）。两端格子应回查签名基因覆盖和来源构成；它们是从当前热图事后选出的描述性极值，单格没有独立 P 值，颜色深浅也不能充当显著性。
 
-```{r biology-anchor-inference, echo=TRUE}
-biology_inference_widget <- htmltools::tagList()
-if (identical(biology_status, "complete")) {
-  biology_inference_widget <- render_dt(
-    biology_inference[, c(
-      "anchor", "estimate", "ci_low", "ci_high", "p_value",
-      "p_value_adj", "p_method", "cohort_count", "query_count",
-      "min_cohorts", "inference_status"
-    )],
-    pageLength = 10
+#### 锚点格子的队列内波动
+
+下图和明细表对每个预设 anchor 和 query cohort 在**同一 cohort 内**重采样完整配对 query，给出 utility 差的点式 95% 区间。只有至少 20 个可用 query 的格子才估计区间；其余格子保留描述性点估计、NA 区间和原因。此区间衡量当前 cohort 内患者组成的波动，与上文跨 cohort 的主效应区间不同。
+
+```{r figure-biology-local-query-inference, echo=TRUE, interp_check=TRUE}
+local_biology <- statistical_inference$biology_local
+stopifnot(
+  nrow(local_biology) > 0L,
+  !anyDuplicated(local_biology[c("anchor", "cohort")]),
+  setequal(local_biology$anchor, anchor_order),
+  all(local_biology$unit == "query_within_cohort"),
+  all(local_biology$method == "within_cohort_query_percentile_bootstrap")
+)
+# The interval plot must reproduce the same cells as the descriptive heatmap.
+local_contract <- merge(local_biology, biology_cohort,
+  by.x = c("anchor", "cohort"), by.y = c("anchor", "query_cohort"))
+stopifnot(
+  nrow(local_contract) == nrow(local_biology),
+  nrow(local_contract) == nrow(biology_cohort),
+  isTRUE(all.equal(local_contract$estimate,
+    local_contract$delta_d1_minus_direct, tolerance = 1e-10)),
+  all(local_contract$n_query == local_contract$query_count)
+)
+utils::write.csv(local_biology,
+  file.path(table_dir, "02.02.00. anchor-within-cohort-inference.csv"),
+  row.names = FALSE)
+local_estimable <- local_biology[local_biology$status == "estimable", , drop = FALSE]
+local_not_estimable_count <- sum(local_biology$status != "estimable")
+local_cross_zero_count <- sum(local_estimable$ci_low <= 0 &
+  local_estimable$ci_high >= 0)
+local_plot <- local_biology
+local_cohort_order <- sort(unique(local_plot$cohort))
+local_plot$cohort <- factor(local_plot$cohort, levels = rev(local_cohort_order))
+local_plot$anchor <- factor(local_plot$anchor, levels = anchor_order)
+local_limits <- range(c(0, local_plot$estimate,
+  local_plot$ci_low, local_plot$ci_high), na.rm = TRUE)
+local_padding <- max(0.01, diff(local_limits) * 0.06)
+fig_local <- list(width_in = 10.2,
+  height_in = max(6, length(local_cohort_order) * 0.22 + 1.1),
+  base_size = 9, point_size = 1.6, line_size = 0.4)
+p_local <- ggplot2::ggplot(local_plot,
+  ggplot2::aes(x = .data$estimate, y = .data$cohort)) +
+  ggplot2::geom_vline(xintercept = 0, color = "grey55",
+    linetype = "dashed", linewidth = 0.35) +
+  ggplot2::geom_errorbar(data = local_plot[
+    local_plot$status == "estimable", , drop = FALSE],
+    ggplot2::aes(xmin = .data$ci_low, xmax = .data$ci_high),
+    orientation = "y", width = 0.14, linewidth = fig_local$line_size,
+    color = nature_colors[["navy"]]) +
+  ggplot2::geom_point(ggplot2::aes(shape = .data$status),
+    size = fig_local$point_size, color = nature_colors[["navy"]], na.rm = TRUE) +
+  ggplot2::facet_wrap(~anchor, nrow = 1,
+    labeller = ggplot2::labeller(anchor = ggplot2::as_labeller(anchor_labels))) +
+  ggplot2::scale_shape_manual(
+    values = c(estimable = 16, not_estimable = 1),
+    breaks = c("estimable", "not_estimable"),
+    labels = c(plot_label("95% CI available", "可估计 95% CI"),
+      plot_label("Descriptive only", "仅描述性估计")),
+    guide = if (local_not_estimable_count > 0L) "legend" else "none"
+  ) +
+  ggplot2::scale_x_continuous(
+    limits = local_limits + c(-local_padding, local_padding),
+    breaks = scales::breaks_pretty(n = 3),
+    labels = scales::label_number(accuracy = 0.1),
+    expand = ggplot2::expansion(mult = 0)
+  ) +
+  ggplot2::scale_y_discrete(drop = FALSE,
+    expand = ggplot2::expansion(add = 0.7)) +
+  ggplot2::labs(
+    x = plot_label("Paired utility difference (d1 - Direct)",
+      "配对效用差（d1 − Direct）"),
+    y = plot_label("External query cohort", "外部 query 队列"),
+    shape = NULL
+  ) +
+  theme_nature_readable(base_size = fig_local$base_size,
+    legend_position = "bottom") +
+  ggplot2::theme(
+    panel.border = ggplot2::element_blank(),
+    axis.line.y = ggplot2::element_blank(),
+    axis.line.x = ggplot2::element_line(color = "grey50", linewidth = 0.3),
+    axis.ticks.y = ggplot2::element_blank(),
+    axis.ticks.x = ggplot2::element_line(color = "grey50", linewidth = 0.3),
+    axis.text.y = ggplot2::element_text(size = 8,
+      margin = ggplot2::margin(r = 5)),
+    axis.title = ggplot2::element_text(size = 9, face = "plain"),
+    panel.grid.major.y = ggplot2::element_line(color = "grey94", linewidth = 0.25),
+    panel.spacing.x = grid::unit(0.7, "lines"),
+    strip.background = ggplot2::element_blank(),
+    strip.text = ggplot2::element_text(size = 10, face = "bold"),
+    plot.margin = ggplot2::margin(8, 8, 8, 8)
   )
-}
-biology_inference_widget
+local_jpg <- .ae_save_plot(p_local,
+  "02.02.00. anchor-within-cohort-inference", figure_dir, preview_dir,
+  fig_local, params$plot_preview_dpi)
+knitr::include_graphics(local_jpg)
 ```
 
-解读：表中的 `estimate` 先在同一 query 上相减、再对完整 cohort 等权；`ci_low/ci_high` 来自 cohort bootstrap，`p_value_adj` 在预设的锚点族内做 BH 校正。当前 `r sum(biology_inference$estimate < 0)`／`r nrow(biology_inference)` 项点估计为负；绝对差最大的 `r biology_top_signal$anchor` 为 `r fmt(biology_top_signal$estimate)`，区间 `r paste0("[", fmt(biology_top_signal$ci_low), ", ", fmt(biology_top_signal$ci_high), "]")`，涉及 `r biology_top_signal$cohort_count` 个 cohort。这支持在当前连续表达签名的邻居任务中存在局部接近度代价，不能推广为所有生物任务的损失。若某行未达预设 cohort 门槛，区间和 P 值应保持 NA；即使调整后 P 值很小，也仍须结合差值量级、基因覆盖及共享表达来源判断。
+解读：四列锚点沿用预设顺序，队列与前面的异质性热图一样按字典序排列；每个圆点复现热图同一格子的配对均值，横线给出该格子的队列内 95% query bootstrap 区间，虚线为零差值。每格基于 `r min(local_biology$n_query)` 至 `r max(local_biology$n_query)` 个有效配对 query；当前 `r nrow(local_estimable)`／`r nrow(local_biology)` 个格子可估计区间，`r local_cross_zero_count` 个区间包含零。横线更长表示在当前冻结条件下均值对患者组成更敏感，并不直接等同于患者个体差异更大；区间同时受样本量与差值分布影响。空心点只表示描述性估计，缺失区间不画成零宽区间，原因保留在表中。
 
-当前各可估计锚点的校正 P 值为 `r if (nrow(biology_inference_estimable)) paste(paste0(biology_inference_estimable$anchor, "：", fmt_p(biology_inference_estimable$p_value_adj)), collapse = "；") else "无可估计锚点，未报告检验"`。对采用 Monte Carlo 的行，加一校正使最小可报告原始 P 值为 $1/(B+1)$，其中 $B$ 是模拟次数；本次推断记录的重复次数为 `r paste(unique(biology_inference$n_boot), collapse = "、")`。若多行达到相同下限，只说明模拟分辨率已用尽，不能据此给几项证据强弱排序；精确枚举行则不采用这个下限。
+这些是**逐格的点式区间，未对全部格子作同时覆盖校正**。区间完全位于零的一侧可描述该格子的方向与不确定性，不能当作经多重检验确认的亚组发现；跨零也不能证明等价。它们条件于当前 cohort、冻结模型、reference 尺子和近邻名单，不包含 bank 重训、reference 更换或未来 cohort 的波动，不能替代上文的 cohort 等权主区间。热图中事后选出的极值仍只供追查，不提供单格 P 值。
+
+```{r biology-local-query-inference, echo=TRUE}
+render_dt(local_biology, pageLength = 20L)
+```
 
 ### 这项分析怎样进入论文的论证
 
@@ -586,7 +695,7 @@ Direct 保留用于比较的原始特征，d1 则把患者变成多个冻结模�
 
 当前 cohort–anchor 格子中，负差比例为 `r fmt_pct(cohort_negative_fraction)`。总体均值与每个格子的方向因此应分开阅读：平均下降不要求所有队列下降，也不能说明每名患者都会受影响。热图用于定位负差集中在哪些队列与锚点；事后挑出的最红或最蓝格子只是追查线索，不能直接作为确认性亚组发现。
 
-主效应先计算同一 query 的配对差，再对 cohort 等权，区间按完整 cohort 重采样。它防止大队列仅凭人数主导平均值，但多个 cohort 仍可能共享技术来源。报告末尾的队列内 query 区间回答“这个已固定队列中，换一批患者会怎样”，主区间回答“当前队列组合发生变化时，平均差怎样波动”；两者都条件于冻结模型和当前 reference 候选池，不包含整个 bank 重训后的不确定性。用单格很窄的 query 区间替代跨 cohort 区间，会夸大向新队列推广的精度。
+主效应先计算同一 query 的配对差，再对 cohort 等权，区间按完整 cohort 重采样。它防止大队列仅凭人数主导平均值，但多个 cohort 仍可能共享技术来源。“队列间效应分布”中的队列内 query 区间回答“这个已固定队列中，换一批患者会怎样”，主区间回答“当前队列组合发生变化时，平均差怎样波动”；两者都条件于冻结模型和当前 reference 候选池，不包含整个 bank 重训后的不确定性。用单格很窄的 query 区间替代跨 cohort 区间，会夸大向新队列推广的精度。
 
 ### 覆盖审计排除了什么，又留下什么
 
@@ -608,11 +717,3 @@ Direct 保留用于比较的原始特征，d1 则把患者变成多个冻结模�
 | 配对 | 两臂各有完整 top-`r 15L` 后按同一 query 配对 |
 | 独立单位 | cohort 等权效应与 cohort bootstrap；BH 校正 |
 | 数字 | 正文动态读取当前 `biology_inference`，未复制历史结果 |
-
-## 锚点格子的队列内波动
-
-下表对每个预设 anchor 和 query cohort 在**同一 cohort 内**重采样完整配对 query，给出 utility 差的点式 95% 区间。只有至少 20 个可用 query 的格子才估计区间；其余格子保留 NA 和原因。此区间衡量当前 cohort 内患者组成的波动，与上文跨 cohort 的主效应区间不同。热图中事后选出的极值仍只供追查，不提供单格 P 值。
-
-```{r biology-local-query-inference, echo=TRUE}
-render_dt(statistical_inference$biology_local, pageLength = 20L)
-```

@@ -23,12 +23,16 @@ runner 生成正式报告。
 报告共用 `templates/` 下的 Liquid Glass 样式与交互模板；模板文件纳入四个报告的
 targets 文件依赖。图表代码输出到 HTML 并默认折叠，可点击各代码块的 Code 按钮展开，
 或用报告顶部的 Code → Show All Code 一次展开全部代码；setup 初始化代码不输出。
-生物锚点报告附带配对效应、cohort 异质性和基因覆盖三张 PDF，并在
+生物锚点报告附带配对效应、cohort 异质性、基因覆盖与队列内区间四张 PDF，并在
 `reports/tables/` 导出队列级配对差值，供核对图中每个格子的样本数与方向。
 配对效应图采用紧凑森林图与独立统计列，逐行显示差值及 95% CI、有效 cohort 数、
 配对 query 人数和 BH 校正 P 值；统计列不参与效应横轴缩放，锚点顺序沿用冻结配置。
-数据概览与生物锚点报告的四张正式锚点图共用 `scripts/helpers/anchor_plot_labels.R`，
+数据概览与生物锚点报告的五张正式锚点图共用 `scripts/helpers/anchor_plot_labels.R`，
 英文图统一显示 Proliferation、Immune TME、Stromal TME、IFN / IL6；内部数据键保持原有命名。
+队列内区间图直接消费 `statistical_inference$biology_local`，按锚点分为四列，展示各
+cohort 配对均值与点式 95% query bootstrap 区间，并导出同源 CSV；区间图与明细表
+位于“队列间效应分布”的热图之后，连续核对同一格子的均值与不确定性。该区间未作同时
+覆盖校正，不替代 cohort 间主效应区间，也不提供单格显著性结论。
 补充推断由 `statistical_inference`、`learning_query_inference` 和
 `geometry_sensitivity` 三个 target 生成；报告分别依赖这些 target。
 decoder 的 cohort 等权区间与原合并 query 逐特征分数分列；结构均值检验先检查共享节点
