@@ -75,7 +75,14 @@ d1−Direct，正值较差；utility 差正值较好。XGBoost 只由预设 refe
 冻结 geneSet 的保守并集，不能据此宣称独立临床验证。
 
 生物报告在严格效应可估计时输出评分候选池与读取器两张 PDF；低覆盖探索有有效
-点估计时另输出 diagnostic-low-coverage-score-pool.pdf。导出
+点估计时另输出 diagnostic-low-coverage-score-pool.pdf，并将全部预定评分／候选池与距离
+切换差中差分别绘制为 diagnostic-low-coverage-score-pool-changes.pdf 和
+diagnostic-low-coverage-distance-changes.pdf，保留实际人数、条件区间与单基因仅点估计。
+测量门槛、邻居重叠与模块平方距离累计份额分别输出 diagnostic-measurement-gates.pdf、
+diagnostic-neighbor-overlap.pdf 和 diagnostic-module-distance-concentration.pdf；这些描述图
+不以严格效应可估计为前提，不把支持不足补为零效应。模块份额先在 cohort 内归一化、
+再 cohort 等权汇总，各规则重新选择邻居，不作为固定邻居的纯权重分解。上述图经正式
+biology_report target 更新 HTML，沿用原诊断产品与门槛。导出
 `reports/tables/02.02.00. diagnostic-*.csv` 聚合表，低覆盖推断、cohort、标尺和
 有效人数分别保存在 diagnostic-low_coverage_*.csv，
 包括分支状态、测量／候选池资格、推断、模块相关和单臂距离。患者级矩阵、

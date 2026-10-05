@@ -236,6 +236,40 @@ exploratory_text <- function(x) {
       x$cohort_count[i], " cohort，", x$query_count[i], " query）")
   }, character(1)), collapse = "；")
 }
+diagnostic_change_plot <- function(data, labels, file_stem) {
+  data <- data[data$comparison %in% names(labels), , drop = FALSE]
+  if (!nrow(data) || !any(is.finite(data$estimate))) return(NULL)
+  labels <- labels[names(labels) %in% data$comparison]
+  panel_labels <- vapply(names(labels), function(comparison) {
+    part <- data[data$comparison == comparison, , drop = FALSE]
+    count_label <- function(x) paste(format(unique(range(x)), big.mark = ",",
+      trim = TRUE), collapse = "–")
+    paste0(labels[[comparison]], "\n", count_label(part$cohort_count),
+      plot_label(" cohorts / ", " 队列 / "), count_label(part$query_count),
+      plot_label(" queries", " 患者"))
+  }, character(1))
+  data$panel <- factor(data$comparison, levels = names(labels), labels = panel_labels)
+  data$anchor <- factor(data$anchor, levels = rev(names(anchor_labels)))
+  single <- unique(as.character(data$anchor[data$residual_gene_count == 1L]))
+  display_labels <- anchor_labels
+  display_labels[single] <- paste0(display_labels[single],
+    plot_label(" (single gene)", "（单基因）"))
+  p <- ggplot2::ggplot(data, ggplot2::aes(x = estimate, y = anchor)) +
+    ggplot2::geom_vline(xintercept = 0, linetype = 2, colour = "grey60") +
+    ggplot2::geom_errorbarh(data = data[is.finite(data$ci_low) & is.finite(data$ci_high), ],
+      ggplot2::aes(xmin = ci_low, xmax = ci_high), height = .1, colour = nature_colors[["navy"]]) +
+    ggplot2::geom_point(size = 2.2, colour = nature_colors[["navy"]], na.rm = TRUE) +
+    ggplot2::facet_wrap(~ panel, ncol = 2, drop = FALSE) +
+    ggplot2::scale_y_discrete(labels = display_labels, drop = FALSE) +
+    ggplot2::scale_x_continuous(breaks = function(x) pretty(x, n = 4)) +
+    ggplot2::labs(x = plot_label("Change in utility difference (d1 - Direct)",
+      "接近度差（d1−Direct）的变化"), y = NULL) +
+    ggplot2::theme_bw(base_size = 10) +
+    ggplot2::theme(panel.grid.minor = ggplot2::element_blank(),
+      strip.background = ggplot2::element_rect(fill = "grey95", colour = NA))
+  .ae_save_plot(p, file_stem, figure_dir, preview_dir,
+    list(width_in = 11, height_in = 6), params$plot_preview_dpi)
+}
 ```
 
 本报告是 `r analysis_name` 实验的生物学分析模块，只读取已经完成的邻居检索与 anchor 评估结果。前一份表示报告问“邻居的癌种或技术标签是否相同”；这里换一把尺子，问**邻居的连续表达状态是否接近**。例如，两位患者即使同属一个癌种，免疫活性也可能相差很远；仅凭癌种标签无法发现这类局部差异。
@@ -760,6 +794,35 @@ render_dt(local_biology, pageLength = 20L)
 
 共同签名按全部 `r nrow(diagnostic_audit$audit)` 个契约队列可用性交集固定，清单身份为 `r diagnostic_audit$list_identity`；严格签名至少保留一半且不少于八个基因。原尺度先按 reference 逐基因定标、取签名均值，再按 reference 分数标准差定标。秩分数对固定背景使用平均秩 `(rank−0.5)/背景数`，取签名均值后按 reference 分数定标。背景数量不限制原尺度资格；严格秩分支同时要求背景门槛。
 
+```{r diagnostic-measurement-gates, echo=TRUE, fig.height=3.5, fig.width=10}
+gate <- diagnostic_primary_coverage
+gate$required <- pmax(diagnostic$config$min_signature_genes,
+  ceiling(diagnostic$config$min_signature_fraction * gate$original_count))
+gate$available <- gate$common_count
+gate$label <- unname(anchor_labels[gate$anchor])
+gate <- gate[, c("label", "available", "required")]
+gate <- rbind(gate, data.frame(label = plot_label("Rank background", "秩背景"),
+  available = length(diagnostic_audit$background), required = diagnostic$config$min_background_genes))
+gate$ratio <- gate$available / gate$required
+gate$count <- paste0(format(gate$available, big.mark = ",", trim = TRUE), " / ",
+  format(gate$required, big.mark = ",", trim = TRUE))
+gate$label <- factor(gate$label, levels = rev(gate$label))
+p_gate <- ggplot2::ggplot(gate, ggplot2::aes(x = ratio, y = label)) +
+  ggplot2::geom_col(width = .55, fill = nature_colors[["navy"]]) +
+  ggplot2::geom_vline(xintercept = 1, linetype = 2, colour = "grey40") +
+  ggplot2::geom_text(ggplot2::aes(label = count), hjust = -.15, size = 3.5) +
+  ggplot2::scale_x_continuous(limits = c(0, max(1.2, max(gate$ratio) * 1.3)),
+    labels = scales::label_percent()) +
+  ggplot2::labs(x = plot_label("Available genes / minimum required genes", "可用基因数／最低所需基因数"), y = NULL) +
+  ggplot2::theme_bw(base_size = 10) +
+  ggplot2::theme(panel.grid.minor = ggplot2::element_blank())
+jpg <- .ae_save_plot(p_gate, "02.02.00. diagnostic-measurement-gates",
+  figure_dir, preview_dir, list(width_in = 10, height_in = 3.5), params$plot_preview_dpi)
+knitr::include_graphics(jpg)
+```
+
+解读：虚线为达到冻结门槛的 100%，标注是“实际共同基因数／最低所需基因数”，不是原签名保留比例。签名最低数量取比例门槛与绝对数量门槛中的较大值；秩背景单独要求至少 `r diagnostic$config$min_background_genes` 个共同基因。柱未到线表示该测量前提不足，不是效应为零，也不是原负差已归因于测量。
+
 ```{r diagnostic-qualification, echo=TRUE}
 render_dt(diagnostic_tables$qualification, pageLength = 10)
 ```
@@ -845,6 +908,78 @@ render_dt(diagnostic$branch_status, pageLength = 10)
 
 距离对照只分别改变一个规则：取消逐列标准差除法，或改为 tissue 等权、tissue 内 module 等权、module 内列数平衡。Direct 始终使用原距离，d1 不组合搜索最佳方案。若连续目标可读出而距离改变改善邻居，则更支持距离权重限制；若读取器仍较差，只能说明当前方法和外部范围内较难恢复，不能证明信息永久丢失。模块相关、饱和率与平方距离贡献用于诊断冗余/域迁移，未用于筛选有利模块。
 
+```{r diagnostic-neighbor-overlap, echo=TRUE, fig.height=4, fig.width=10}
+overlap <- diagnostic$neighbor_summary
+if (nrow(overlap)) {
+  overlap$pool_label <- factor(overlap$pool, levels = c("all", "same_cancer"),
+    labels = c(plot_label("All cancers", "全癌种"), plot_label("Within cancer", "同癌种")))
+  restriction_labels <- c(none = plot_label("No technical restriction", "不限制技术来源"),
+    assay_type = plot_label("Same assay", "同检测类型"),
+    source_system = plot_label("Same source", "同来源"), platform_id = plot_label("Same platform", "同平台"))
+  overlap$restriction_label <- factor(overlap$restriction, levels = names(restriction_labels),
+    labels = unname(restriction_labels))
+  p_overlap <- ggplot2::ggplot(overlap,
+    ggplot2::aes(x = mean_neighbor_jaccard, y = restriction_label)) +
+    ggplot2::geom_boxplot(width = .4, outlier.shape = NA, fill = "grey95", colour = "grey50") +
+    ggplot2::geom_point(position = ggplot2::position_jitter(width = 0, height = .08, seed = 1),
+      size = 1.8, alpha = .75, colour = nature_colors[["navy"]]) +
+    ggplot2::facet_wrap(~ pool_label, ncol = 2) +
+    ggplot2::scale_x_continuous(limits = c(0, 1), breaks = seq(0, 1, .25)) +
+    ggplot2::labs(x = plot_label("Direct-d1 neighbor Jaccard (cohort mean)",
+      "Direct 与 d1 邻居 Jaccard（队列均值）"), y = NULL) +
+    ggplot2::theme_bw(base_size = 10) +
+    ggplot2::theme(panel.grid.minor = ggplot2::element_blank())
+  jpg <- .ae_save_plot(p_overlap, "02.02.00. diagnostic-neighbor-overlap",
+    figure_dir, preview_dir, list(width_in = 10, height_in = 4), params$plot_preview_dpi)
+  knitr::include_graphics(jpg)
+}
+```
+
+解读：每点为一个 cohort 内两臂共同 query 的平均邻居 Jaccard；0 表示名单不重叠，1 表示一致。箱体概括 cohort 分布的中位数与四分位数，不是置信区间。只展示有邻居支持的层，缺少支持的平台层不补零。全癌种、同癌种与技术限制的可用 cohort／患者不同，这些点不能直接相减作为受控改善；测量不合格时，名单重排也不能说明生物效用提高。完整人数见 neighbor_summary 表。
+
+```{r diagnostic-module-distance-concentration, echo=TRUE, fig.height=4.5, fig.width=10}
+contribution <- diagnostic$module_diagnostics$distance_contributions
+if (nrow(contribution)) {
+  totals <- stats::aggregate(mean_squared_contribution ~ cohort + distance + pool, contribution, sum)
+  names(totals)[4L] <- "total"
+  contribution <- merge(contribution, totals, by = c("cohort", "distance", "pool"))
+  if (any(!is.finite(contribution$total) | contribution$total <= 0) ||
+      any(!is.finite(contribution$mean_squared_contribution) | contribution$mean_squared_contribution < 0)) {
+    stop("Module distance shares require finite, nonnegative contributions and positive totals.")
+  }
+  contribution$share <- contribution$mean_squared_contribution / contribution$total
+  shares <- stats::aggregate(share ~ module + distance + pool, contribution, mean)
+  curves <- do.call(rbind, lapply(split(shares, interaction(shares$distance, shares$pool)), function(x) {
+    x <- x[order(-x$share, x$module), ]
+    stopifnot(abs(sum(x$share) - 1) < 1e-8)
+    data.frame(distance = x$distance[1L], pool = x$pool[1L],
+      module_fraction = c(0, seq_len(nrow(x)) / nrow(x)), cumulative_share = c(0, pmin(1, cumsum(x$share))))
+  }))
+  distance_labels <- c(baseline = plot_label("Baseline", "基线"),
+    module_unscaled = plot_label("No column SD scaling", "取消逐列标准差缩放"),
+    tissue_balanced = plot_label("Tissue balanced", "组织等权"))
+  curves$distance_label <- factor(curves$distance, levels = names(distance_labels), labels = unname(distance_labels))
+  curves$pool_label <- factor(curves$pool, levels = c("all", "same_cancer"),
+    labels = c(plot_label("All cancers", "全癌种"), plot_label("Within cancer", "同癌种")))
+  p_concentration <- ggplot2::ggplot(curves,
+    ggplot2::aes(x = module_fraction, y = cumulative_share, colour = distance_label)) +
+    ggplot2::geom_abline(slope = 1, intercept = 0, linetype = 2, colour = "grey65") +
+    ggplot2::geom_line(linewidth = .8) + ggplot2::facet_wrap(~ pool_label, ncol = 2) +
+    ggplot2::scale_colour_manual(values = unname(nature_colors[c("navy", "red", "green")])) +
+    ggplot2::scale_x_continuous(labels = scales::label_percent(), limits = c(0, 1)) +
+    ggplot2::scale_y_continuous(labels = scales::label_percent(), limits = c(0, 1)) +
+    ggplot2::labs(x = plot_label("Fraction of modules (ranked by distance share)", "模块比例（按距离份额排序）"),
+      y = plot_label("Cumulative squared-distance share", "累计平方距离份额"), colour = NULL) +
+    ggplot2::theme_bw(base_size = 10) + ggplot2::theme(legend.position = "bottom",
+      panel.grid.minor = ggplot2::element_blank())
+  jpg <- .ae_save_plot(p_concentration, "02.02.00. diagnostic-module-distance-concentration",
+    figure_dir, preview_dir, list(width_in = 10, height_in = 4.5), params$plot_preview_dpi)
+  knitr::include_graphics(jpg)
+}
+```
+
+解读：先在每个 cohort 的同一距离规则、候选池内把全部模块贡献归一化为 100%，再对 cohort 等权平均；各曲线按自己的模块份额独立排序，曲线越向左上弯曲，说明距离越集中于少数模块，灰虚线代表完全均分。颜色展示两个预定距离改变，不筛选模块。每种规则重新检索邻居，曲线同时反映权重与所选邻居的变化；全癌种与同癌种的 cohort 支持也不同。因此这张图描述几何组成，不能当作固定邻居上的纯权重分解、生物效用改善或原负差的根因贡献比例。
+
 ### 固定残余基因的低覆盖探索
 
 这些补充计算回答“现有残余基因代理对评分、候选池和距离是否敏感”。原尺度使用有限 reference 值拟合每个固定基因的标尺，至少两个有效值且标准差为正；任一残余基因不可定标则整个代理不可定标。样本必须具备全部残余签名值；秩评分还要求全部固定背景有限，不按样本缩减背景。最后按有效 reference 代理分数再次定标。query 不参与标尺，没有填补缺失或按样本更换基因。有效人数与标尺分别保存在 low_coverage_availability、low_coverage_scales、low_coverage_gene_scales。
@@ -886,6 +1021,32 @@ if (any(is.finite(low_grid$estimate))) {
 ```
 
 解读：同癌种秩代理的 d1−Direct 为 `r exploratory_text(exploratory$inference[exploratory$inference$comparison == "grid:common_rank:same_cancer:baseline:none", ])`。正值仅表示当前残余分数更接近。多基因残余代理的区间反映固定标尺下 cohort 均值波动；基质当前保留 `r diagnostic_primary_coverage$common_count[diagnostic_primary_coverage$anchor == "stromal_tme"]` 个基因，仅剩单基因时图中只有点、无区间，不能代表完整基质锚点。
+
+```{r diagnostic-low-coverage-score-pool-changes, echo=TRUE, fig.height=6, fig.width=11}
+change_labels <- c(
+  `change:raw_pool` = plot_label("Raw score: all -> within cancer", "原尺度：全癌种 → 同癌种"),
+  `change:rank_pool` = plot_label("Rank score: all -> within cancer", "秩评分：全癌种 → 同癌种"),
+  `change:all_score` = plot_label("All cancers: raw -> rank score", "全癌种：原尺度 → 秩评分"),
+  `change:same_score` = plot_label("Within cancer: raw -> rank score", "同癌种：原尺度 → 秩评分"))
+jpg <- diagnostic_change_plot(exploratory$inference, change_labels,
+  "02.02.00. diagnostic-low-coverage-score-pool-changes")
+if (!is.null(jpg)) knitr::include_graphics(jpg)
+```
+
+解读：这张图显示既有四格之间的配对差中差，零线表示切换后 d1−Direct 差值未变，正值表示 d1 的相对差值提高。四个面板均在各代理的四格共同患者上比较；标题显示实际 cohort／query 人数，不能用广覆盖结果替代。横线是多基因残余代理的 95% 条件区间；基质单基因仅有点，不补区间或检验。变化提高也不保证切换后的 d1 优于 Direct，须与前一张水平图一起读。
+
+```{r diagnostic-low-coverage-distance-changes, echo=TRUE, fig.height=6, fig.width=11}
+distance_change_labels <- c(
+  `distance_change:all:module_unscaled` = plot_label("All cancers: remove column SD scaling", "全癌种：取消逐列标准差缩放"),
+  `distance_change:all:tissue_balanced` = plot_label("All cancers: tissue-balanced distance", "全癌种：组织等权距离"),
+  `distance_change:same_cancer:module_unscaled` = plot_label("Within cancer: remove column SD scaling", "同癌种：取消逐列标准差缩放"),
+  `distance_change:same_cancer:tissue_balanced` = plot_label("Within cancer: tissue-balanced distance", "同癌种：组织等权距离"))
+jpg <- diagnostic_change_plot(exploratory$inference, distance_change_labels,
+  "02.02.00. diagnostic-low-coverage-distance-changes")
+if (!is.null(jpg)) knitr::include_graphics(jpg)
+```
+
+解读：每项距离改变单独与对应基线在共同患者上配对，Direct 的距离固定，评分为冻结的秩主评分；正值表示该规则下 d1 的相对差值提高。全癌种与同癌种面板的人数可不同，标题分别列出，不将不同人群间差值解释为规则作用。两个预定规则、四项代理及相反方向均保留，不能挑选有利规则或把这些变化相加为根因比例。
 
 ```{r diagnostic-low-coverage-comparisons, echo=TRUE}
 render_dt(exploratory$inference, n = nrow(exploratory$inference), pageLength = 12)
