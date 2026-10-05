@@ -1,0 +1,42 @@
+schema_version: 1
+experiment_id: biology-root-cause-restored-rank-20261005
+seed: 20261004
+k: 15
+min_signature_fraction: 0.5
+min_signature_genes: 8
+min_background_genes: 5000
+min_reference_cohorts: 2
+min_query_per_cohort: 20
+min_inference_cohorts: 3
+bootstrap: 2000
+min_valid_bootstrap: 1900
+baseline_tolerance: 1.0e-10
+retrieval:
+  validation_per_cohort: 20
+  min_mean_recall: 0.95
+  min_cohort_recall: 0.90
+  n_trees: 50
+  search_budgets: [5000, 20000]
+  tie_tolerance: 1.0e-8
+  exact_batch_size: 64
+readout:
+  folds: 5
+  lambda: [0.1, 1, 10]
+  nonlinear_trigger: any_reference_cv_d1_mae_exceeds_direct_or_mean
+  xgboost:
+    objective: reg:squarederror
+    max_depth: 3
+    eta: 0.05
+    nrounds: 200
+    subsample: 1
+    colsample_bytree: 1
+    nthread: 1
+    tree_method: hist
+    seed: 20261004
+primary_anchors: [proliferation, immune_tme, stromal_tme, ifn_il6]
+score_definitions: [common_raw, common_rank]
+primary_score_definition: common_rank
+low_coverage_exploration: true
+distance_definitions: [baseline, module_unscaled, tissue_balanced]
+technical_restrictions: [assay_type, source_system, platform_id]
+inference_scope: exploratory_conditional_on_frozen_bank_and_reference_scale

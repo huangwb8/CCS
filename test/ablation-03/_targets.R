@@ -134,6 +134,66 @@ list(
       cache_root = runtime_config$cache_root
     )
   ),
+  # Root-cause diagnostics preserve the original biology_analysis products.
+  targets::tar_target(biology_diagnostic_config_file,
+    "raw/config/biology-diagnostics.yml", format = "file"),
+  targets::tar_target(biology_diagnostic_config,
+    yaml::read_yaml(biology_diagnostic_config_file)),
+  targets::tar_target(biology_diagnostic_code_file,
+    file.path("..", "..", "R", "ablation_biology.R"), format = "file"),
+  targets::tar_target(biology_diagnostic_code_identity,
+    .ablation03_bio_code_identity(biology_diagnostic_code_file)),
+  targets::tar_target(biology_diagnostic_sources,
+    .ablation03_bio_sources(biology_inputs), format = "file"),
+  targets::tar_target(biology_diagnostic_representation_file,
+    file.path(representation_inputs$directory, "representation-inputs.rds"), format = "file"),
+  targets::tar_target(biology_diagnostic_baseline_files,
+    c(file.path(biology_inputs$directory, "expression-anchor-cache.rds"),
+      file.path(biology_analysis$directory, c("anchor_cohort_deltas.csv",
+        "anchor_per_query_utility.rds", "ablation03-biology.rds")),
+      file.path(runtime_config$cache_root, "ablation-experiment", "anchor_retrieval.rds")),
+    format = "file"),
+  targets::tar_target(biology_diagnostic_audit, {
+    biology_diagnostic_code_identity
+    ccs_code_identity
+    biology_diagnostic_baseline_files
+    .ablation03_bio_audit(biology_diagnostic_representation_file, biology_inputs, biology_analysis,
+      data_preparation, biology_diagnostic_config, biology_diagnostic_sources, runtime_config)
+  }, format = "file"),
+  targets::tar_target(biology_diagnostic_gene_lists,
+    .ablation03_bio_gene_lists(biology_diagnostic_audit, runtime_config), format = "file"),
+  targets::tar_target(biology_diagnostic_scores,
+    {
+      biology_diagnostic_code_identity
+      ccs_code_identity
+      .ablation03_bio_scores(biology_diagnostic_audit, runtime_config)
+    }, format = "file"),
+  targets::tar_target(biology_diagnostic_retrieval_specs,
+    .ablation03_bio_specs(biology_diagnostic_config), iteration = "list"),
+  targets::tar_target(biology_diagnostic_retrieval,
+    {
+      biology_diagnostic_code_identity
+      ccs_code_identity
+      .ablation03_bio_retrieval(biology_diagnostic_representation_file, biology_diagnostic_audit,
+        biology_diagnostic_config, biology_diagnostic_retrieval_specs, runtime_config)
+    },
+    pattern = map(biology_diagnostic_retrieval_specs), format = "file"),
+  targets::tar_target(biology_diagnostic_readout,
+    {
+      biology_diagnostic_code_identity
+      ccs_code_identity
+      .ablation03_bio_readout(biology_diagnostic_representation_file, biology_diagnostic_audit,
+        biology_diagnostic_scores, biology_diagnostic_config, runtime_config)
+    }, format = "file"),
+  targets::tar_target(biology_diagnostic_inference,
+    {
+    biology_diagnostic_code_identity
+    ccs_code_identity
+    biology_diagnostic_gene_lists
+    .ablation03_bio_inference(biology_diagnostic_representation_file, biology_diagnostic_audit,
+      biology_diagnostic_scores, biology_diagnostic_retrieval,
+      biology_diagnostic_readout, biology_diagnostic_config, runtime_config)
+    }, format = "file"),
   targets::tar_target(
     statistical_inference,
     .ablation03_statistical_inference(
@@ -172,6 +232,7 @@ list(
       statistical_inference
       learning_query_inference
       geometry_sensitivity
+      biology_diagnostic_inference
       .ablation03_read_resource_metrics(list(observability = observability_config))
     }
   ),
@@ -186,6 +247,7 @@ list(
       biology_inputs = biology_inputs,
       representation = representation_analysis,
       biology = biology_analysis,
+      biology_diagnostics = biology_diagnostic_inference,
       structural = structural_analysis,
       statistical_inference = statistical_inference,
       learning_query_inference = learning_query_inference,
@@ -270,7 +332,8 @@ list(
       biology_report_sources
       .ablation03_render_report(
         "02.02.00. 生物锚点分析.Rmd",
-        dependency = list(biology_analysis, statistical_inference),
+        dependency = list(biology_analysis, statistical_inference,
+          biology_diagnostic_inference),
         cache_root = runtime_config$cache_root
       )
     },

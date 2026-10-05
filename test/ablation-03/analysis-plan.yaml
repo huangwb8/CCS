@@ -12,7 +12,20 @@ requirements:
   - id: "REQ-04"
     description: "补充推断使用冻结输入、显式抽样单位及同一正式 targets 图；无效区间或检验记录原因"
     units: ["02.04.00"]
+  - id: "REQ-05"
+    description: "连续锚点根因诊断保留基线，恢复共同原尺度／秩评分、癌种候选池、读取器与距离对照；另列固定残余基因的低覆盖探索，保留严格门槛"
+    units: ["02.02.D"]
 units:
+  - id: "02.02.D"
+    name: "连续生物锚点根因诊断"
+    purpose: "恢复共同原尺度／秩评分检查癌种组成、连续信息及距离权重；另描述固定残余基因的低覆盖敏感性"
+    depends_on: ["01.01.00", "01.02.00", "01.03.00", "02.02.00"]
+    inputs: ["raw/config/biology-diagnostics.yml", "冻结完整表达与签名来源", "冻结geneSet与feature manifest"]
+    code: ["../../R/ablation_biology.R", "targets/biology_diagnostics.R", "targets/functions.R", "_targets.R"]
+    products: ["<cache-root>/biology-diagnostics/audit.rds", "<cache-root>/biology-diagnostics/frozen-gene-lists-v1.rds", "<cache-root>/biology-diagnostics/scores.rds", "<cache-root>/biology-diagnostics/readout.rds", "<cache-root>/biology-diagnostics/inference.rds"]
+    cache: true
+    reports: ["02.02.00. 生物锚点分析.html", "reports/tables/02.02.00. diagnostic-inference.csv", "reports/tables/02.02.00. diagnostic-low_coverage_inference.csv", "reports/tables/02.02.00. diagnostic-low_coverage_cohort.csv", "reports/tables/02.02.00. diagnostic-low_coverage_scales.csv", "reports/tables/02.02.00. diagnostic-low_coverage_gene_scales.csv", "reports/tables/02.02.00. diagnostic-low_coverage_availability.csv", "reports/figures/02.02.00. diagnostic-score-pool.pdf", "reports/figures/02.02.00. diagnostic-continuous-readout.pdf", "reports/figures/02.02.00. diagnostic-low-coverage-score-pool.pdf"]
+    completion: "基线误差≤1e-10；共享患者／队列；完整top-15精确门禁；不可估计有原因；测量/推断有支持时输出效果PDF，否则保留资格/状态并跳过拟合与空白图；同DAG隔离验收、代码／实际文件失效传播与targets恢复；正式运行、报告与BAC核验"
   - id: "01.01.00"
     name: "数据准备"
     purpose: "读取外部只读输入，恢复组织标签并固定审计后的 CCS 输入对象"

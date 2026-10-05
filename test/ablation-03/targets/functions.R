@@ -48,7 +48,8 @@
   }
   definitions <- parse(file = files[1L], keep.source = FALSE)
   required <- c(".ablation_cohort_bank_design",
-    ".ablation_bank_score_seed_indices", ".ablation_representation_scaling")
+    ".ablation_bank_score_seed_indices", ".ablation_representation_scaling",
+    ".ablation_scale_train_apply", ".ablation_module_balanced_transform")
   for (name in required) {
     selected <- Filter(function(expr) {
       is.call(expr) && identical(expr[[1L]], as.name("<-")) &&
@@ -62,7 +63,8 @@
       error = function(error) NULL)
     if (!is.function(installed) ||
         !identical(deparse(selected[[1L]][[3L]][[3L]]),
-          deparse(body(installed)))) {
+          deparse(body(installed))) ||
+        !identical(selected[[1L]][[3L]][[2L]], formals(installed))) {
       stop("ablation-03: installed CCS code differs from R/ablation.R (",
         name, "); install the validated package before tar_make().",
         call. = FALSE)

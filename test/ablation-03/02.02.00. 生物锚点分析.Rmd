@@ -167,6 +167,75 @@ cohort_negative_fraction <- mean(biology_cohort$delta_d1_minus_direct < 0)
 plot_zh <- identical(params$plot_language, "zh")
 plot_label <- function(en, zh) if (plot_zh) zh else en
 anchor_labels <- .ablation03_anchor_labels(params$plot_language)
+diagnostic_dir <- .wf_output("biology-diagnostics")
+diagnostic_audit <- readRDS(file.path(diagnostic_dir, "audit.rds"))
+diagnostic_scores <- readRDS(file.path(diagnostic_dir, "scores.rds"))
+diagnostic <- readRDS(file.path(diagnostic_dir, "inference.rds"))
+diagnostic_readout <- readRDS(file.path(diagnostic_dir, "readout.rds"))
+exploratory <- diagnostic$exploratory
+diagnostic_tables <- list(
+  inference = diagnostic$inference, cohort = diagnostic$cohort,
+  local = diagnostic$local, coverage = diagnostic_audit$coverage,
+  measurement_audit = diagnostic_audit$audit,
+  score_scales = diagnostic_scores$scales,
+  score_distributions = diagnostic$score_distributions,
+  prediction_metrics = diagnostic$prediction_metrics,
+  reference_cv = diagnostic_readout$cv, reference_folds = diagnostic_readout$folds,
+  retrieval_validation = diagnostic$retrieval_validation[,
+    setdiff(names(diagnostic$retrieval_validation), "sample_id"), drop = FALSE],
+  retrieval_utility_error = diagnostic$retrieval_utility_error,
+  neighbor_summary = diagnostic$neighbor_summary, neighbor_sources = diagnostic$neighbor_sources,
+  utility_floor = diagnostic$utility_floor, leave_one = diagnostic$leave_one,
+  source_inference = diagnostic$source_inference,
+  module_saturation = diagnostic$module_diagnostics$saturation,
+  module_distance_contributions = diagnostic$module_diagnostics$distance_contributions,
+  arm_summary = diagnostic$arm_summary, branch_status = diagnostic$branch_status,
+  experiment_qualification = diagnostic$experiment_qualification
+)
+for (role in names(diagnostic$module_diagnostics$module_correlations)) {
+  diagnostic_tables[[paste0("module_correlations_", role)]] <-
+    as.data.frame(as.table(diagnostic$module_diagnostics$module_correlations[[role]]))
+}
+qualification <- diagnostic_audit$eligibility$queries
+qualification <- unique(qualification[, setdiff(names(qualification), "sample_id"), drop = FALSE])
+qualification$query_count <- vapply(seq_len(nrow(qualification)), function(i) {
+  sum(diagnostic_audit$eligibility$queries$cohort == qualification$cohort[i] &
+    diagnostic_audit$eligibility$queries$eligible == qualification$eligible[i])
+}, integer(1))
+diagnostic_tables$qualification <- qualification
+for (name in c("inference", "cohort", "scales", "gene_scales", "availability")) {
+  diagnostic_tables[[paste0("low_coverage_", name)]] <- exploratory[[name]]
+}
+for (name in names(diagnostic_tables)) {
+  utils::write.csv(diagnostic_tables[[name]], file.path(table_dir,
+    paste0("02.02.00. diagnostic-", name, ".csv")), row.names = FALSE)
+}
+diagnostic_grid <- diagnostic$inference[grepl("^grid:", diagnostic$inference$comparison), ]
+diagnostic_prediction <- diagnostic$inference[grepl(paste0("^readout:", diagnostic$config$primary_score_definition, ":.*:mae$"),
+  diagnostic$inference$comparison), ]
+diagnostic_changes <- diagnostic$inference[grepl("^(change|distance_change):",
+  diagnostic$inference$comparison), ]
+diagnostic_primary_coverage <- diagnostic_audit$coverage[match(
+  diagnostic$config$primary_anchors, diagnostic_audit$coverage$anchor), ]
+diagnostic_text <- function(x) {
+  if (!nrow(x)) return("当前支持范围内不可估计，详见资格与覆盖表。")
+  if (!any(x$status == "estimable")) return(
+    "没有满足预设测量与推断门槛的可估计效应；完整原因见资格、覆盖和分支状态表。")
+  paste(vapply(seq_len(nrow(x)), function(i) if (x$status[i] != "estimable")
+    paste0(x$comparison[i], " / ", x$anchor[i], "：不可估计（", x$reason[i], "）") else
+    paste0(x$comparison[i], " / ", x$anchor[i],
+    "：", fmt(x$estimate[i]), "，95% CI [", fmt(x$ci_low[i]), ", ", fmt(x$ci_high[i]),
+    "]（", x$cohort_count[i], " 个 cohort，", x$query_count[i], " 个 query）"),
+    character(1)), collapse = "；")
+}
+exploratory_text <- function(x) {
+  paste(vapply(seq_len(nrow(x)), function(i) {
+    interval <- if (is.finite(x$ci_low[i])) paste0("，95% 条件区间 [",
+      fmt(x$ci_low[i], 4L), ", ", fmt(x$ci_high[i], 4L), "]") else "，无可发布区间"
+    paste0(x$anchor[i], "：", fmt(x$estimate[i], 4L), interval, "（",
+      x$cohort_count[i], " cohort，", x$query_count[i], " query）")
+  }, character(1)), collapse = "；")
+}
 ```
 
 本报告是 `r analysis_name` 实验的生物学分析模块，只读取已经完成的邻居检索与 anchor 评估结果。前一份表示报告问“邻居的癌种或技术标签是否相同”；这里换一把尺子，问**邻居的连续表达状态是否接近**。例如，两位患者即使同属一个癌种，免疫活性也可能相差很远；仅凭癌种标签无法发现这类局部差异。
@@ -213,7 +282,7 @@ anchor_labels <- .ablation03_anchor_labels(params$plot_language)
 | `stromal_tme` | `TME_B_Stromal2` | 基质微环境相关基因的相对表达水平 |
 | `ifn_il6` | `IFNγ signaling` 与 `IL6-JAK-STAT3 signaling` 的基因并集 | 两组炎症信号相关基因的综合表达水平；本节未分别估计两条通路 |
 
-这些分数是表达签名的代理指标，不能直接读成细胞比例、实际增殖速度或通路因果活性。它们提供了癌种标签以外的一把尺子，但仍来自表达数据；本分析没有通过排除 CCS 输入重叠基因建立测量独立性。因此，这是表达信息保留的诊断，不能当成独立临床结局验证。
+这些分数是表达签名的代理指标，不能直接读成细胞比例、实际增殖速度或通路因果活性。原基线未排除 CCS 输入重叠基因；后文新增了直接输入不重叠敏感性，但仍来自表达数据，不能据此建立测量独立性。因此，这是表达信息保留的诊断，不能当成独立临床结局验证。
 
 ### 实验固定什么，只改变什么
 
@@ -673,6 +742,177 @@ render_dt(local_biology, pageLength = 20L)
 
 结构报告检查高低表达状态之间的较大尺度关系，与本页的患者近邻连续距离互补；粗状态结构接近不能抵消局部负差。若论文的核心用途是寻找表达状态尽量相近的患者，本页直接对应这一任务；若核心用途是跨队列分层，则应结合结构复现与独立目标评价。正文宜保留主要效应图和这一任务边界，覆盖明细与队列热图可放补充材料；两处都应交代共同表达来源和权重口径。
 
+## 连续生物锚点的受控根因诊断
+
+本轮诊断保留以上原评分、原邻居与负差结果。零改动核对复现了 `r diagnostic_audit$baseline_check$cells` 个 cohort–anchor 格子，最大点估计误差为 `r format(diagnostic_audit$baseline_check$max_absolute_error, scientific = TRUE)`，人数一致。新实验固定于 `raw/config/biology-diagnostics.yml`，统一 seed 为 `r diagnostic$config$seed`；所有计算、检索门禁、模型拟合与 bootstrap 均由正式 targets 产生。本节只读取缓存并展示结果。由于旧结果已被查看，本轮属于探索性机制诊断。
+
+### 本轮诊断能得出什么
+
+`r if (!any(diagnostic_primary_coverage$estimable)) "**严格完整锚点诊断仍缺少测量支持，原负差根因尚不能确证；下方固定残余基因探索可提供评分与候选池敏感性的线索。**" else "本轮按预设测量与推断门槛保留可估计效应；每项结论须同时核对下列覆盖、人数与区间。"`
+
+本轮已恢复样本内秩评分。严格诊断保留共同原尺度与秩评分；秩背景门槛为 `r diagnostic$config$min_background_genes`，目前为 `r length(diagnostic_audit$background)` 个共同基因。原尺度只需要签名基因。四项共同覆盖为 `r paste(paste0(diagnostic_primary_coverage$anchor, "：", diagnostic_primary_coverage$common_count, "/", diagnostic_primary_coverage$original_count), collapse = "；")`，严格合格 `r sum(diagnostic_primary_coverage$estimable)`／`r nrow(diagnostic_primary_coverage)` 项。另列低覆盖残余基因探索结果提供线索，不具有完整锚点测量资格。
+
+测量门禁不通过，说明当前新诊断缺少可比较目标，**不能据此认定测量问题造成了原基线负差，也不能把未拟合的读取器解释为 d1 预测失败**。癌种标签与完整邻居的资格不能替代测量资格。检索召回、邻居组成、模块相关及距离贡献仍可作描述，无法单独排序测量尺度、癌种组成、距离权重或信息损失的根因。
+
+本轮保留全部固定输入，没有按效应挑选队列或基因。严格门槛保留；低覆盖分析在计算前独立冻结于恢复计划，仅描述固定残余基因。完整锚点证据仍需依据测量来源预先确定可比较平台与人群，另行冻结契约；该后续人群设计尚未执行。
+
+### 测量与候选池的资格
+
+共同签名按全部 `r nrow(diagnostic_audit$audit)` 个契约队列可用性交集固定，清单身份为 `r diagnostic_audit$list_identity`；严格签名至少保留一半且不少于八个基因。原尺度先按 reference 逐基因定标、取签名均值，再按 reference 分数标准差定标。秩分数对固定背景使用平均秩 `(rank−0.5)/背景数`，取签名均值后按 reference 分数定标。背景数量不限制原尺度资格；严格秩分支同时要求背景门槛。
+
+```{r diagnostic-qualification, echo=TRUE}
+render_dt(diagnostic_tables$qualification, pageLength = 10)
+```
+
+```{r diagnostic-experiment-qualification, echo=TRUE}
+render_dt(diagnostic_tables$experiment_qualification,
+  n = nrow(diagnostic_tables$experiment_qualification), pageLength = 10)
+```
+
+解读：癌种内候选池同时要求有证据的癌种标签、至少两个独立 reference cohort 和完整 top-15；此表保留原癌种终点资格，便于比较新旧口径。每个 cohort 至少二十个有效配对 query 才进入跨 cohort 推断，描述数据仍保留。可用于癌种内检索的 query 为 `r sum(diagnostic_audit$eligibility$queries$eligible)` 个，涉及 `r length(unique(diagnostic_audit$eligibility$queries$cohort[diagnostic_audit$eligibility$queries$eligible]))` 个 cohort。平台的 unknown/unknow 被排除，不作为真实平台。表达单位缺少可靠 cohort 记录的 `r sum(diagnostic_audit$audit$expression_unit == "unknown")` 个队列仍标为未知；未根据数值范围自动取对数、中心化或删除异常队列。
+
+```{r diagnostic-signature-coverage, echo=TRUE}
+render_dt(diagnostic_audit$coverage, pageLength = 12)
+```
+
+直接输入不重叠签名使用普通基因、基因对以及冻结 geneSet 的完整保守支持集合；set-pair 的列名没有被当作基因列表。输入支持状态为 `r diagnostic_audit$input_support$reason`。即使保留签名通过覆盖门槛，表达相关性仍可能存在，此结果只支持直接输入不重叠，不构成独立病理或临床验证。IFN 与 IL6 拆分为补充比较族，原四项锚点仍为主要集合。
+
+### 相同患者上的评分与癌种组成对照
+
+原尺度／秩评分各使用全癌种和同癌种候选池，两臂保持基线距离和 k=15。严格分析仅在测量有支持时于四格共同患者上比较 d1−Direct utility，恢复评分切换差中差。横线来自完整 cohort 配对重采样的 95% 区间；至少三个 cohort、两千次 bootstrap 中至少一千九百次有效才发布区间。
+
+```{r diagnostic-grid-figure, echo=TRUE, fig.height=5.5, fig.width=10}
+if (nrow(diagnostic_grid) && any(is.finite(diagnostic_grid$estimate))) {
+  diagnostic_grid$cell <- paste(diagnostic_grid$score_definition,
+    sub("^grid:[^:]+:", "", diagnostic_grid$comparison), sep = " / ")
+  diagnostic_grid$cell <- gsub("common_raw", "Common genes", diagnostic_grid$cell)
+  diagnostic_grid$cell <- gsub("same_cancer:baseline:none", "within cancer", diagnostic_grid$cell)
+  diagnostic_grid$cell <- gsub("all:baseline:none", "all cancers", diagnostic_grid$cell)
+  diagnostic_grid$anchor <- factor(diagnostic_grid$anchor, levels = rev(names(anchor_labels)))
+  p_grid <- ggplot2::ggplot(diagnostic_grid,
+    ggplot2::aes(x = estimate, y = anchor)) +
+    ggplot2::geom_vline(xintercept = 0, linetype = 2, colour = "grey60") +
+    ggplot2::geom_errorbarh(ggplot2::aes(xmin = ci_low, xmax = ci_high), height = .12) +
+    ggplot2::geom_point(size = 2) + ggplot2::facet_wrap(~ cell, ncol = 2) +
+    ggplot2::scale_y_discrete(labels = anchor_labels) +
+    ggplot2::labs(x = "Cohort-equal utility difference (d1 - Direct)", y = NULL) +
+    ggplot2::theme_bw(base_size = 10)
+  jpg <- .ae_save_plot(p_grid, "02.02.00. diagnostic-score-pool",
+    figure_dir, preview_dir, list(width_in = 10, height_in = 5.5), params$plot_preview_dpi)
+  knitr::include_graphics(jpg)
+}
+```
+
+当前候选池对照结果为：`r diagnostic_text(diagnostic_grid)`。同一原尺度分数下收紧癌种候选池，检验邻居癌种组成是否参与负差。完整 43 个原队列中可估计的评分结果另列为 broad_score_sensitivity，不能与候选池对照交集混用分母。邻居 Jaccard、同癌种比例、来源分布和绝对分数距离在对应聚合 CSV 中保存。
+
+```{r diagnostic-controlled-changes, echo=TRUE}
+render_dt(diagnostic_changes, pageLength = 12)
+```
+
+上述变化均先在同一患者上计算差中差，再汇总到 cohort。正的距离变化表示相对原 d1 距离改善；正的候选池变化表示癌种内限制缩小了 d1 的相对劣势。变化的 95% 区间跨零不能证明两个方案等价，各受控变化也不能相加成根因贡献比例。四项原锚点和预定比较按各自检验族做双侧 sign-flip 与 BH 校正，所有预定比较都保留。
+
+### 连续信息读取与距离权重
+
+有可估计目标时，两臂连续读取器仅用 reference 训练，按 cohort 进行五折验证，并在相同 lambda 网格中选择 L2 回归参数；特征、基因原尺度与目标尺度在每个训练折内重新拟合。外部 query 一次性评估，不参与调参。若 reference CV 中 d1 的最佳 MAE 高于 Direct 或不优于均值基准，则对该目标的两臂同时运行冻结的 XGBoost 回归器；这是预设的 reference-only 触发规则，未按 query 效果决定是否补跑。目标不受测量支持时，保留不可估计状态并跳过拟合。
+
+```{r diagnostic-readout-figure, echo=TRUE, fig.height=4, fig.width=9}
+if (nrow(diagnostic_prediction) && any(is.finite(diagnostic_prediction$estimate))) {
+  diagnostic_prediction$anchor <- factor(diagnostic_prediction$anchor, levels = rev(names(anchor_labels)))
+  p_readout <- ggplot2::ggplot(diagnostic_prediction,
+    ggplot2::aes(x = estimate, y = anchor)) +
+    ggplot2::geom_vline(xintercept = 0, linetype = 2, colour = "grey60") +
+    ggplot2::geom_errorbarh(ggplot2::aes(xmin = ci_low, xmax = ci_high), height = .12) +
+    ggplot2::geom_point(size = 2) + ggplot2::facet_wrap(~ experiment,
+      labeller = ggplot2::as_labeller(c(`ridge:mae` = "Ridge", `xgboost:mae` = "XGBoost"))) +
+    ggplot2::scale_y_discrete(labels = anchor_labels) +
+    ggplot2::scale_x_continuous(breaks = function(x) pretty(x, n = 3)) +
+    ggplot2::labs(x = "Standardized MAE difference (d1 - Direct)", y = NULL) +
+    ggplot2::theme_bw(base_size = 10) +
+    ggplot2::theme(panel.spacing = grid::unit(2, "lines"))
+  jpg <- .ae_save_plot(p_readout, "02.02.00. diagnostic-continuous-readout",
+    figure_dir, preview_dir, list(width_in = 9, height_in = 4), params$plot_preview_dpi)
+  knitr::include_graphics(jpg)
+}
+```
+
+当前主评分锚点目标的 MAE 差为：`r diagnostic_text(diagnostic_prediction)`。此处正值表示 d1 更差，与 utility 差的好坏方向相反。单臂 MAE、reference 整体均值和有支持的癌种均值基准列在 prediction_metrics；癌种基准只与同一子集的模型 MAE 比较。Spearman 零方差仅使相关不可估计，不排除仍有效的 MAE。所有区间条件于固定 bank、读取器与 reference 标尺，不包含重新训练 bank 的波动。
+
+仅为有可估计效应的比较绘图；没有有效效应时不输出空白效果图。读取器–锚点组合的未触发运行与支持不足，请以分支状态表区分。
+
+```{r diagnostic-branch-status, echo=TRUE}
+render_dt(diagnostic$branch_status, pageLength = 10)
+```
+
+距离对照只分别改变一个规则：取消逐列标准差除法，或改为 tissue 等权、tissue 内 module 等权、module 内列数平衡。Direct 始终使用原距离，d1 不组合搜索最佳方案。若连续目标可读出而距离改变改善邻居，则更支持距离权重限制；若读取器仍较差，只能说明当前方法和外部范围内较难恢复，不能证明信息永久丢失。模块相关、饱和率与平方距离贡献用于诊断冗余/域迁移，未用于筛选有利模块。
+
+### 固定残余基因的低覆盖探索
+
+这些补充计算回答“现有残余基因代理对评分、候选池和距离是否敏感”。原尺度使用有限 reference 值拟合每个固定基因的标尺，至少两个有效值且标准差为正；任一残余基因不可定标则整个代理不可定标。样本必须具备全部残余签名值；秩评分还要求全部固定背景有限，不按样本缩减背景。最后按有效 reference 代理分数再次定标。query 不参与标尺，没有填补缺失或按样本更换基因。有效人数与标尺分别保存在 low_coverage_availability、low_coverage_scales、low_coverage_gene_scales。
+
+```{r diagnostic-low-coverage-availability, echo=TRUE}
+render_dt(exploratory$availability, pageLength = 8)
+render_dt(exploratory$scales, pageLength = 8)
+```
+
+解读：背景完整性共保留 `r sum(diagnostic_audit$audit$complete_background_samples)`／`r sum(diagnostic_audit$audit$sample_count)` 个契约样本（含 reference 与 query）。原尺度与秩代理的有效人数可能不同，完整两臂 top-15 又会进一步缩小配对人数；因此下图四格在每项代理内使用相同患者，不能用人数不同的广覆盖结果代替切换对照。
+
+```{r diagnostic-low-coverage-grid, echo=TRUE, fig.height=5.5, fig.width=10}
+low_grid <- exploratory$inference[grepl("^grid:", exploratory$inference$comparison), ]
+if (any(is.finite(low_grid$estimate))) {
+  low_grid$cell <- sub("^grid:", "", low_grid$comparison)
+  low_grid$cell <- gsub(":baseline:none", "", low_grid$cell)
+  low_grid$cell <- gsub("common_rank", "Rank score", low_grid$cell)
+  low_grid$cell <- gsub("common_raw", "Raw score", low_grid$cell)
+  low_grid$cell <- gsub("same_cancer", "within cancer", low_grid$cell)
+  low_grid$cell <- sub(":all$", ":all cancers", low_grid$cell)
+  low_grid$cell <- gsub(":", " / ", low_grid$cell)
+  low_labels <- anchor_labels
+  single_anchors <- unique(low_grid$anchor[low_grid$residual_gene_count == 1L])
+  low_labels[as.character(single_anchors)] <- paste0(low_labels[as.character(single_anchors)],
+    plot_label(" (single gene)", "（单基因）"))
+  low_grid$anchor <- factor(low_grid$anchor, levels = rev(names(anchor_labels)))
+  p_low <- ggplot2::ggplot(low_grid, ggplot2::aes(x = estimate, y = anchor)) +
+    ggplot2::geom_vline(xintercept = 0, linetype = 2, colour = "grey60") +
+    ggplot2::geom_errorbarh(data = low_grid[is.finite(low_grid$ci_low), ],
+      ggplot2::aes(xmin = ci_low, xmax = ci_high), height = .12) +
+    ggplot2::geom_point(size = 2, na.rm = TRUE) + ggplot2::facet_wrap(~ cell, ncol = 2) +
+    ggplot2::scale_y_discrete(labels = low_labels) +
+    ggplot2::labs(x = "Residual-proxy utility difference (d1 - Direct)", y = NULL) +
+    ggplot2::theme_bw(base_size = 10)
+  jpg <- .ae_save_plot(p_low, "02.02.00. diagnostic-low-coverage-score-pool",
+    figure_dir, preview_dir, list(width_in = 10, height_in = 5.5), params$plot_preview_dpi)
+  knitr::include_graphics(jpg)
+}
+```
+
+解读：同癌种秩代理的 d1−Direct 为 `r exploratory_text(exploratory$inference[exploratory$inference$comparison == "grid:common_rank:same_cancer:baseline:none", ])`。正值仅表示当前残余分数更接近。多基因残余代理的区间反映固定标尺下 cohort 均值波动；基质当前保留 `r diagnostic_primary_coverage$common_count[diagnostic_primary_coverage$anchor == "stromal_tme"]` 个基因，仅剩单基因时图中只有点、无区间，不能代表完整基质锚点。
+
+```{r diagnostic-low-coverage-comparisons, echo=TRUE}
+render_dt(exploratory$inference, n = nrow(exploratory$inference), pageLength = 12)
+```
+
+同患者从全癌种切换到同癌种的秩代理差中差为 `r exploratory_text(exploratory$inference[exploratory$inference$comparison == "change:rank_pool", ])`；全癌种原尺度切换到秩评分为 `r exploratory_text(exploratory$inference[exploratory$inference$comparison == "change:all_score", ])`。正变化表示 d1 的相对差值提高。距离变化各自使用与对应基线共同的患者，完整水平与差中差保留在表中；不同对比的人群须核对人数，不把改善相加成根因比例。
+
+当前候选池切换中，95% 条件区间完全为正的多基因代理为 `r paste(exploratory$inference$anchor[exploratory$inference$comparison == "change:rank_pool" & is.finite(exploratory$inference$ci_low) & exploratory$inference$ci_low > 0], collapse = "、")`；评分切换对应为 `r paste(exploratory$inference$anchor[exploratory$inference$comparison == "change:all_score" & is.finite(exploratory$inference$ci_low) & exploratory$inference$ci_low > 0], collapse = "、")`。这些观察提示候选池组成与评分定义影响当前残余分数的局部接近度；不能将其直接解释成原完整签名负差的成因或技术偏差已消除。同癌种下，免疫残余代理取消逐列标准差缩放的变化为 `r exploratory_text(exploratory$inference[exploratory$inference$comparison == "distance_change:same_cancer:module_unscaled" & exploratory$inference$anchor == "immune_tme", ])`，tissue 等权变化为 `r exploratory_text(exploratory$inference[exploratory$inference$comparison == "distance_change:same_cancer:tissue_balanced" & exploratory$inference$anchor == "immune_tme", ])`，两个预定规则分别报告，不选择较有利者作为最终机制解释。
+
+本补充不发布 p/q，不训练低覆盖读取器。多基因 95% 条件区间只在至少二十个有效 query/cohort、三个 cohort 和足够有效 bootstrap 时给出；基质单基因一律仅描述。区间不包含残余基因选择、跨平台偏差或 bank 重训，也不能证明秩评分消除了技术影响。低覆盖结果可指示后续验证方向，严格诊断仍不可估计，原负差的根因尚不能确证。
+
+### 检索准确性与证据边界
+
+```{r diagnostic-retrieval-accuracy, echo=TRUE}
+validation_summary <- if (nrow(diagnostic$retrieval_validation)) {
+  stats::aggregate(cbind(strict_recall, recall) ~ arm + pool + distance + restriction +
+    method, diagnostic$retrieval_validation, mean)
+} else data.frame()
+render_dt(validation_summary, pageLength = 12)
+```
+
+每个合格 cohort 最多二十个 query 先用精确欧氏邻居核对 Annoy；严格 ID 平均召回至少 0.95、各 cohort 至少 0.90，依冻结搜索预算升级后仍不合格则正式结果使用精确检索。检测到边界等距的正式 query 使用精确距离与 ID 顺序决定名单，同时保存严格 ID 与允许同距替换的描述性召回、边界并列数和各评分的 utility 误差。检索结果仅在完成该门禁后进入正式效应估计。
+
+检测类型、来源与已知平台分别在癌种内重新核对候选池及共同患者；支持不足的层只保留资格与描述，有有效测量目标时才估计效应。所有 cohort 和 source 的逐一删除敏感性仅在有可估计效应时对称执行，包括 GSE21983；没有可比目标时未估计删除效应。source 层没有至少三个有效组时不发布泛化区间，cohort 共享来源也不能自动当作完全独立抽样。完整结果及不可估计原因保存在 `reports/tables/02.02.00. diagnostic-*.csv`，患者身份、表达原值和读取器训练产物仅留在正式受控缓存。
+
+这些受控比较分别回答共同签名、癌种组成、连续信息读取及距离规则是否影响当前结论；相反方向或支持不足均保留。原尺度分数仍可能受到测量来源差异影响，读取表现接近不能证明无损，邻居改善也不能证明临床效用提高。候选机制应根据差值、区间和覆盖共同判断，不以 d1 是否胜过 Direct 作为成功标准。
+
 ## 讨论与分析
 
 ### 当前结果明确显示了哪一种局部代价
@@ -687,7 +927,7 @@ utility 先把每个邻居的分数距离转换为指数接近度，再平均。
 
 Direct 保留用于比较的原始特征，d1 则把患者变成多个冻结模型的概率输出。对模型判断很相近的两个患者，某一连续签名仍可能相差不少；因此在 d1 空间中成为邻居，并不要求所有表达细节都相近。好比两名学生在几门考试的成绩等级相同，逐题得分却不相同：按等级找到的同伴，未必是逐题最相似的同伴。
 
-这为本次负差提供了一种可检验的解释：概率重编码可能保留了较粗状态，同时弱化了精细表达排序。但也存在其他解释，例如模型对特定癌种或来源迁移较差、某些模块较强地主导距离，或当前签名更接近 Direct 输入所保留的信息。本报告没有逐一分解这些原因。与输入同源的表达锚点适合诊断哪些已有信息较难保留；要判断这种损失是否换来了值得接受的收益，还需另一项独立目标的正面证据。
+原基线的负差支持一种待检验的解释：概率重编码可能保留了较粗状态，同时弱化了精细表达排序。癌种或来源迁移、距离权重与输入同源性也可能影响结果；新增诊断预设了逐项受控比较，是否得到机制证据以共同测量和推断资格为准。`r if (!any(diagnostic_primary_coverage$estimable)) "本轮测量支持不足，尚未获得这些机制比较的可估计证据。" else "各项机制证据须结合新增比较的效应、区间和覆盖判断。"` 即便某项差值缩小，也不能把全部负差归于单一机制。要判断这种表达代价是否换来了值得接受的收益，还需另一项独立目标的正面证据。
 
 结构报告将同一批锚点划为高低状态，再比较状态之间的距离排序。患者附近的连续分数可以变得较不接近，而高低状态的大体地图仍然相似；两种结果在测量尺度上可以共存。不过当前结构平均差接近零，仍不能证明粗状态无损，更不能用它抵消本页已经观察到的局部负差。用途若是寻找表达状态尽量接近的邻居，本页直接对应这一需求；用途若是跨队列状态分层，则需结合结构结果和独立验证。
 
@@ -707,7 +947,7 @@ Direct 保留用于比较的原始特征，d1 则把患者变成多个冻结模�
 
 首先，可以在未见 cohort 中补齐覆盖和已知平台信息，预先固定共同签名基因集，并按癌种、平台和来源分层执行同一配对比较。若负差在完整覆盖且来源匹配后仍跨队列同向，就更支持表示重排本身对这些连续签名的局部代价；若主要集中于部分覆盖或单一来源，应先限制结论的测量与人群范围。这项设计需同时报告各层有效 query 数，避免只保留有利层。
 
-其次，应选择一种与输入来源不同的测量，例如病理评估的免疫浸润、蛋白测量或治疗反应，在整组未见 cohort 上比较两种表示。预先规定有意义的收益或可接受损失，检验区间及癌种内方向；只有独立目标满足这些判据，才有依据讨论当前局部表达损失是否换来了任务收益。这两项尚未在本报告中执行，本轮结果不能承担独立临床效用的证明责任。
+其次，应选择一种与输入来源不同的测量，例如病理评估的免疫浸润、蛋白测量或治疗反应，在整组未见 cohort 上比较两种表示。预先规定有意义的收益或可接受损失，检验区间及癌种内方向；只有独立目标满足这些判据，才有依据讨论当前局部表达损失是否换来了任务收益。新增诊断已在现有队列内完成共同签名资格与来源限制候选池审计，效应比较受测量门禁约束；全新队列和不同来源测量的独立临床验证仍未执行。
 
 ## 数字准确性验证
 
