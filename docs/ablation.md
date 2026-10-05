@@ -5,6 +5,20 @@
 - `Direct-GSClassifier`：依据冻结 GSClassifier 模型的完整 feature contract，从 RNA 表达重建原生输入；
 - `Cohort-d1`：直接复用 `object@Data$Probability$d1` 中已有的模块概率。
 
+连续生物锚点根因诊断的内部计算另位于 `R/ablation_biology.R`，保持公开
+`ablation()` API 和冻结 bank 不变。ablation-03 的正式 targets 图调用已安装包，
+将资格审计、共同基因原尺度评分、精确核对的候选池检索、reference 分组读取器
+与共享 cohort 配对推断写入独立 `biology-diagnostics/`。表达来源先按冻结
+组织／队列契约定位，再匹配本队列样本，避免契约外队列复用样本名造成歧义。
+样本内秩评分已恢复，与共同原尺度形成评分×候选池四格；严格秩背景至少
+5,000 基因，签名至少 50%／8 基因，距离及技术来源使用秩主评分。原尺度仅需
+签名基因。另保存固定残余基因的低覆盖探索产品：有效 reference 定标、完整
+签名／背景样本、完整 top-15；多基因仅给 cohort 条件区间无 p/q，单基因仅描述，
+不训练低覆盖读取器，不把残余代理视为完整锚点或根因确证。
+配置、分母、不可估计原因和原基线核对随产品保存，Rmd 只消费这些产品。详见
+[ablation-03 README](../test/ablation-03/README.md) 和
+[诊断计划](plans/2026-10-04-ablation03-连续生物锚点根因辨别与优化计划.md)。
+
 它用配对、跨 cohort、可审计的方式回答：
 
 - d1 是否保留了 Direct 的几何结构、生物学邻域和技术稳健性；
