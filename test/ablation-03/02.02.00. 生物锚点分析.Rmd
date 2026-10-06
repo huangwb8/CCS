@@ -245,7 +245,12 @@ hc_text <- function(x) {
   paste(vapply(seq_len(nrow(x)), function(i) {
     row <- x[i, ]
     label <- unname(anchor_labels[row$anchor])
-    if (row$status != "estimable") return(paste0(label, "：不可估计（", row$reason, "）"))
+    if (row$status != "estimable") {
+      reason <- if (row$reason == "background_below_5000_genes") {
+        paste0("共同秩背景不足 ", fmt_n(high_coverage$config$min_background_genes), " 个基因")
+      } else row$reason
+      return(paste0(label, "：不可估计（", reason, "）"))
+    }
     paste0(label, "：", fmt(row$estimate), "，95% CI [", fmt(row$ci_low), ", ",
       fmt(row$ci_high), "]，", row$cohort_count, " 个队列 / ", row$query_count, " 个 query")
   }, character(1)), collapse = "；")
@@ -430,160 +435,6 @@ render_dt_output(query_usage, n = nrow(query_usage), pageLength = 15)
 | `r "95%"` CI 与 BH 校正 P 值 | 对完整 cohort 重采样得到区间，锚点组内校正检验 | 区间反映队列间波动；跨零不证明等价，样本级区间不能替代队列级区间 |
 
 双侧 sign-flip 检验在 cohort 数不超过 `r 18L` 时枚举符号组合，否则采用 Monte Carlo 加一校正；保留原有统计实现与 seed。
-
-## 高覆盖生物锚点补充验证
-
-本节在原大队列分析上增加测量条件更一致的验证。每个锚点独立选择队列与原签名的共同基因；原广覆盖分析和低覆盖诊断继续完整保留在后文。队列选择只读取基因可测性、有限值、样本数、已确认的癌种与冻结外部 query 来源，不读取两臂效用或预测误差。以下结果属于观察原基线后冻结的后续验证，区间条件于既有 bank、测量合同及 reference/query 队列，不包含重训 bank 的不确定性。
-
-### 覆盖率与队列广度
-
-预设覆盖率为 `r paste(fmt_pct(high_coverage$config$coverage_tiers, 0), collapse = "、")`。各档合同要求至少 `r high_coverage$config$min_signature_genes` 个原签名基因、每队列至少 `r high_coverage$config$min_query_per_cohort` 个完整 query、同癌种至少 `r high_coverage$config$min_reference_cohorts` 个 reference 队列及完整 top-`r high_coverage$config$k`。主设计选择达到 `r high_coverage$config$primary_min_query_cohorts` 个 query 队列和 `r high_coverage$config$primary_min_source_groups` 个已知来源组的最高档；支持较少时依预定规则降为有限外部验证或敏感性证据，保留全部覆盖率档。
-
-搜索以基因可用频率的固定排序产生全体、单队列及两队列交集种子，再纳入所有可兼容队列，按队列数、来源数、query 数、共同基因数、reference 队列数依次选择。它是确定性的有界搜索，未证明获得全局最大队列集合。每份合同保存队列、样本、唯一共同原签名、共同秩背景及哈希；每个样本须完整测到冻结签名，秩分数还须完整测到背景。未知来源不计作独立来源组。
-
-```{r high-coverage-frontier, echo=TRUE, fig.height=7, fig.width=11}
-frontier <- high_coverage$frontier
-frontier_long <- do.call(rbind, lapply(c("query_cohorts", "source_groups", "background_genes"), function(metric) {
-  x <- frontier
-  x$metric <- metric
-  x$value <- x[[metric]]
-  x
-}))
-p_hc_frontier <- ggplot2::ggplot(frontier_long,
-  ggplot2::aes(x = 100 * tier, y = value, color = anchor, group = anchor)) +
-  ggplot2::geom_hline(data = data.frame(metric = c("query_cohorts", "source_groups", "background_genes"),
-    boundary = c(high_coverage$config$primary_min_query_cohorts,
-      high_coverage$config$primary_min_source_groups, high_coverage$config$min_background_genes)),
-    ggplot2::aes(yintercept = boundary), linetype = 2, color = "grey65") +
-  ggplot2::geom_line(linewidth = .5) + ggplot2::geom_point(size = 2) +
-  ggplot2::facet_grid(metric ~ anchor, scales = "free_y",
-    labeller = ggplot2::labeller(anchor = ggplot2::as_labeller(anchor_labels),
-      metric = ggplot2::as_labeller(c(query_cohorts = "Query\ncohorts",
-        source_groups = "Source\ngroups", background_genes = "Common\nbackground genes")))) +
-  ggplot2::scale_color_manual(values = stats::setNames(unname(nature_colors[c("navy", "green", "red", "purple")]), names(anchor_labels)),
-    labels = anchor_labels) +
-  ggplot2::scale_x_continuous(breaks = 100 * high_coverage$config$coverage_tiers) +
-  ggplot2::scale_y_continuous(breaks = function(x) unique(round(pretty(x, n = 3)))) +
-  ggplot2::labs(x = "Required signature coverage (%)", y = "Measurement support", color = NULL) +
-  theme_nature_readable(base_size = 10, legend_position = "none") +
-  ggplot2::theme(strip.text.y = ggplot2::element_text(angle = 0))
-jpg <- hc_save_plot(p_hc_frontier, "02.02.00. high-coverage-frontier", width = 11, height = 7)
-knitr::include_graphics(jpg)
-render_dt(frontier, pageLength = 16)
-```
-
-图中只显示测量支持，未使用 Direct/d1 差值选择档位。选定合同共涉及 `r sum(frontier$selected)` 个锚点，其中 `r sum(frontier$selected & frontier$breadth_eligible)` 个达到预设队列和来源广度。最高覆盖未必提供最多队列；共同背景另需达到 `r high_coverage$config$min_background_genes` 个基因才能发布秩主结果。基因明细和队列资格分别导出为 high-coverage-gene_lists.csv 和 high-coverage-eligibility.csv，可核对相同签名的测量定义及实际分母。
-
-### 秩评分与同癌种主比较
-
-在冻结高覆盖签名上使用样本内百分位秩均值，再用完整 reference 样本定标。候选 reference 样本先通过相同签名与背景资格，再分别检索两臂；同癌种至少两个独立 reference 队列，绝不先找邻居再删除缺分数者。每个 query 先计算配对效用差，再在队列内平均、队列间等权。主比较四锚点构成固定 BH 校正族，技术下限为 `r high_coverage$config$min_inference_cohorts` 个队列及 `r high_coverage$config$min_valid_bootstrap` 次有效 cohort bootstrap。
-
-```{r high-coverage-primary, echo=TRUE, fig.height=4, fig.width=9}
-hc_primary <- high_coverage$primary
-if (any(is.finite(hc_primary$estimate))) {
-  hc_primary$label <- paste0(unname(anchor_labels[hc_primary$anchor]), "  ",
-    hc_primary$common_genes, "/", hc_primary$original_genes, " genes; ",
-    hc_primary$cohort_count, " cohorts; ", hc_primary$query_count, " queries")
-  p_hc_primary <- ggplot2::ggplot(hc_primary,
-    ggplot2::aes(x = estimate, y = label)) +
-    ggplot2::geom_vline(xintercept = 0, linetype = 2, color = "grey60") +
-    ggplot2::geom_errorbar(ggplot2::aes(xmin = ci_low, xmax = ci_high),
-      orientation = "y", width = .12, na.rm = TRUE) + ggplot2::geom_point(size = 2) +
-    ggplot2::geom_text(data = hc_primary[hc_primary$status != "estimable", ],
-      ggplot2::aes(y = label), x = 0, label = "Not estimable", inherit.aes = FALSE,
-      colour = "grey45", size = 3) +
-    ggplot2::labs(x = "Neighbor utility: d1 minus Direct (95% CI)", y = NULL) + theme_nature_readable(base_size = 10)
-  jpg <- hc_save_plot(p_hc_primary, "02.02.00. high-coverage-primary", width = 9, height = 4)
-  knitr::include_graphics(jpg)
-}
-render_dt(high_coverage$primary, pageLength = 4)
-```
-
-当前选定合同的秩同癌种结果为：`r hc_text(high_coverage$primary)`。表中 selected 表示按测量支持预选的档位，并不自动表示论文级主证据；实际有效队列和来源支持仍须核对。秩背景不足或有效样本不足保留不可估计，原尺度对照继续显示。本次没有冻结具有独立生物学依据的非劣效界值，因此区间跨零只表示差异估计的不确定性，不能证明等价或无损。
-
-### 全部覆盖率与评分／候选池对照
-
-```{r high-coverage-tiers, echo=TRUE, fig.height=5, fig.width=9}
-hc_tiers <- high_coverage$grid[high_coverage$grid$score_definition == "common_rank" &
-  high_coverage$grid$pool == "same_cancer", ]
-hc_tiers$label_hjust <- ifelse(hc_tiers$tier == min(high_coverage$config$coverage_tiers), 0,
-  ifelse(hc_tiers$tier == max(high_coverage$config$coverage_tiers), 1, .5))
-if (any(is.finite(hc_tiers$estimate))) {
-  p_hc_tiers <- ggplot2::ggplot(hc_tiers, ggplot2::aes(x = 100 * tier, y = estimate)) +
-    ggplot2::geom_hline(yintercept = 0, linetype = 2, color = "grey60") +
-    ggplot2::geom_errorbar(ggplot2::aes(ymin = ci_low, ymax = ci_high), width = 1.5, na.rm = TRUE) +
-    ggplot2::geom_point(size = 2, na.rm = TRUE) +
-    ggplot2::geom_text(ggplot2::aes(label = paste0(cohort_count, "c / ", query_count, "q"),
-      hjust = label_hjust),
-      vjust = -1, size = 2.7, na.rm = TRUE) +
-    ggplot2::facet_wrap(~anchor, labeller = ggplot2::as_labeller(anchor_labels)) +
-    ggplot2::scale_x_continuous(breaks = 100 * high_coverage$config$coverage_tiers) +
-    ggplot2::labs(x = "Required signature coverage (%)", y = "Utility: d1 minus Direct") + theme_nature_readable(base_size = 10)
-  jpg <- hc_save_plot(p_hc_tiers, "02.02.00. high-coverage-tiers", width = 9, height = 5)
-  knitr::include_graphics(jpg)
-}
-htmltools::tagList(render_dt(high_coverage$grid, pageLength = 16),
-  render_dt(high_coverage$changes, pageLength = 8))
-```
-
-全部预设四格和覆盖率档均保存在表中，共 `r nrow(high_coverage$grid)` 行，其中 `r sum(high_coverage$grid$status == "estimable")` 行满足区间门槛。图内 c/q 是每档实际队列与配对 query 数；不同档位同时改变基因完整度和验证人群，曲线变化不能仅归因于覆盖率。原尺度与秩资格可能不同，跨格机制对比须看固定共同患者的敏感性产品，不能直接相减不同分母的总体均值。没有有效值的格子保持空缺，不补作零效应。
-
-### 信息可读取性与邻居几何
-
-连续读取器在同一冻结签名上仅使用 reference 队列分组交叉验证，拟合特征缩放、原尺度基因标尺并选择 ridge lambda。XGBoost 只由预设 reference-CV 规则触发且两臂同时运行。外部 query 只参与最终预测评估。标准化平均绝对误差（MAE）按 reference target 标准差计量，d1−Direct 为正表示读取更差，与效用差的好坏方向相反。
-
-```{r high-coverage-readout, echo=TRUE, fig.height=4, fig.width=8}
-hc_readout <- high_coverage$readout_inference
-if (nrow(hc_readout)) {
-  reader <- hc_readout[hc_readout$score_definition == "common_rank" & hc_readout$reader == "ridge", ]
-  mechanism <- merge(high_coverage$primary, reader, by = "anchor", suffixes = c("_utility", "_mae"))
-  mechanism <- mechanism[is.finite(mechanism$estimate_mae) & is.finite(mechanism$estimate_utility), ]
-  if (nrow(mechanism) && any(is.finite(mechanism$estimate_mae) & is.finite(mechanism$estimate_utility))) {
-    p_hc_map <- ggplot2::ggplot(mechanism,
-      ggplot2::aes(x = estimate_utility, y = estimate_mae, color = anchor)) +
-      ggplot2::geom_vline(xintercept = 0, linetype = 2, color = "grey60") +
-      ggplot2::geom_hline(yintercept = 0, linetype = 2, color = "grey60") +
-      ggplot2::geom_errorbar(ggplot2::aes(ymin = ci_low_mae, ymax = ci_high_mae), width = 0) +
-      ggplot2::geom_errorbar(ggplot2::aes(xmin = ci_low_utility, xmax = ci_high_utility),
-        orientation = "y", width = 0) + ggplot2::geom_point(size = 2.5) +
-      ggplot2::scale_color_manual(values = stats::setNames(unname(nature_colors[c("navy", "green", "red", "purple")]), names(anchor_labels)), labels = anchor_labels) +
-      ggplot2::labs(x = "Neighbor utility: d1 minus Direct", y = "Readout MAE: d1 minus Direct", color = NULL) + theme_nature_readable(base_size = 10)
-    jpg <- hc_save_plot(p_hc_map, "02.02.00. high-coverage-mechanism", width = 8, height = 4)
-    knitr::include_graphics(jpg)
-  }
-}
-htmltools::tagList(render_dt(high_coverage$readout_inference, pageLength = 8),
-  render_dt(high_coverage$status, pageLength = 8))
-```
-
-秩 ridge 读取器结果为：`r if (nrow(hc_readout)) hc_text(hc_readout[hc_readout$score_definition == "common_rank" & hc_readout$reader == "ridge", ]) else "没有达到读取器门槛的目标；原因见分支状态表。"`。若邻居效用下降而读取误差没有同等恶化，才更倾向信息仍在而距离利用不足；两者同时恶化才增加表示压缩的证据。不同任务与有效分母须一起检查，这些表达签名仍不是独立病理或临床结局。完整单臂 MAE、相关及 reference 均值基准保存在 high-coverage-readout_metrics.csv。
-
-预设非线性读取器也须一起判断。秩 XGBoost 分支中，`r if (nrow(hc_readout)) { x <- hc_readout[hc_readout$score_definition == "common_rank" & hc_readout$reader == "xgboost" & hc_readout$status == "estimable" & is.finite(hc_readout$q_value) & hc_readout$q_value < .05 & hc_readout$ci_low > 0, ]; if (nrow(x)) paste0("存在 BH 校正后 MAE 增加的锚点：", hc_text(x), "，q = ", paste(fmt(x$q_value, 4), collapse = "、")) else "未获得四锚点 BH 校正后的 MAE 增加证据" } else "没有可估计结果"`。同癌种近邻效用差接近零，仍不能代替连续目标的可恢复性验证；读取器的不利差异也只对应当前签名、训练规则和冻结参考集，不等同于全部生物信息消失。未触发 XGBoost 或评分资格不足的空格均不补作零误差差。
-
-### 队列、来源与共同人群敏感性
-
-```{r high-coverage-heterogeneity, echo=TRUE, fig.height=5, fig.width=11}
-hc_cohort <- high_coverage$cohort[high_coverage$cohort$score_definition == "common_rank" &
-  high_coverage$cohort$pool == "same_cancer" & high_coverage$cohort$id %in%
-    high_coverage$frontier$id[high_coverage$frontier$selected], ]
-if (nrow(hc_cohort)) {
-  p_hc_cohort <- ggplot2::ggplot(hc_cohort, ggplot2::aes(x = value, y = cohort)) +
-    ggplot2::geom_vline(xintercept = 0, linetype = 2, color = "grey60") +
-    ggplot2::geom_point(size = 1.7) +
-    ggplot2::facet_wrap(~anchor, scales = "free_y", labeller = ggplot2::as_labeller(anchor_labels)) +
-    ggplot2::labs(x = "Cohort mean utility: d1 minus Direct", y = NULL) + theme_nature_readable(base_size = 10)
-  hc_height <- max(5, .35 * max(table(hc_cohort$anchor)) + 1.5)
-  jpg <- hc_save_plot(p_hc_cohort, "02.02.00. high-coverage-cohorts", width = 11, height = hc_height)
-  knitr::include_graphics(jpg)
-}
-htmltools::tagList(render_dt(high_coverage$leave_one, pageLength = 8),
-  render_dt(high_coverage$source_summary, pageLength = 8),
-  render_dt(high_coverage$core, pageLength = 4),
-  render_dt(high_coverage$sensitivity, pageLength = 8),
-  render_dt(high_coverage$sensitivity_status, pageLength = 8))
-```
-
-所有合格队列的方向均保留。留一队列／来源后在剩余队列上重新计算等权区间，来源不足时不伪造独立来源；来源留一属于稳健性诊断，不是来源层随机抽样推断。四锚点冻结合同的队列交集有 `r length(high_coverage$core_contract_cohorts)` 个队列；进一步取四个秩同癌种比较实际通过完整评分和人数门槛的共同队列，C_core 有 `r length(high_coverage$core_cohorts)` 个队列。该对照固定相同队列，患者仍按各签名的完整值资格配对；不重新挑基因，也不反向修改各锚点合同。距离与技术限制的变化先在同一患者匹配再汇总，敏感性区间不附新 p/q。原广队列效应继续回答异质部署条件下的现实表现，与本节测量一致性验证并列解读。
 
 ## 连续表达锚点 readout
 
@@ -1061,6 +912,168 @@ render_dt(local_biology, pageLength = 20L)
 | 个性化分类的效用论证 | 明确当前表示的局部表达限制及适用任务 | 用病理、蛋白或治疗结局等不同来源目标开展独立验证，不能用当前同源签名替代 |
 
 结构报告检查高低表达状态之间的较大尺度关系，与本页的患者近邻连续距离互补；粗状态结构接近不能抵消局部负差。若论文的核心用途是寻找表达状态尽量相近的患者，本页直接对应这一任务；若核心用途是跨队列分层，则应结合结构复现与独立目标评价。正文宜保留主要效应图和这一任务边界，覆盖明细与队列热图可放补充材料；两处都应交代共同表达来源和权重口径。
+
+### 高覆盖生物锚点补充验证
+
+本节在原大队列分析上增加测量条件更一致的验证。每个锚点独立选择队列与原签名的共同基因；前文的原广覆盖结果与后文的低覆盖诊断均完整保留。队列选择只读取基因可测性、有限值、样本数、已确认的癌种与冻结外部 query 来源，不读取两臂效用或预测误差。以下结果属于观察原基线后冻结的后续验证，区间条件于既有 bank、测量合同及 reference/query 队列，不包含重训 bank 的不确定性。
+
+#### 覆盖率与队列广度
+
+预设覆盖率为 `r paste(fmt_pct(high_coverage$config$coverage_tiers, 0), collapse = "、")`。各档合同要求至少 `r high_coverage$config$min_signature_genes` 个原签名基因、每队列至少 `r high_coverage$config$min_query_per_cohort` 个完整 query、同癌种至少 `r high_coverage$config$min_reference_cohorts` 个 reference 队列及完整 top-`r high_coverage$config$k`。主设计选择达到 `r high_coverage$config$primary_min_query_cohorts` 个 query 队列和 `r high_coverage$config$primary_min_source_groups` 个已知来源组的最高档；支持较少时依预定规则降为有限外部验证或敏感性证据，保留全部覆盖率档。
+
+搜索以基因可用频率的固定排序产生全体、单队列及两队列交集种子，再纳入所有可兼容队列，按队列数、来源数、query 数、共同基因数、reference 队列数依次选择。它是确定性的有界搜索，未证明获得全局最大队列集合。每份合同保存队列、样本、唯一共同原签名、共同秩背景及哈希；每个样本须完整测到冻结签名，秩分数还须完整测到背景。未知来源不计作独立来源组。
+
+```{r high-coverage-frontier, echo=TRUE, fig.height=7, fig.width=11}
+frontier <- high_coverage$frontier
+frontier_long <- do.call(rbind, lapply(c("query_cohorts", "source_groups", "background_genes"), function(metric) {
+  x <- frontier
+  x$metric <- metric
+  x$value <- x[[metric]]
+  x
+}))
+p_hc_frontier <- ggplot2::ggplot(frontier_long,
+  ggplot2::aes(x = 100 * tier, y = value, color = anchor, group = anchor)) +
+  ggplot2::geom_hline(data = data.frame(metric = c("query_cohorts", "source_groups", "background_genes"),
+    boundary = c(high_coverage$config$primary_min_query_cohorts,
+      high_coverage$config$primary_min_source_groups, high_coverage$config$min_background_genes)),
+    ggplot2::aes(yintercept = boundary), linetype = 2, color = "grey65") +
+  ggplot2::geom_line(linewidth = .5) + ggplot2::geom_point(size = 2) +
+  ggplot2::facet_grid(metric ~ anchor, scales = "free_y",
+    labeller = ggplot2::labeller(anchor = ggplot2::as_labeller(anchor_labels),
+      metric = ggplot2::as_labeller(c(query_cohorts = "Query\ncohorts",
+        source_groups = "Source\ngroups", background_genes = "Common\nbackground genes")))) +
+  ggplot2::scale_color_manual(values = stats::setNames(unname(nature_colors[c("navy", "green", "red", "purple")]), names(anchor_labels)),
+    labels = anchor_labels) +
+  ggplot2::scale_x_continuous(breaks = 100 * high_coverage$config$coverage_tiers) +
+  ggplot2::scale_y_continuous(breaks = function(x) unique(round(pretty(x, n = 3)))) +
+  ggplot2::labs(x = "Required signature coverage (%)", y = "Measurement support", color = NULL) +
+  theme_nature_readable(base_size = 10, legend_position = "none") +
+  ggplot2::theme(strip.text.y = ggplot2::element_text(angle = 0))
+jpg <- hc_save_plot(p_hc_frontier, "02.02.00. high-coverage-frontier", width = 11, height = 7)
+knitr::include_graphics(jpg)
+render_dt(frontier, pageLength = 16)
+```
+
+图中只显示测量支持，未使用 Direct/d1 差值选择档位。选定合同共涉及 `r sum(frontier$selected)` 个锚点，其中 `r sum(frontier$selected & frontier$breadth_eligible)` 个达到预设队列和来源广度。最高覆盖未必提供最多队列；共同背景另需达到 `r high_coverage$config$min_background_genes` 个基因才能发布秩主结果。基因明细和队列资格分别导出为 high-coverage-gene_lists.csv 和 high-coverage-eligibility.csv，可核对相同签名的测量定义及实际分母。
+
+#### 秩评分与同癌种主比较
+
+在冻结高覆盖签名上使用样本内百分位秩均值，再用完整 reference 样本定标。候选 reference 样本先通过相同签名与背景资格，再分别检索两臂；同癌种至少两个独立 reference 队列，绝不先找邻居再删除缺分数者。每个 query 先计算配对效用差，再在队列内平均、队列间等权。主比较四锚点构成固定 BH 校正族，技术下限为 `r high_coverage$config$min_inference_cohorts` 个队列及 `r high_coverage$config$min_valid_bootstrap` 次有效 cohort bootstrap。
+
+```{r high-coverage-primary, echo=TRUE, fig.height=4, fig.width=9}
+hc_primary <- high_coverage$primary
+hc_primary <- hc_primary[hc_primary$status == "estimable" &
+  is.finite(hc_primary$estimate) & is.finite(hc_primary$ci_low) &
+  is.finite(hc_primary$ci_high), , drop = FALSE]
+if (nrow(hc_primary)) {
+  hc_primary$label <- paste0(unname(anchor_labels[hc_primary$anchor]), "  ",
+    hc_primary$common_genes, "/", hc_primary$original_genes, " genes; ",
+    hc_primary$cohort_count, " cohorts; ", hc_primary$query_count, " queries")
+  p_hc_primary <- ggplot2::ggplot(hc_primary,
+    ggplot2::aes(x = estimate, y = label)) +
+    ggplot2::geom_vline(xintercept = 0, linetype = 2, color = "grey60") +
+    ggplot2::geom_errorbar(ggplot2::aes(xmin = ci_low, xmax = ci_high),
+      orientation = "y", width = .12, na.rm = TRUE) + ggplot2::geom_point(size = 2) +
+    ggplot2::labs(x = "Neighbor utility: d1 minus Direct (95% CI)", y = NULL) + theme_nature_readable(base_size = 10)
+  jpg <- hc_save_plot(p_hc_primary, "02.02.00. high-coverage-primary", width = 9, height = 4)
+  knitr::include_graphics(jpg)
+}
+render_dt(high_coverage$primary, pageLength = 4)
+```
+
+当前选定合同的秩同癌种结果为：`r hc_text(hc_primary)`。表中 selected 表示按测量支持预选的档位，并不自动表示论文级主证据；实际有效队列和来源支持仍须核对。本次没有冻结具有独立生物学依据的非劣效界值，因此区间跨零只表示差异估计的不确定性，不能证明等价或无损。
+
+图中仅展示效应及 95% CI 均可估计的锚点。`r if (any(high_coverage$primary$status != "estimable")) paste0("本次省略：", hc_text(high_coverage$primary[high_coverage$primary$status != "estimable", , drop = FALSE]), "。") else "本次所有预设锚点均满足绘图条件。"` 完整状态与资格保留在表中，省略不代表零效应。
+
+#### 全部覆盖率与评分／候选池对照
+
+```{r high-coverage-tiers, echo=TRUE, fig.height=5, fig.width=9}
+hc_tiers <- high_coverage$grid[high_coverage$grid$score_definition == "common_rank" &
+  high_coverage$grid$pool == "same_cancer", ]
+hc_tiers <- hc_tiers[hc_tiers$status == "estimable" &
+  is.finite(hc_tiers$estimate) & is.finite(hc_tiers$ci_low) &
+  is.finite(hc_tiers$ci_high), , drop = FALSE]
+hc_tiers$label_hjust <- ifelse(hc_tiers$tier == min(high_coverage$config$coverage_tiers), 0,
+  ifelse(hc_tiers$tier == max(high_coverage$config$coverage_tiers), 1, .5))
+if (nrow(hc_tiers)) {
+  p_hc_tiers <- ggplot2::ggplot(hc_tiers, ggplot2::aes(x = 100 * tier, y = estimate)) +
+    ggplot2::geom_hline(yintercept = 0, linetype = 2, color = "grey60") +
+    ggplot2::geom_errorbar(ggplot2::aes(ymin = ci_low, ymax = ci_high), width = 1.5, na.rm = TRUE) +
+    ggplot2::geom_point(size = 2, na.rm = TRUE) +
+    ggplot2::geom_text(ggplot2::aes(label = paste0(cohort_count, "c / ", query_count, "q"),
+      hjust = label_hjust),
+      vjust = -1, size = 2.7, na.rm = TRUE) +
+    ggplot2::facet_wrap(~anchor, labeller = ggplot2::as_labeller(anchor_labels)) +
+    ggplot2::scale_x_continuous(breaks = 100 * high_coverage$config$coverage_tiers) +
+    ggplot2::labs(x = "Required signature coverage (%)", y = "Utility: d1 minus Direct") + theme_nature_readable(base_size = 10)
+  jpg <- hc_save_plot(p_hc_tiers, "02.02.00. high-coverage-tiers", width = 9, height = 5)
+  knitr::include_graphics(jpg)
+}
+htmltools::tagList(render_dt(high_coverage$grid, pageLength = 16),
+  render_dt(high_coverage$changes, pageLength = 8))
+```
+
+全部预设四格和覆盖率档均保存在表中，共 `r nrow(high_coverage$grid)` 行，其中 `r sum(high_coverage$grid$status == "estimable")` 行满足区间门槛。覆盖率图只展示可估计的秩同癌种结果，不为缺失结果保留分面或人数标签；各档省略项及原因见完整表。图内 c/q 是每档实际队列与配对 query 数；不同档位同时改变基因完整度和验证人群，曲线变化不能仅归因于覆盖率。原尺度与秩资格可能不同，跨格机制对比须看固定共同患者的敏感性产品，不能直接相减不同分母的总体均值。缺失结果不补作零效应。
+
+#### 信息可读取性与邻居几何
+
+连续读取器在同一冻结签名上仅使用 reference 队列分组交叉验证，拟合特征缩放、原尺度基因标尺并选择 ridge lambda。XGBoost 只由预设 reference-CV 规则触发且两臂同时运行。外部 query 只参与最终预测评估。标准化平均绝对误差（MAE）按 reference target 标准差计量，d1−Direct 为正表示读取更差，与效用差的好坏方向相反。
+
+```{r high-coverage-readout, echo=TRUE, fig.height=4, fig.width=8}
+hc_readout <- high_coverage$readout_inference
+if (nrow(hc_readout)) {
+  reader <- hc_readout[hc_readout$score_definition == "common_rank" & hc_readout$reader == "ridge", ]
+  mechanism <- merge(high_coverage$primary, reader, by = "anchor", suffixes = c("_utility", "_mae"))
+  mechanism <- mechanism[is.finite(mechanism$estimate_mae) & is.finite(mechanism$estimate_utility), ]
+  if (nrow(mechanism) && any(is.finite(mechanism$estimate_mae) & is.finite(mechanism$estimate_utility))) {
+    p_hc_map <- ggplot2::ggplot(mechanism,
+      ggplot2::aes(x = estimate_utility, y = estimate_mae, color = anchor)) +
+      ggplot2::geom_vline(xintercept = 0, linetype = 2, color = "grey60") +
+      ggplot2::geom_hline(yintercept = 0, linetype = 2, color = "grey60") +
+      ggplot2::geom_errorbar(ggplot2::aes(ymin = ci_low_mae, ymax = ci_high_mae), width = 0) +
+      ggplot2::geom_errorbar(ggplot2::aes(xmin = ci_low_utility, xmax = ci_high_utility),
+        orientation = "y", width = 0) + ggplot2::geom_point(size = 2.5) +
+      ggplot2::scale_color_manual(values = stats::setNames(unname(nature_colors[c("navy", "green", "red", "purple")]), names(anchor_labels)), labels = anchor_labels) +
+      ggplot2::labs(x = "Neighbor utility: d1 minus Direct", y = "Readout MAE: d1 minus Direct", color = NULL) + theme_nature_readable(base_size = 10)
+    jpg <- hc_save_plot(p_hc_map, "02.02.00. high-coverage-mechanism", width = 8, height = 4)
+    knitr::include_graphics(jpg)
+  }
+}
+htmltools::tagList(render_dt(high_coverage$readout_inference, pageLength = 8),
+  render_dt(high_coverage$status, pageLength = 8))
+```
+
+秩 ridge 读取器结果为：`r if (nrow(hc_readout)) hc_text(hc_readout[hc_readout$score_definition == "common_rank" & hc_readout$reader == "ridge", ]) else "没有达到读取器门槛的目标；原因见分支状态表。"`。若邻居效用下降而读取误差没有同等恶化，才更倾向信息仍在而距离利用不足；两者同时恶化才增加表示压缩的证据。不同任务与有效分母须一起检查，这些表达签名仍不是独立病理或临床结局。完整单臂 MAE、相关及 reference 均值基准保存在 high-coverage-readout_metrics.csv。
+
+预设非线性读取器也须一起判断。秩 XGBoost 分支中，`r if (nrow(hc_readout)) { x <- hc_readout[hc_readout$score_definition == "common_rank" & hc_readout$reader == "xgboost" & hc_readout$status == "estimable" & is.finite(hc_readout$q_value) & hc_readout$q_value < .05 & hc_readout$ci_low > 0, ]; if (nrow(x)) paste0("存在 BH 校正后 MAE 增加的锚点：", hc_text(x), "，q = ", paste(fmt(x$q_value, 4), collapse = "、")) else "未获得四锚点 BH 校正后的 MAE 增加证据" } else "没有可估计结果"`。同癌种近邻效用差接近零，仍不能代替连续目标的可恢复性验证；读取器的不利差异也只对应当前签名、训练规则和冻结参考集，不等同于全部生物信息消失。未触发 XGBoost 或评分资格不足的空格均不补作零误差差。
+
+#### 队列、来源与共同人群敏感性
+
+```{r high-coverage-heterogeneity, echo=TRUE, fig.height=5, fig.width=11}
+hc_cohort <- high_coverage$cohort[high_coverage$cohort$score_definition == "common_rank" &
+  high_coverage$cohort$pool == "same_cancer" & high_coverage$cohort$id %in%
+    high_coverage$frontier$id[high_coverage$frontier$selected], ]
+if (nrow(hc_cohort)) {
+  hc_cohort$cohort <- factor(hc_cohort$cohort,
+    levels = sort(unique(hc_cohort$cohort)))
+  p_hc_cohort <- ggplot2::ggplot(hc_cohort, ggplot2::aes(x = value, y = cohort)) +
+    ggplot2::geom_vline(xintercept = 0, linetype = 2, color = "grey60") +
+    ggplot2::geom_point(size = 1.7) +
+    ggplot2::facet_grid(. ~ anchor, labeller = ggplot2::labeller(
+      anchor = ggplot2::as_labeller(anchor_labels))) +
+    ggplot2::labs(x = "Cohort mean utility: d1 minus Direct", y = NULL) + theme_nature_readable(base_size = 10)
+  hc_height <- max(5, .35 * nlevels(hc_cohort$cohort) + 1.5)
+  jpg <- hc_save_plot(p_hc_cohort, "02.02.00. high-coverage-cohorts", width = 9, height = hc_height)
+  knitr::include_graphics(jpg)
+}
+htmltools::tagList(render_dt(high_coverage$leave_one, pageLength = 8),
+  render_dt(high_coverage$source_summary, pageLength = 8),
+  render_dt(high_coverage$core, pageLength = 4),
+  render_dt(high_coverage$sensitivity, pageLength = 8),
+  render_dt(high_coverage$sensitivity_status, pageLength = 8))
+```
+
+图中各锚点共享队列纵轴，名称仅在左侧显示；空白位置表示该锚点在该队列没有合格结果。所有合格队列的方向均保留。留一队列／来源后在剩余队列上重新计算等权区间，来源不足时不伪造独立来源；来源留一属于稳健性诊断，不是来源层随机抽样推断。四锚点冻结合同的队列交集有 `r length(high_coverage$core_contract_cohorts)` 个队列；进一步取四个秩同癌种比较实际通过完整评分和人数门槛的共同队列，C_core 有 `r length(high_coverage$core_cohorts)` 个队列。该对照固定相同队列，患者仍按各签名的完整值资格配对；不重新挑基因，也不反向修改各锚点合同。距离与技术限制的变化先在同一患者匹配再汇总，敏感性区间不附新 p/q。原广队列效应继续回答异质部署条件下的现实表现，与本节测量一致性验证并列解读。
 
 ## 连续生物锚点的受控根因诊断
 
