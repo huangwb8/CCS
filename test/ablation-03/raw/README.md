@@ -16,4 +16,4 @@
 
 ## 版本化科学配置
 
-`config/biological-anchors.yml` 冻结生物学锚点定义，并参与相关缓存的内容哈希。分析脚本只读该文件；修改后必须重建受影响的 biology 缓存。
+分析目录的 `../config/biological-anchors.yml` 冻结五项生物学锚点定义，并参与相关缓存的内容哈希。IFNγ 与 IL6-JAK-STAT3 分别评分。分析脚本只读该文件；修改后必须经 targets 重建受影响的 biology 缓存。

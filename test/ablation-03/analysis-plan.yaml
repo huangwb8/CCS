@@ -7,7 +7,7 @@ requirements:
     description: "Rmd、HTML 与可发表图表保存在 test/ablation-03 的规范位置"
     units: ["01.04.00", "02.01.00", "02.02.00", "02.03.00"]
   - id: "REQ-03"
-    description: "retrieval、readout、learning curve 与 decoder 具备内容键多版本缓存"
+    description: "retrieval、readout、learning curve 与 decoder 通过正式 targets store 管理依赖和恢复"
     units: ["02.01.00"]
   - id: "REQ-04"
     description: "补充推断使用冻结输入、显式抽样单位及同一正式 targets 图；无效区间或检验记录原因"
@@ -16,11 +16,21 @@ requirements:
     description: "连续锚点根因诊断保留基线，恢复共同原尺度／秩评分、癌种候选池、读取器与距离对照；另列固定残余基因的低覆盖探索，保留严格门槛"
     units: ["02.02.D"]
 units:
+  - id: "02.02.H"
+    name: "五锚点高覆盖验证"
+    purpose: "独立冻结增殖、免疫、基质、IFNγ、IL6-JAK-STAT3 的测量合同与五项检验族"
+    depends_on: ["01.02.00", "01.03.00", "02.02.00"]
+    inputs: ["config/biological-anchors.yml", "config/biology-high-coverage.yml", "冻结完整表达与签名来源"]
+    code: ["R/biology_high_coverage.R", "targets/biology_high_coverage.R", "_targets.R"]
+    products: ["<cache-root>/biology-high-coverage/frozen-contracts.rds", "<cache-root>/biology-high-coverage/inference.rds"]
+    cache: true
+    reports: ["02.02.00. 生物锚点分析.html", "reports/tables/02.02.00. high-coverage-primary.csv"]
+    completion: "80个预设格子、固定五项BH与不可估计原因、同DAG验收及正式运行、五锚点报告与BAC核验"
   - id: "02.02.D"
     name: "连续生物锚点根因诊断"
     purpose: "恢复共同原尺度／秩评分检查癌种组成、连续信息及距离权重；另描述固定残余基因的低覆盖敏感性"
     depends_on: ["01.01.00", "01.02.00", "01.03.00", "02.02.00"]
-    inputs: ["raw/config/biology-diagnostics.yml", "冻结完整表达与签名来源", "冻结geneSet与feature manifest"]
+    inputs: ["config/biology-diagnostics.yml", "冻结完整表达与签名来源", "冻结geneSet与feature manifest"]
     code: ["../../R/ablation_biology.R", "targets/biology_diagnostics.R", "targets/functions.R", "_targets.R"]
     products: ["<cache-root>/biology-diagnostics/audit.rds", "<cache-root>/biology-diagnostics/frozen-gene-lists-v1.rds", "<cache-root>/biology-diagnostics/scores.rds", "<cache-root>/biology-diagnostics/readout.rds", "<cache-root>/biology-diagnostics/inference.rds"]
     cache: true
@@ -32,17 +42,17 @@ units:
     depends_on: []
     inputs: ["raw/README.md"]
     code: ["01.01.00. 数据准备.R", "01.01.00. 数据准备_functions.R"]
-    products: ["products/main/01.01.00. 数据准备/main.rds"]
+    products: ["<cache-root>/01-data/inputs.rds"]
     cache: true
     reports: []
-    completion: "外部阶段凭据有效，项目内 metadata.yaml 与 SUCCESS 通过复验"
+    completion: "输入来源与样本契约有效；正式 targets metadata 和产物内容可核验"
   - id: "01.02.00"
     name: "表示输入准备"
     purpose: "构造 Direct、既有 d1、样本契约和端点资格输入"
     depends_on: ["01.01.00"]
-    inputs: ["products/main/01.01.00. 数据准备/main.rds"]
+    inputs: ["<cache-root>/01-data/inputs.rds"]
     code: ["01.02.00. 表示输入准备.R"]
-    products: ["products/main/01.02.00. 表示输入准备/main.rds"]
+    products: ["<cache-root>/01-representations/representation-inputs.rds"]
     cache: true
     reports: []
     completion: "表示输入可重读，样本契约、参数与代码身份一致"
@@ -51,11 +61,11 @@ units:
     purpose: "准备连续生物锚点与结构复现所需的表达缓存"
     depends_on: ["01.01.00", "01.02.00"]
     inputs:
-      - "products/main/01.01.00. 数据准备/main.rds"
-      - "products/main/01.02.00. 表示输入准备/main.rds"
-      - "raw/config/biological-anchors.yml"
+      - "<cache-root>/01-data/inputs.rds"
+      - "<cache-root>/01-representations/representation-inputs.rds"
+      - "config/biological-anchors.yml"
     code: ["01.03.00. 生物输入准备.R"]
-    products: ["products/main/01.03.00. 生物输入准备/main.rds"]
+    products: ["<cache-root>/01-biology/expression-anchor-cache.rds"]
     cache: true
     reports: []
     completion: "表达缓存、签名、样本键与组织解析均通过来源核验"
@@ -64,9 +74,9 @@ units:
     purpose: "报告输入数据构成、组织解析、队列尺度和锚点覆盖"
     depends_on: ["01.01.00", "01.02.00", "01.03.00"]
     inputs:
-      - "products/main/01.01.00. 数据准备/main.rds"
-      - "products/main/01.02.00. 表示输入准备/main.rds"
-      - "products/main/01.03.00. 生物输入准备/main.rds"
+      - "<cache-root>/01-data/inputs.rds"
+      - "<cache-root>/01-representations/representation-inputs.rds"
+      - "<cache-root>/01-biology/expression-anchor-cache.rds"
     code: ["01.04.00. 数据概览.Rmd"]
     products: []
     cache: false
@@ -82,9 +92,9 @@ units:
     name: "表示分析"
     purpose: "比较表示几何、检索、readout、learning curve、scaling 与 decoder"
     depends_on: ["01.02.00"]
-    inputs: ["products/main/01.02.00. 表示输入准备/main.rds"]
+    inputs: ["<cache-root>/01-representations/representation-inputs.rds"]
     code: ["02.01.00. 表示分析.R", "02.01.00. 表示分析_functions.R", "02.01.00. 表示分析.Rmd"]
-    products: ["products/main/02.01.00. 表示分析/main.rds"]
+    products: ["<cache-root>/ablation-experiment/ablation-result.rds"]
     cache: true
     reports:
       - "02.01.00. 表示分析.html"
@@ -99,17 +109,17 @@ units:
       - "reports/figures/02.01.00. module-variance-concentration.pdf"
       - "reports/figures/02.01.00. feature-type-reconstruction.pdf"
       - "reports/tables/02.01.00. retrieval-cohort-delta.csv"
-    completion: "节点缓存状态、最终批次凭据、HTML 和正式图表全部有效"
+    completion: "正式 targets metadata、表示产物、HTML 和正式图表全部有效"
   - id: "02.02.00"
     name: "生物锚点分析"
     purpose: "评估连续表达锚点邻居效用并进行队列级配对推断"
     depends_on: ["01.03.00", "02.01.00"]
     inputs:
-      - "products/main/01.03.00. 生物输入准备/main.rds"
-      - "products/main/02.01.00. 表示分析/main.rds"
-      - "raw/config/biological-anchors.yml"
+      - "<cache-root>/01-biology/expression-anchor-cache.rds"
+      - "<cache-root>/ablation-experiment/ablation-result.rds"
+      - "config/biological-anchors.yml"
     code: ["02.02.00. 生物锚点分析.R", "02.02.00. 生物锚点分析_functions.R", "02.02.00. 生物锚点分析.Rmd"]
-    products: ["products/main/02.02.00. 生物锚点分析/main.rds"]
+    products: ["<cache-root>/ablation-biology/ablation03-biology.rds"]
     cache: true
     reports:
       - "02.02.00. 生物锚点分析.html"
@@ -120,17 +130,17 @@ units:
       - "reports/figures/02.02.00. anchor-cohort-heterogeneity.pdf"
       - "reports/figures/02.02.00. anchor-within-cohort-inference.pdf"
       - "reports/tables/02.02.00. anchor-within-cohort-inference.csv"
-    completion: "生物锚点结果、队列级配对差、推断、来源凭据、三张 PDF 与 HTML 均有效"
+    completion: "生物锚点结果、队列级配对差、推断、来源凭据、四张 PDF 与 HTML 均有效"
   - id: "02.03.00"
     name: "结构复现分析"
     purpose: "评估双向结构复现与 matched-bank 设计敏感性"
     depends_on: ["01.02.00", "01.03.00", "02.01.00"]
     inputs:
-      - "products/main/01.02.00. 表示输入准备/main.rds"
-      - "products/main/01.03.00. 生物输入准备/main.rds"
-      - "products/main/02.01.00. 表示分析/main.rds"
+      - "<cache-root>/01-representations/representation-inputs.rds"
+      - "<cache-root>/01-biology/expression-anchor-cache.rds"
+      - "<cache-root>/ablation-experiment/ablation-result.rds"
     code: ["02.03.00. 结构复现分析.R", "02.03.00. 结构复现分析_functions.R", "02.03.00. 结构复现分析.Rmd"]
-    products: ["products/main/02.03.00. 结构复现分析/main.rds"]
+    products: ["<cache-root>/ablation-structural-reproducibility/ablation03-structural-reproducibility.rds"]
     cache: true
     reports:
       - "02.03.00. 结构复现分析.html"

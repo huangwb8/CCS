@@ -2,4 +2,5 @@
 "proliferation",NA,NA,NA,NA,"not_tested",0,0,2000,0,20276108,"not_estimable","fewer_than_three_cohorts",NA,"C_core_fixed_contract"
 "immune_tme",NA,NA,NA,NA,"not_tested",0,0,2000,0,20276108,"not_estimable","fewer_than_three_cohorts",NA,"C_core_fixed_contract"
 "stromal_tme",NA,NA,NA,NA,"not_tested",0,0,2000,0,20276108,"not_estimable","fewer_than_three_cohorts",NA,"C_core_fixed_contract"
-"ifn_il6",NA,NA,NA,NA,"not_tested",0,0,2000,0,20276108,"not_estimable","fewer_than_three_cohorts",NA,"C_core_fixed_contract"
+"ifn",NA,NA,NA,NA,"not_tested",0,0,2000,0,20276108,"not_estimable","fewer_than_three_cohorts",NA,"C_core_fixed_contract"
+"il6",NA,NA,NA,NA,"not_tested",0,0,2000,0,20276108,"not_estimable","fewer_than_three_cohorts",NA,"C_core_fixed_contract"

@@ -508,7 +508,7 @@
     unset = "E:/Sync/@Analysis/PanCan_Data/Level 1/PanCan_CancerSample_DataListForCCS_GEO+cBioPortal+UCXCXenav20240809.rds")
   signature_path <- Sys.getenv("CCS_GENE_SIGNATURE_RDS",
     unset = "E:/RCloud/database/Signature/report/GeneSignature-HWB.rds")
-  config_path <- file.path(getwd(), "raw", "config", "biological-anchors.yml")
+  config_path <- file.path(getwd(), "config", "biological-anchors.yml")
   if (!all(file.exists(c(expression_path, signature_path, config_path)))) return(FALSE)
   identical(cache$source$path, normalizePath(expression_path, winslash = "/")) &&
     identical(cache$signature$path, normalizePath(signature_path, winslash = "/")) &&
@@ -531,13 +531,19 @@
         call. = FALSE
       )
     }
-    return(.ablation03_stage_artifacts("01.03.00. biology-inputs.R", runtime_config$cache_root))
+    result <- .ablation03_stage_artifacts("01.03.00. biology-inputs.R", runtime_config$cache_root)
+    result$cache_md5 <- unname(tools::md5sum(file.path(result$directory,
+      c("expression-anchor-cache.rds", "structural-anchor-cache.rds"))))
+    return(result)
   }
-  .ablation03_target_stage(
+  result <- .ablation03_target_stage(
     "01.03.00. 生物输入准备.R",
     dependency = representation_target,
     cache_root = runtime_config$cache_root
   )
+  result$cache_md5 <- unname(tools::md5sum(file.path(result$directory,
+    c("expression-anchor-cache.rds", "structural-anchor-cache.rds"))))
+  result
 }
 
 .ablation03_read_artifact <- function(artifacts, filename, required = TRUE) {

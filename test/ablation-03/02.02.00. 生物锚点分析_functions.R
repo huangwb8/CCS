@@ -70,7 +70,8 @@
     per_query,
     n_boot = 2000L,
     seed = 20260830L,
-    min_cohorts = 3L) {
+    min_cohorts = 3L,
+    family_anchors = unique(per_query$anchor)) {
   if (n_boot < 100L) {
     stop("biology inference: n_boot must be at least 100.", call. = FALSE)
   }
@@ -137,7 +138,8 @@
   estimable <- !not_estimable & is.finite(result$p_value)
   result$p_value_adj[estimable] <- stats::p.adjust(
     result$p_value[estimable],
-    method = "BH"
+    method = "BH",
+    n = length(unique(family_anchors))
   )
   result
 }

@@ -1,4 +1,4 @@
-version: "2026-08-30"
+version: "2026-10-06-split-ifn-il6"
 source: "E:/RCloud/database/Signature/report/GeneSignature-HWB.rds"
 role: "independent_biological_anchor"
 readout: "reference_cohort_global_gene_zscore_signature_mean"
@@ -12,12 +12,15 @@ anchors:
   stromal_tme:
     family: "Zeng2021"
     name: "TME_B_Stromal2"
-  ifn_il6:
+  ifn:
     family: "IFN-IL6"
-    names:
-      - "IFNγ signaling"
-      - "IL6-JAK-STAT3 signaling"
+    name: "IFNγ signaling"
+  il6:
+    family: "IFN-IL6"
+    name: "IL6-JAK-STAT3 signaling"
 exclusions:
   cancer_type_substitution: false
   posthoc_anchor_selection: false
   ccs_input_overlap: "reported_in_manifest; disjoint filtering requires the CCS feature manifest"
+
+revision_context: "post_baseline_user_requested_pathway_split"

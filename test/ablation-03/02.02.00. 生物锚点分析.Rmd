@@ -239,6 +239,10 @@ high_coverage <- readRDS(targets::tar_read(biology_high_coverage_inference,
 hc_tables <- high_coverage[c("frontier", "primary", "grid", "cohort", "leave_one",
   "core", "readout_metrics", "readout_inference", "status", "eligibility", "gene_lists", "scales",
   "sensitivity", "sensitivity_status", "changes", "source_summary")]
+hc_tables$grid$BH_family <- ifelse(hc_tables$grid$primary,
+  "selected_primary_5_anchors",
+  paste("coverage", hc_tables$grid$tier, hc_tables$grid$score_definition,
+    hc_tables$grid$pool, "5_anchors", sep = ":"))
 for (name in names(hc_tables)) utils::write.csv(hc_tables[[name]], file.path(table_dir,
   paste0("02.02.00. high-coverage-", name, ".csv")), row.names = FALSE)
 hc_text <- function(x) {
@@ -364,7 +368,7 @@ diagnostic_change_plot <- function(data, labels, file_stem) {
 
 本报告是 `r analysis_name` 实验的生物学分析模块，只读取已经完成的邻居检索与 anchor 评估结果。前一份表示报告问“邻居的癌种或技术标签是否相同”；这里换一把尺子，问**邻居的连续表达状态是否接近**。例如，两位患者即使同属一个癌种，免疫活性也可能相差很远；仅凭癌种标签无法发现这类局部差异。
 
-这里的四类锚点是增殖、免疫微环境、基质微环境与 IFN/IL6 相关表达签名。Direct 更贴近原始表达排序，d1 则经过多个队列模型重编码；因此 d1 的局部表达邻居不必天然胜过 Direct。需要弄清的是损失有多大、是否跨队列一致，以及这种局部损失是否也出现在独立队列的较大尺度生物状态结构中。后一个问题由结构报告回答，本报告不把同一批表达数据衍生的锚点称为独立临床结局。
+这里的五类锚点是增殖、免疫微环境、基质微环境与 IFNγ 与 IL6-JAK-STAT3 相关表达签名。Direct 更贴近原始表达排序，d1 则经过多个队列模型重编码；因此 d1 的局部表达邻居不必天然胜过 Direct。需要弄清的是损失有多大、是否跨队列一致，以及这种局部损失是否也出现在独立队列的较大尺度生物状态结构中。后一个问题由结构报告回答，本报告不把同一批表达数据衍生的锚点称为独立临床结局。
 
 ## 数据概览
 
@@ -380,7 +384,7 @@ diagnostic_change_plot <- function(data, labels, file_stem) {
 | 接近度与主效应推断 | 用被选中邻居的锚点分数与 query 比较；不是主效应的重采样单位 | 要求两臂 top-15 分数完整，先做患者内配对，再在 query cohort 内平均，最后对 query cohort 等权 |
 | 后文连续读取器诊断 | 仅在 reference 训练和按 cohort 五折调参；训练折内重新拟合所需标尺 | 固定模型后外部评估，不参与调参；目标支持不足时不拟合、不发布效应 |
 
-原主效应的表达来自本地泛癌表达 atlas（GEO、cBioPortal 与 UCSC Xena 汇编），由 `r biology_input_script_name` 按契约提取到 `01-biology/expression-anchor-cache.rds`；签名来自 `r basename(biology_result$source_signature)`，选择规则冻结于 `raw/config/biological-anchors.yml`。两臂邻居来自正式表示分析产物 `ablation-experiment/anchor_retrieval.rds`。报告只读取这些正式产物，不重新训练 bank 或按生物锚点结果调整患者集合。reference 的 d1 来自冻结 bank 内表示，query 的 d1 为外部冻结变换；这里的“外部”描述样本与 bank 的使用关系，不代表表达锚点是独立临床结局。
+原主效应的表达来自本地泛癌表达 atlas（GEO、cBioPortal 与 UCSC Xena 汇编），由 `r biology_input_script_name` 按契约提取到 `01-biology/expression-anchor-cache.rds`；签名来自 `r basename(biology_result$source_signature)`，选择规则冻结于 `config/biological-anchors.yml`。两臂邻居来自正式表示分析产物 `ablation-experiment/anchor_retrieval.rds`。报告只读取这些正式产物，不重新训练 bank 或按生物锚点结果调整患者集合。reference 的 d1 来自冻结 bank 内表示，query 的 d1 为外部冻结变换；这里的“外部”描述样本与 bank 的使用关系，不代表表达锚点是独立临床结局。
 
 ### 队列来源、检测类型与完整清单
 
@@ -444,14 +448,15 @@ render_dt_output(query_usage, n = nrow(query_usage), pageLength = 15)
 
 可以把癌种看成学生所在的年级，连续表达状态看成具体科目的成绩：找到同年级的学生，并不保证数学成绩接近。本节用几组预先指定的基因作为“科目”，把每位患者的表达汇总成连续分数，再检查两种表示各自找到的同伴。这里的 readout 是**在已有邻居名单上读出表达接近度**，没有另训练一个签名预测器；它与前一报告的癌种线性 readout 是不同的任务。
 
-四个 anchor 按 `raw/config/biological-anchors.yml` 中的名称选取，多个签名组成一个 anchor 时先合并基因、去除重复，再等权评分，不根据哪项结果更好而临时挑选。
+五个 anchor 按 `config/biological-anchors.yml` 中的名称分别选取、去重并评分。2026-10-06 按负责人要求，将原 IFNγ 与 IL6-JAK-STAT3 基因并集拆为两个通路锚点；两个签名的天然共享基因各自在本通路中保留，不人为删去交集。这是查看原合并结果后的方案修订，不能称为原始预注册或独立确证。此次重算前固定五项检验族及原有测量、评分和资格规则，不按新结果挑选通路。当前只使用拆分后的五锚点方案，不保留合并指标作为分析结果。
 
 | 锚点 | 配置指定的签名 | 连续分数提供什么参照 |
 |---|---|---|
 | `proliferation` | `Tumor proliferation rate` | 增殖相关基因的相对表达水平 |
 | `immune_tme` | `TME_A_Immune2` | 免疫微环境相关基因的相对表达水平 |
 | `stromal_tme` | `TME_B_Stromal2` | 基质微环境相关基因的相对表达水平 |
-| `ifn_il6` | `IFNγ signaling` 与 `IL6-JAK-STAT3 signaling` 的基因并集 | 两组炎症信号相关基因的综合表达水平；本节未分别估计两条通路 |
+| `ifn` | `IFNγ signaling` | IFNγ 相关基因的相对表达水平 |
+| `il6` | `IL6-JAK-STAT3 signaling` | IL6-JAK-STAT3 相关基因的相对表达水平 |
 
 这些分数是表达签名的代理指标，不能直接读成细胞比例、实际增殖速度或通路因果活性。原基线未排除 CCS 输入重叠基因；后文新增了直接输入不重叠敏感性，但仍来自表达数据，不能据此建立测量独立性。因此，这是表达信息保留的诊断，不能当成独立临床结局验证。
 
@@ -528,7 +533,7 @@ $$
 在比较邻居之前，先核对每个队列的表达输入包含多少预设签名基因。对 anchor $a$ 和 cohort $c$，覆盖率 $h_{a,c}=|G_a\cap G_c|/|G_a|$，其中 $G_a$ 是预设基因集，$G_c$ 是该队列表达矩阵的基因行名集合；100% 表示预设基因都在输入中，部分覆盖表示其中一些基因不存在。好比用同一张菜谱比较各家菜品：先看每家拿到了多少原料，才能解释味道差异。**输入中存在的基因仍可能因 reference 标准差无效或样本表达缺失而不进入评分**，所以覆盖率不是最终评分基因的完整性，更不能直接当作效用或独立验证。
 
 ```{r figure-biology-anchor-coverage, echo=TRUE, interp_check=TRUE}
-fig_coverage <- list(width_in = 8.4, height_in = 5.8, base_size = 10,
+fig_coverage <- list(width_in = 8.4, height_in = 7.4, base_size = 10,
   point_size = 1.6, median_size = 2.8)
 coverage_plot <- biology_coverage
 coverage_plot$anchor <- factor(coverage_plot$anchor, levels = anchor_order)
@@ -623,10 +628,10 @@ $$
 
 P 值另用双侧配对 sign-flip 检验：在零假设下队列差值的符号可交换的前提下，保留每个差值的大小、改变正负号，检查所得平均差的绝对值有多常达到观察值。最多 `r 18L` 个 cohort 时枚举全部符号组合，更多时用 Monte Carlo 并做加一校正；当前方法为 `r if (nrow(biology_inference_estimable)) paste(unique(biology_inference_estimable$p_method), collapse = "、") else "无可估计锚点，未报告检验"`。区间与 P 值来自不同构造，不能互相换算；跨零不证明等价，未跨零也不能替代多重检验结论。
 
-可估计锚点作为一个检验族做 Benjamini–Hochberg（BH）校正，表中 `p_value_adj` 用于控制该检验族的假发现率，不能读成某一结论出错的概率。少于 `r 3L` 个有效 cohort 时，仅保留描述性点估计，区间和 P 值为 NA。四项签名可能共享表达过程，因此同向结果也不能算作四次独立机制验证。
+五个选定锚点固定作为一个检验族做 Benjamini–Hochberg（BH）校正，缺失或不可估计项仍计入五项分母，表中 `p_value_adj` 用于控制该检验族的假发现率，不能读成某一结论出错的概率。少于 `r 3L` 个有效 cohort 时，仅保留描述性点估计，区间和 P 值为 NA。五项签名可能共享表达过程，因此同向结果也不能算作五次独立机制验证。
 
 ```{r figure-biology-anchor-inference, echo=TRUE, interp_check=TRUE}
-fig_inference <- list(width_in = 8.6, height_in = 3.0, base_size = 10,
+fig_inference <- list(width_in = 9.2, height_in = 3.5, base_size = 10,
   point_size = 2.6, line_size = 0.55)
 inference_plot <- biology_inference
 inference_plot$plot_row <- match(inference_plot$anchor, rev(anchor_order))
@@ -830,7 +835,7 @@ local_plot$anchor <- factor(local_plot$anchor, levels = anchor_order)
 local_limits <- range(c(0, local_plot$estimate,
   local_plot$ci_low, local_plot$ci_high), na.rm = TRUE)
 local_padding <- max(0.01, diff(local_limits) * 0.06)
-fig_local <- list(width_in = 10.2,
+fig_local <- list(width_in = 12.5,
   height_in = max(6, length(local_cohort_order) * 0.22 + 1.1),
   base_size = 9, point_size = 1.6, line_size = 0.4)
 p_local <- ggplot2::ggplot(local_plot,
@@ -890,7 +895,7 @@ local_jpg <- .ae_save_plot(p_local,
 knitr::include_graphics(local_jpg)
 ```
 
-解读：四列锚点沿用预设顺序，队列与前面的异质性热图一样按字典序排列；每个圆点复现热图同一格子的配对均值，横线给出该格子的队列内 95% query bootstrap 区间，虚线为零差值。每格基于 `r min(local_biology$n_query)` 至 `r max(local_biology$n_query)` 个有效配对 query；当前 `r nrow(local_estimable)`／`r nrow(local_biology)` 个格子可估计区间，`r local_cross_zero_count` 个区间包含零。横线更长表示在当前冻结条件下均值对患者组成更敏感，并不直接等同于患者个体差异更大；区间同时受样本量与差值分布影响。空心点只表示描述性估计，缺失区间不画成零宽区间，原因保留在表中。
+解读：五列锚点沿用预设顺序，队列与前面的异质性热图一样按字典序排列；每个圆点复现热图同一格子的配对均值，横线给出该格子的队列内 95% query bootstrap 区间，虚线为零差值。每格基于 `r min(local_biology$n_query)` 至 `r max(local_biology$n_query)` 个有效配对 query；当前 `r nrow(local_estimable)`／`r nrow(local_biology)` 个格子可估计区间，`r local_cross_zero_count` 个区间包含零。横线更长表示在当前冻结条件下均值对患者组成更敏感，并不直接等同于患者个体差异更大；区间同时受样本量与差值分布影响。空心点只表示描述性估计，缺失区间不画成零宽区间，原因保留在表中。
 
 这些是**逐格的点式区间，未对全部格子作同时覆盖校正**。区间完全位于零的一侧可描述该格子的方向与不确定性，不能当作经多重检验确认的亚组发现；跨零也不能证明等价。它们条件于当前 cohort、冻结模型、reference 尺子和近邻名单，不包含 bank 重训、reference 更换或未来 cohort 的波动，不能替代上文的 cohort 等权主区间。热图中事后选出的极值仍只供追查，不提供单格 P 值。
 
@@ -942,7 +947,7 @@ p_hc_frontier <- ggplot2::ggplot(frontier_long,
     labeller = ggplot2::labeller(anchor = ggplot2::as_labeller(anchor_labels),
       metric = ggplot2::as_labeller(c(query_cohorts = "Query\ncohorts",
         source_groups = "Source\ngroups", background_genes = "Common\nbackground genes")))) +
-  ggplot2::scale_color_manual(values = stats::setNames(unname(nature_colors[c("navy", "green", "red", "purple")]), names(anchor_labels)),
+  ggplot2::scale_color_manual(values = stats::setNames(unname(nature_colors[c("navy", "green", "red", "purple", "brown")]), names(anchor_labels)),
     labels = anchor_labels) +
   ggplot2::scale_x_continuous(breaks = 100 * high_coverage$config$coverage_tiers) +
   ggplot2::scale_y_continuous(breaks = function(x) unique(round(pretty(x, n = 3)))) +
@@ -958,7 +963,7 @@ render_dt(frontier, pageLength = 16)
 
 #### 秩评分与同癌种主比较
 
-在冻结高覆盖签名上使用样本内百分位秩均值，再用完整 reference 样本定标。候选 reference 样本先通过相同签名与背景资格，再分别检索两臂；同癌种至少两个独立 reference 队列，绝不先找邻居再删除缺分数者。每个 query 先计算配对效用差，再在队列内平均、队列间等权。主比较四锚点构成固定 BH 校正族，技术下限为 `r high_coverage$config$min_inference_cohorts` 个队列及 `r high_coverage$config$min_valid_bootstrap` 次有效 cohort bootstrap。
+在冻结高覆盖签名上使用样本内百分位秩均值，再用完整 reference 样本定标。候选 reference 样本先通过相同签名与背景资格，再分别检索两臂；同癌种至少两个独立 reference 队列，绝不先找邻居再删除缺分数者。每个 query 先计算配对效用差，再在队列内平均、队列间等权。主比较五锚点构成固定 BH 校正族，技术下限为 `r high_coverage$config$min_inference_cohorts` 个队列及 `r high_coverage$config$min_valid_bootstrap` 次有效 cohort bootstrap。
 
 ```{r high-coverage-primary, echo=TRUE, fig.height=4, fig.width=9}
 hc_primary <- high_coverage$primary
@@ -1009,11 +1014,11 @@ if (nrow(hc_tiers)) {
   jpg <- hc_save_plot(p_hc_tiers, "02.02.00. high-coverage-tiers", width = 9, height = 5)
   knitr::include_graphics(jpg)
 }
-htmltools::tagList(render_dt(high_coverage$grid, pageLength = 16),
+htmltools::tagList(render_dt(hc_tables$grid, pageLength = 16),
   render_dt(high_coverage$changes, pageLength = 8))
 ```
 
-全部预设四格和覆盖率档均保存在表中，共 `r nrow(high_coverage$grid)` 行，其中 `r sum(high_coverage$grid$status == "estimable")` 行满足区间门槛。覆盖率图只展示可估计的秩同癌种结果，不为缺失结果保留分面或人数标签；各档省略项及原因见完整表。图内 c/q 是每档实际队列与配对 query 数；不同档位同时改变基因完整度和验证人群，曲线变化不能仅归因于覆盖率。原尺度与秩资格可能不同，跨格机制对比须看固定共同患者的敏感性产品，不能直接相减不同分母的总体均值。缺失结果不补作零效应。
+全部预设四格和覆盖率档均保存在表中，共 `r nrow(high_coverage$grid)` 行，其中 `r sum(high_coverage$grid$status == "estimable")` 行满足区间门槛。`BH_family` 标明每行 q 值的检验族：`primary=TRUE` 的行使用五锚点各自选定档位组成的主族；其余行按对应覆盖档、评分和候选池的完整五锚点族校正，计算仍包括该档内的主比较锚点和不可估计项。主表和完整表中的主比较行使用相同 q 值；不能把完整表同一覆盖档内所有显示的 q 值都当作同一个检验族。覆盖率图只展示可估计的秩同癌种结果，不为缺失结果保留分面或人数标签；各档省略项及原因见完整表。图内 c/q 是每档实际队列与配对 query 数；不同档位同时改变基因完整度和验证人群，曲线变化不能仅归因于覆盖率。原尺度与秩资格可能不同，跨格机制对比须看固定共同患者的敏感性产品，不能直接相减不同分母的总体均值。缺失结果不补作零效应。
 
 #### 信息可读取性与邻居几何
 
@@ -1033,7 +1038,7 @@ if (nrow(hc_readout)) {
       ggplot2::geom_errorbar(ggplot2::aes(ymin = ci_low_mae, ymax = ci_high_mae), width = 0) +
       ggplot2::geom_errorbar(ggplot2::aes(xmin = ci_low_utility, xmax = ci_high_utility),
         orientation = "y", width = 0) + ggplot2::geom_point(size = 2.5) +
-      ggplot2::scale_color_manual(values = stats::setNames(unname(nature_colors[c("navy", "green", "red", "purple")]), names(anchor_labels)), labels = anchor_labels) +
+      ggplot2::scale_color_manual(values = stats::setNames(unname(nature_colors[c("navy", "green", "red", "purple", "brown")]), names(anchor_labels)), labels = anchor_labels) +
       ggplot2::labs(x = "Neighbor utility: d1 minus Direct", y = "Readout MAE: d1 minus Direct", color = NULL) + theme_nature_readable(base_size = 10)
     jpg <- hc_save_plot(p_hc_map, "02.02.00. high-coverage-mechanism", width = 8, height = 4)
     knitr::include_graphics(jpg)
@@ -1045,7 +1050,7 @@ htmltools::tagList(render_dt(high_coverage$readout_inference, pageLength = 8),
 
 秩 ridge 读取器结果为：`r if (nrow(hc_readout)) hc_text(hc_readout[hc_readout$score_definition == "common_rank" & hc_readout$reader == "ridge", ]) else "没有达到读取器门槛的目标；原因见分支状态表。"`。若邻居效用下降而读取误差没有同等恶化，才更倾向信息仍在而距离利用不足；两者同时恶化才增加表示压缩的证据。不同任务与有效分母须一起检查，这些表达签名仍不是独立病理或临床结局。完整单臂 MAE、相关及 reference 均值基准保存在 high-coverage-readout_metrics.csv。
 
-预设非线性读取器也须一起判断。秩 XGBoost 分支中，`r if (nrow(hc_readout)) { x <- hc_readout[hc_readout$score_definition == "common_rank" & hc_readout$reader == "xgboost" & hc_readout$status == "estimable" & is.finite(hc_readout$q_value) & hc_readout$q_value < .05 & hc_readout$ci_low > 0, ]; if (nrow(x)) paste0("存在 BH 校正后 MAE 增加的锚点：", hc_text(x), "，q = ", paste(fmt(x$q_value, 4), collapse = "、")) else "未获得四锚点 BH 校正后的 MAE 增加证据" } else "没有可估计结果"`。同癌种近邻效用差接近零，仍不能代替连续目标的可恢复性验证；读取器的不利差异也只对应当前签名、训练规则和冻结参考集，不等同于全部生物信息消失。未触发 XGBoost 或评分资格不足的空格均不补作零误差差。
+预设非线性读取器也须一起判断。秩 XGBoost 分支中，`r if (nrow(hc_readout)) { x <- hc_readout[hc_readout$score_definition == "common_rank" & hc_readout$reader == "xgboost" & hc_readout$status == "estimable" & is.finite(hc_readout$q_value) & hc_readout$q_value < .05 & hc_readout$ci_low > 0, ]; if (nrow(x)) paste0("存在 BH 校正后 MAE 增加的锚点：", hc_text(x), "，q = ", paste(fmt(x$q_value, 4), collapse = "、")) else "未获得五锚点 BH 校正后的 MAE 增加证据" } else "没有可估计结果"`。同癌种近邻效用差接近零，仍不能代替连续目标的可恢复性验证；读取器的不利差异也只对应当前签名、训练规则和冻结参考集，不等同于全部生物信息消失。未触发 XGBoost 或评分资格不足的空格均不补作零误差差。
 
 #### 队列、来源与共同人群敏感性
 
@@ -1073,17 +1078,17 @@ htmltools::tagList(render_dt(high_coverage$leave_one, pageLength = 8),
   render_dt(high_coverage$sensitivity_status, pageLength = 8))
 ```
 
-图中各锚点共享队列纵轴，名称仅在左侧显示；空白位置表示该锚点在该队列没有合格结果。所有合格队列的方向均保留。留一队列／来源后在剩余队列上重新计算等权区间，来源不足时不伪造独立来源；来源留一属于稳健性诊断，不是来源层随机抽样推断。四锚点冻结合同的队列交集有 `r length(high_coverage$core_contract_cohorts)` 个队列；进一步取四个秩同癌种比较实际通过完整评分和人数门槛的共同队列，C_core 有 `r length(high_coverage$core_cohorts)` 个队列。该对照固定相同队列，患者仍按各签名的完整值资格配对；不重新挑基因，也不反向修改各锚点合同。距离与技术限制的变化先在同一患者匹配再汇总，敏感性区间不附新 p/q。原广队列效应继续回答异质部署条件下的现实表现，与本节测量一致性验证并列解读。
+图中各锚点共享队列纵轴，名称仅在左侧显示；空白位置表示该锚点在该队列没有合格结果。所有合格队列的方向均保留。留一队列／来源后在剩余队列上重新计算等权区间，来源不足时不伪造独立来源；来源留一属于稳健性诊断，不是来源层随机抽样推断。五锚点冻结合同的队列交集有 `r length(high_coverage$core_contract_cohorts)` 个队列；进一步取五个秩同癌种比较实际通过完整评分和人数门槛的共同队列，C_core 有 `r length(high_coverage$core_cohorts)` 个队列。该对照固定相同队列，患者仍按各签名的完整值资格配对；不重新挑基因，也不反向修改各锚点合同。距离与技术限制的变化先在同一患者匹配再汇总，敏感性区间不附新 p/q。原广队列效应继续回答异质部署条件下的现实表现，与本节测量一致性验证并列解读。
 
 ## 连续生物锚点的受控根因诊断
 
-本轮诊断保留以上原评分、原邻居与负差结果。零改动核对复现了 `r diagnostic_audit$baseline_check$cells` 个 cohort–anchor 格子，最大点估计误差为 `r format(diagnostic_audit$baseline_check$max_absolute_error, scientific = TRUE)`，人数一致。新实验固定于 `raw/config/biology-diagnostics.yml`，统一 seed 为 `r diagnostic$config$seed`；所有计算、检索门禁、模型拟合与 bootstrap 均由正式 targets 产生。本节只读取缓存并展示结果。由于旧结果已被查看，本轮属于探索性机制诊断。
+本轮诊断保留以上原评分、原邻居与负差结果。零改动核对复现了 `r diagnostic_audit$baseline_check$cells` 个 cohort–anchor 格子，最大点估计误差为 `r format(diagnostic_audit$baseline_check$max_absolute_error, scientific = TRUE)`，人数一致。新实验固定于 `config/biology-diagnostics.yml`，统一 seed 为 `r diagnostic$config$seed`；所有计算、检索门禁、模型拟合与 bootstrap 均由正式 targets 产生。本节只读取缓存并展示结果。由于旧结果已被查看，本轮属于探索性机制诊断。
 
 ### 本轮诊断能得出什么
 
 `r if (!any(diagnostic_primary_coverage$estimable)) "**严格完整锚点诊断仍缺少测量支持，原负差根因尚不能确证；下方固定残余基因探索可提供评分与候选池敏感性的线索。**" else "本轮按预设测量与推断门槛保留可估计效应；每项结论须同时核对下列覆盖、人数与区间。"`
 
-本轮已恢复样本内秩评分。严格诊断保留共同原尺度与秩评分；秩背景门槛为 `r diagnostic$config$min_background_genes`，目前为 `r length(diagnostic_audit$background)` 个共同基因。原尺度只需要签名基因。四项共同覆盖为 `r paste(paste0(diagnostic_primary_coverage$anchor, "：", diagnostic_primary_coverage$common_count, "/", diagnostic_primary_coverage$original_count), collapse = "；")`，严格合格 `r sum(diagnostic_primary_coverage$estimable)`／`r nrow(diagnostic_primary_coverage)` 项。另列低覆盖残余基因探索结果提供线索，不具有完整锚点测量资格。
+本轮已恢复样本内秩评分。严格诊断保留共同原尺度与秩评分；秩背景门槛为 `r diagnostic$config$min_background_genes`，目前为 `r length(diagnostic_audit$background)` 个共同基因。原尺度只需要签名基因。五项共同覆盖为 `r paste(paste0(diagnostic_primary_coverage$anchor, "：", diagnostic_primary_coverage$common_count, "/", diagnostic_primary_coverage$original_count), collapse = "；")`，严格合格 `r sum(diagnostic_primary_coverage$estimable)`／`r nrow(diagnostic_primary_coverage)` 项。另列低覆盖残余基因探索结果提供线索，不具有完整锚点测量资格。
 
 测量门禁不通过，说明当前新诊断缺少可比较目标，**不能据此认定测量问题造成了原基线负差，也不能把未拟合的读取器解释为 d1 预测失败**。癌种标签与完整邻居的资格不能替代测量资格。检索召回、邻居组成、模块相关及距离贡献仍可作描述，无法单独排序测量尺度、癌种组成、距离权重或信息损失的根因。
 
@@ -1137,7 +1142,7 @@ render_dt(diagnostic_tables$experiment_qualification,
 render_dt(diagnostic_audit$coverage, pageLength = 12)
 ```
 
-直接输入不重叠签名使用普通基因、基因对以及冻结 geneSet 的完整保守支持集合；set-pair 的列名没有被当作基因列表。输入支持状态为 `r diagnostic_audit$input_support$reason`。即使保留签名通过覆盖门槛，表达相关性仍可能存在，此结果只支持直接输入不重叠，不构成独立病理或临床验证。IFN 与 IL6 拆分为补充比较族，原四项锚点仍为主要集合。
+直接输入不重叠签名使用普通基因、基因对以及冻结 geneSet 的完整保守支持集合；set-pair 的列名没有被当作基因列表。输入支持状态为 `r diagnostic_audit$input_support$reason`。即使保留签名通过覆盖门槛，表达相关性仍可能存在，此结果只支持直接输入不重叠，不构成独立病理或临床验证。IFNγ 与 IL6-JAK-STAT3 已分别纳入当前五项主要锚点，不另列重复的拆分补充比较族。
 
 ### 相同患者上的评分与癌种组成对照
 
@@ -1171,7 +1176,7 @@ if (nrow(diagnostic_grid) && any(is.finite(diagnostic_grid$estimate))) {
 render_dt(diagnostic_changes, pageLength = 12)
 ```
 
-上述变化均先在同一患者上计算差中差，再汇总到 cohort。正的距离变化表示相对原 d1 距离改善；正的候选池变化表示癌种内限制缩小了 d1 的相对劣势。变化的 95% 区间跨零不能证明两个方案等价，各受控变化也不能相加成根因贡献比例。四项原锚点和预定比较按各自检验族做双侧 sign-flip 与 BH 校正，所有预定比较都保留。
+上述变化均先在同一患者上计算差中差，再汇总到 cohort。正的距离变化表示相对原 d1 距离改善；正的候选池变化表示癌种内限制缩小了 d1 的相对劣势。变化的 95% 区间跨零不能证明两个方案等价，各受控变化也不能相加成根因贡献比例。五项锚点和预定比较按各自检验族做双侧 sign-flip 与 BH 校正，所有预定比较都保留。
 
 ### 连续信息读取与距离权重
 
@@ -1464,7 +1469,7 @@ jpg <- diagnostic_change_plot(exploratory$inference, change_labels,
 if (!is.null(jpg)) knitr::include_graphics(jpg)
 ```
 
-解读：这张图显示既有四格之间的配对差中差，零线表示切换后 d1−Direct 差值未变，正值表示 d1 的相对差值提高。四个面板均在各代理的四格共同患者上比较；标题显示实际 cohort／query 人数，不能用广覆盖结果替代。横线是多基因残余代理的 95% 条件区间；基质单基因仅有点，不补区间或检验。变化提高也不保证切换后的 d1 优于 Direct，须与前一张水平图一起读。
+解读：这张图显示既有四格之间的配对差中差，零线表示切换后 d1−Direct 差值未变，正值表示 d1 的相对差值提高。五个面板均在各代理的四格共同患者上比较；标题显示实际 cohort／query 人数，不能用广覆盖结果替代。横线是多基因残余代理的 95% 条件区间；基质单基因仅有点，不补区间或检验。变化提高也不保证切换后的 d1 优于 Direct，须与前一张水平图一起读。
 
 ```{r diagnostic-low-coverage-distance-changes, echo=TRUE, fig.height=6, fig.width=11}
 distance_change_labels <- c(
@@ -1477,7 +1482,7 @@ jpg <- diagnostic_change_plot(exploratory$inference, distance_change_labels,
 if (!is.null(jpg)) knitr::include_graphics(jpg)
 ```
 
-解读：每项距离改变单独与对应基线在共同患者上配对，Direct 的距离固定，评分为冻结的秩主评分；正值表示该规则下 d1 的相对差值提高。全癌种与同癌种面板的人数可不同，标题分别列出，不将不同人群间差值解释为规则作用。两个预定规则、四项代理及相反方向均保留，不能挑选有利规则或把这些变化相加为根因比例。
+解读：每项距离改变单独与对应基线在共同患者上配对，Direct 的距离固定，评分为冻结的秩主评分；正值表示该规则下 d1 的相对差值提高。全癌种与同癌种面板的人数可不同，标题分别列出，不将不同人群间差值解释为规则作用。两个预定规则、五项代理及相反方向均保留，不能挑选有利规则或把这些变化相加为根因比例。
 
 ```{r diagnostic-low-coverage-comparisons, echo=TRUE}
 render_dt(exploratory$inference, n = nrow(exploratory$inference), pageLength = 12)
@@ -1487,7 +1492,7 @@ render_dt(exploratory$inference, n = nrow(exploratory$inference), pageLength = 1
 
 当前候选池切换中，95% 条件区间完全为正的多基因代理为 `r paste(exploratory$inference$anchor[exploratory$inference$comparison == "change:rank_pool" & is.finite(exploratory$inference$ci_low) & exploratory$inference$ci_low > 0], collapse = "、")`；评分切换对应为 `r paste(exploratory$inference$anchor[exploratory$inference$comparison == "change:all_score" & is.finite(exploratory$inference$ci_low) & exploratory$inference$ci_low > 0], collapse = "、")`。这些观察提示候选池组成与评分定义影响当前残余分数的局部接近度；不能将其直接解释成原完整签名负差的成因或技术偏差已消除。同癌种下，免疫残余代理取消逐列标准差缩放的变化为 `r exploratory_text(exploratory$inference[exploratory$inference$comparison == "distance_change:same_cancer:module_unscaled" & exploratory$inference$anchor == "immune_tme", ])`，tissue 等权变化为 `r exploratory_text(exploratory$inference[exploratory$inference$comparison == "distance_change:same_cancer:tissue_balanced" & exploratory$inference$anchor == "immune_tme", ])`，两个预定规则分别报告，不选择较有利者作为最终机制解释。
 
-本补充不发布 p/q，不训练低覆盖读取器。多基因 95% 条件区间只在至少二十个有效 query/cohort、三个 cohort 和足够有效 bootstrap 时给出；基质单基因一律仅描述。区间不包含残余基因选择、跨平台偏差或 bank 重训，也不能证明秩评分消除了技术影响。低覆盖结果可指示后续验证方向，严格诊断仍不可估计，原负差的根因尚不能确证。
+本补充不发布 p/q，不训练低覆盖读取器。多基因 95% 条件区间只在至少二十个有效 query/cohort、三个 cohort 和足够有效 bootstrap 时给出；基质单基因一律仅描述。区间不包含残余基因选择、跨平台偏差或 bank 重训，也不能证明秩评分消除了技术影响。低覆盖结果可指示后续验证方向。严格诊断当前有 `r sum(diagnostic$inference$status == "estimable")` 项可估计比较，资格和效应见前文完整表；这些条件比较不能确证原负差的根因。
 
 ### 检索准确性与证据边界
 
@@ -1509,7 +1514,7 @@ render_dt(validation_summary, pageLength = 12)
 
 ### 原大队列基线显示了哪一种局部代价
 
-本次预设锚点包括增殖、免疫微环境、基质微环境及 IFN/IL6 相关签名。它们问的是：对同一个外部患者，d1 找到的邻居在这些连续表达分数上，是否比 Direct 找到的邻居更接近？当前 `r sum(biology_inference$estimate < 0)`／`r nrow(biology_inference)` 项 cohort 等权点估计为负，`r sum(biology_inference_estimable$ci_high < 0)` 项可估计结果的 95% 区间完全低于零。具体差值与区间为：`r paste(paste0(biology_inference$anchor, "：", fmt(biology_inference$estimate), " [", fmt(biology_inference$ci_low), ", ", fmt(biology_inference$ci_high), "]"), collapse = "；")`。这些是各锚点 utility 的绝对差，负值表示当前局部表达接近度偏向 Direct。
+本次预设锚点包括增殖、免疫微环境、基质微环境及 IFNγ 与 IL6-JAK-STAT3 相关签名。它们问的是：对同一个外部患者，d1 找到的邻居在这些连续表达分数上，是否比 Direct 找到的邻居更接近？当前 `r sum(biology_inference$estimate < 0)`／`r nrow(biology_inference)` 项 cohort 等权点估计为负，`r sum(biology_inference_estimable$ci_high < 0)` 项可估计结果的 95% 区间完全低于零。具体差值与区间为：`r paste(paste0(biology_inference$anchor, "：", fmt(biology_inference$estimate), " [", fmt(biology_inference$ci_low), ", ", fmt(biology_inference$ci_high), "]"), collapse = "；")`。这些是各锚点 utility 的绝对差，负值表示当前局部表达接近度偏向 Direct。
 
 绝对点估计差最大的是 `r biology_top_signal$anchor`，d1−Direct 为 `r fmt(biology_top_signal$estimate)`，95% 区间为 `r paste0("[", fmt(biology_top_signal$ci_low), ", ", fmt(biology_top_signal$ci_high), "]")`，涉及 `r biology_top_signal$cohort_count` 个 cohort、`r biology_top_signal$query_count` 个 query，BH 校正 P 值为 `r fmt_p(biology_top_signal$p_value_adj)`。这里的“最大”只指预设锚点内的量级；几个锚点也可能共同反映相近的表达过程，不能视为同样多次完全独立的机制验证。
 
@@ -1529,7 +1534,7 @@ Direct 保留用于比较的原始特征，d1 则把患者变成多个冻结模�
 
 高覆盖验证回答统一签名、癌种内部的邻居几何，原 43-cohort 基线回答异质测量条件下的广队列部署表现。两者改变了评分定义和验证人群，不能将总体差值的减小直接解释为某个机制贡献的比例；该问题应结合冻结合同内、共同患者上的评分／候选池差中差。连续读取器进一步检验同一目标能否从表示中恢复：秩 ridge 的标准化 MAE 差为 `r if (nrow(high_coverage$readout_inference)) hc_text(high_coverage$readout_inference[high_coverage$readout_inference$score_definition == "common_rank" & high_coverage$readout_inference$reader == "ridge", ]) else "不可估计，原因见读取器状态表"`，正值表示 d1 更差。效用与读取器同时出现不利证据，才加强表示压缩的解释；读取器区间跨零仍不足以证明信息无损。
 
-任何一个锚点未通过秩门槛，都应作为结论边界保留。四锚点共同验证人群 C_core 只有 `r length(high_coverage$core_cohorts)` 个合格队列；不能用原合同的队列交集替代实际评分资格。当前结果条件于冻结 bank、reference atlas 和合同，来源共享与未确认的预处理差异仍限制向全新测量系统的推广。
+任何一个锚点未通过秩门槛，都应作为结论边界保留。五锚点共同验证人群 C_core 只有 `r length(high_coverage$core_cohorts)` 个合格队列；不能用原合同的队列交集替代实际评分资格。当前结果条件于冻结 bank、reference atlas 和合同，来源共享与未确认的预处理差异仍限制向全新测量系统的推广。
 
 ### 总体负差是否意味着每个 cohort 都变差
 

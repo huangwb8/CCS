@@ -214,14 +214,15 @@
     }
   }
   grid <- .hc_bind(rows)
-  # Four anchors always remain in each declared testing family, including NA.
+  # All configured anchors remain in each declared testing family, including NA.
+  family_size <- length(frozen$config$primary_anchors)
   for (key in unique(paste(grid$tier, grid$score_definition, grid$pool))) {
     idx <- which(paste(grid$tier, grid$score_definition, grid$pool) == key)
-    grid$q_value[idx] <- stats::p.adjust(grid$p_value[idx], method = "BH", n = 4L)
+    grid$q_value[idx] <- stats::p.adjust(grid$p_value[idx], method = "BH", n = family_size)
   }
   primary <- grid[grid$primary, ]
-  primary$q_value <- stats::p.adjust(primary$p_value, "BH", n = 4L)
-  primary$family <- "four_selected_high_coverage_rank_same_cancer_anchors"
+  primary$q_value <- stats::p.adjust(primary$p_value, "BH", n = family_size)
+  primary$family <- "selected_high_coverage_rank_same_cancer_anchors"
   primary$effective_source_groups <- vapply(seq_len(nrow(primary)), function(i) {
     row <- primary[i, ]
     used <- .hc_bind(cohorts)
@@ -316,7 +317,7 @@
   readout_inference <- .hc_bind(readout_rows)
   if (nrow(readout_inference)) for (key in unique(paste(readout_inference$score_definition, readout_inference$reader))) {
     idx <- which(paste(readout_inference$score_definition, readout_inference$reader) == key)
-    readout_inference$q_value[idx] <- stats::p.adjust(readout_inference$p_value[idx], "BH", n = 4L)
+    readout_inference$q_value[idx] <- stats::p.adjust(readout_inference$p_value[idx], "BH", n = family_size)
   }
   status <- .hc_bind(lapply(readers, function(r) .hc_bind(lapply(names(r$results), function(definition) {
     x <- r$results[[definition]]

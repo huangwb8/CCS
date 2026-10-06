@@ -397,7 +397,7 @@ knitr::include_graphics(fig_data3_jpg)
 
 ## Biology anchor 数据审计
 
-上面的主数据画像来自 `r main_feature_count` 特征表达数据；本节单独核对 biology anchor 所依赖的完整表达矩阵入口。完整矩阵由 `01.03.00. 生物输入准备.R` 一次性读取，再按冻结的四类 gene signature 提取所需基因；因此这里读取的是可追溯的派生缓存，不会在 Rmd 中重复载入大矩阵。
+上面的主数据画像来自 `r main_feature_count` 特征表达数据；本节单独核对 biology anchor 所依赖的完整表达矩阵入口。完整矩阵由 `01.03.00. 生物输入准备.R` 一次性读取，再按冻结的五类 gene signature 提取所需基因；因此这里读取的是可追溯的派生缓存，不会在 Rmd 中重复载入大矩阵。
 
 当前缓存状态为 `r biology_cache$status`，来源文件为 `r biology_profile$source_file`，包含 `r biology_profile$required_gene_count` 个唯一 anchor 基因、`r biology_profile$anchor_count` 类 anchor、`r biology_profile$cohort_count` 个 cohort 和 `r biology_profile$sample_count` 个目标样本，覆盖 `r biology_profile$tissue_count` 个 tissue。这个范围由主实验的完整 reference 与候选 query 合同确定，不再只缓存被选中的邻居；经过输入对齐后，它不等同于上面的全量 `r raw_sample_count` 个原始样本。
 
@@ -422,7 +422,7 @@ render_dt(biology_anchor_summary_display, pageLength = 10)
 
 ### Anchor 覆盖率分布图
 
-每个点代表一个 cohort 的 signature 基因覆盖率，箱线表示中位数与四分位范围；各 cohort 等权，不按样本量加权。纵轴固定为 `r paste(scales::label_percent(accuracy = 1)(c(0, 1)), collapse = "–")`，顶部标注每类 anchor 所需的基因数和可计算 cohort 数。点的横向偏移仅用于减少重叠，不代表额外指标；同一 cohort 在四类 anchor 中重复出现，因此这些点不是独立生物学重复。
+每个点代表一个 cohort 的 signature 基因覆盖率，箱线表示中位数与四分位范围；各 cohort 等权，不按样本量加权。纵轴固定为 `r paste(scales::label_percent(accuracy = 1)(c(0, 1)), collapse = "–")`，顶部标注每类 anchor 所需的基因数和可计算 cohort 数。点的横向偏移仅用于减少重叠，不代表额外指标；同一 cohort 在五类 anchor 中重复出现，因此这些点不是独立生物学重复。
 
 ```{r figure-data-biology-anchor-coverage, interp_check=TRUE}
 # Purpose: Audit the full cohort-level signature coverage distribution.
@@ -483,11 +483,11 @@ knitr::include_graphics(fig_data4_jpg)
 
 #### 图形解读
 
-本图保留全部 `r nrow(biology_profile$coverage)` 条记录；覆盖率低于 100% 的记录有 `r sum(biology_profile$coverage$coverage < 1)` 条。四类 anchor 的最低覆盖率依次为 `r paste(biology_profile$anchor_summary$anchor, scales::label_percent(accuracy = 0.1)(biology_profile$anchor_summary$min_coverage), sep = " = ", collapse = "；")`。靠近顶部的点表示 signature 基因较完整，较低的点提示应在下方明细表核查具体 cohort 与基因标识类型。可计算只要求至少找到两个基因，不等同于 signature 完整，也不证明跨组织或跨来源的生物学有效性。
+本图保留全部 `r nrow(biology_profile$coverage)` 条记录；覆盖率低于 100% 的记录有 `r sum(biology_profile$coverage$coverage < 1)` 条。五类 anchor 的最低覆盖率依次为 `r paste(biology_profile$anchor_summary$anchor, scales::label_percent(accuracy = 0.1)(biology_profile$anchor_summary$min_coverage), sep = " = ", collapse = "；")`。靠近顶部的点表示 signature 基因较完整，较低的点提示应在下方明细表核查具体 cohort 与基因标识类型。可计算只要求至少找到两个基因，不等同于 signature 完整，也不证明跨组织或跨来源的生物学有效性。
 
 #### 结果解读
 
-四类 anchor 在当前缓存中共有 `r nrow(biology_profile$coverage)` 条 cohort-anchor 审计记录，其中 `r sum(biology_profile$coverage$status == "estimable")` 条满足当前基因数门槛；按覆盖率中位数排序的前三类为 `r biology_top_anchor_signal`。图上每个点相当于问“这一队列能找到多少签名基因”，而不是问“d1 能否找到正确生物邻居”。即使箱体靠近 100%，也还需确认两臂邻居的分数完整，且同一签名在不同来源的测量含义可比；本阶段跨来源敏感性分析完成 `r 0L` 轮，不能把高覆盖率写成生物学效用已通过外部验证。
+五类 anchor 在当前缓存中共有 `r nrow(biology_profile$coverage)` 条 cohort-anchor 审计记录，其中 `r sum(biology_profile$coverage$status == "estimable")` 条满足当前基因数门槛；按覆盖率中位数排序的前三类为 `r biology_top_anchor_signal`。图上每个点相当于问“这一队列能找到多少签名基因”，而不是问“d1 能否找到正确生物邻居”。即使箱体靠近 100%，也还需确认两臂邻居的分数完整，且同一签名在不同来源的测量含义可比；本阶段跨来源敏感性分析完成 `r 0L` 轮，不能把高覆盖率写成生物学效用已通过外部验证。
 
 ### Cohort 级覆盖明细
 

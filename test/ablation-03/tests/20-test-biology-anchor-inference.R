@@ -33,6 +33,13 @@ stopifnot(is.finite(result$p_value_adj), result$p_value_adj >= 0, result$p_value
 stopifnot(result$estimate > 0)
 stopifnot(result$p_method == "exact_paired_sign_flip")
 
+# Missing pathways must remain in the fixed five-anchor testing family.
+fixed_family <- .biology_paired_contrast(synthetic, n_boot = 200L,
+  seed = 20260903L,
+  family_anchors = c("proliferation", "immune_tme", "stromal_tme", "ifn", "il6"))
+stopifnot(isTRUE(all.equal(fixed_family$p_value_adj,
+  stats::p.adjust(fixed_family$p_value, "BH", n = 5L))))
+
 heterogeneous <- data.frame(
   anchor = rep("immune_tme", 8L),
   representation = rep(c("Direct-GSClassifier", "Cohort-d1"), 4L),

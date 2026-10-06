@@ -83,12 +83,20 @@ list(
     )
   ),
   targets::tar_target(
+    biology_input_sources,
+    c("config/biological-anchors.yml", "01.03.00. 生物输入准备.R",
+      "02.02.00. 生物锚点分析_functions.R"), format = "file"
+  ),
+  targets::tar_target(
     biology_inputs,
-    .ablation03_biology_target(
-      data_target = data_preparation,
-      representation_target = representation_inputs,
-      runtime_config = runtime_config
-    )
+    {
+      biology_input_sources
+      .ablation03_biology_target(
+        data_target = data_preparation,
+        representation_target = representation_inputs,
+        runtime_config = runtime_config
+      )
+    }
   ),
   targets::tar_target(
     representation_analysis,
@@ -129,15 +137,19 @@ list(
   ),
   targets::tar_target(
     structural_analysis,
-    .ablation03_target_stage(
-      "02.03.00. 结构复现分析.R",
-      dependency = list(representation_analysis, biology_inputs),
-      cache_root = runtime_config$cache_root
-    )
+    {
+      result <- .ablation03_target_stage(
+        "02.03.00. 结构复现分析.R",
+        dependency = list(representation_analysis, biology_inputs),
+        cache_root = runtime_config$cache_root
+      )
+      result$artifact_md5 <- unname(tools::md5sum(result$files))
+      result
+    }
   ),
   # Root-cause diagnostics preserve the original biology_analysis products.
   targets::tar_target(biology_diagnostic_config_file,
-    "raw/config/biology-diagnostics.yml", format = "file"),
+    "config/biology-diagnostics.yml", format = "file"),
   targets::tar_target(biology_diagnostic_config,
     yaml::read_yaml(biology_diagnostic_config_file)),
   targets::tar_target(biology_diagnostic_code_file,

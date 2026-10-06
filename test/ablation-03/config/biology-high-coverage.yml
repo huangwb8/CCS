@@ -1,5 +1,5 @@
 schema_version: 1
-experiment_id: biology-high-coverage-20261006
+experiment_id: biology-high-coverage-split-pathways-20261006
 seed: 20261006
 coverage_tiers: [0.6, 0.7, 0.8, 0.9]
 selection_rule: deterministic_availability_seed_search
@@ -14,7 +14,7 @@ k: 15
 min_inference_cohorts: 3
 bootstrap: 2000
 min_valid_bootstrap: 1900
-primary_anchors: [proliferation, immune_tme, stromal_tme, ifn_il6]
+primary_anchors: [proliferation, immune_tme, stromal_tme, ifn, il6]
 score_definitions: [common_raw, common_rank]
 primary_score_definition: common_rank
 primary_pool: same_cancer

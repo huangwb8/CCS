@@ -2,7 +2,7 @@
 
 ## 实施约定
 
-按负责人本轮要求，本计划作为增量分析实施：原低基因覆盖、大队列基线及低覆盖机制诊断完整保留，新结果独立保存并在报告中并列解释。测量合同、覆盖率档和推断规则先于新效应冻结；不按结果调整签名或选队列。
+按负责人本轮要求，本计划作为增量分析实施：广队列基线及低覆盖机制诊断作为不同证据层保留，全部按当前五锚点重新计算，高覆盖结果独立保存并在报告中并列解释。测量合同、覆盖率档和推断规则先于新效应冻结；不按结果调整签名或选队列。
 
 新增设计使用 `test/ablation-03/config/biology-high-coverage.yml`，避免改写只读原始输入。分析专用函数位于 `test/ablation-03/R/biology_high_coverage.R`，由既有 `_targets.R` 发现，I/O 在 `targets/biology_high_coverage.R`；计算复用已安装 CCS，不改公共包源码或版本。正式结果只写入现有 cache root 的 `biology-high-coverage/`。
 
@@ -12,105 +12,21 @@
 
 | 估计对象 | 人群与单位 | 区间与检验 | 结果去向 |
 |---|---|---|---|
-| 高覆盖邻居效用 d1−Direct | 同一冻结合同和评分资格下的配对 query；先队列内平均，再队列等权 | 2,000 次 cohort bootstrap 95% CI；预设双侧 cohort sign-flip 零差检验；主四锚点固定 BH 分母 4 | primary、grid、cohort |
-| 连续读取器标准化 MAE d1−Direct | reference-only 训练，外部 query 配对；队列等权 | 同一 cohort 条件区间；各评分／读取器四锚点 BH；正值更差 | readout_metrics、readout_inference |
+| 高覆盖邻居效用 d1−Direct | 同一冻结合同和评分资格下的配对 query；先队列内平均，再队列等权 | 2,000 次 cohort bootstrap 95% CI；预设双侧 cohort sign-flip 零差检验；主五锚点固定 BH 分母 5 | primary、grid、cohort |
+| 连续读取器标准化 MAE d1−Direct | reference-only 训练，外部 query 配对；队列等权 | 同一 cohort 条件区间；各评分／读取器五锚点 BH；正值更差 | readout_metrics、readout_inference |
 | 距离／技术限制差中差 | 先在同一患者匹配原／修改分支，再队列等权 | 条件 cohort 区间；敏感性不做新零假设检验 | sensitivity |
-| C_core、留一队列／来源 | 保持冻结签名；C_core 取四个秩同癌种主比较实际通过人数门槛的共同队列，合同交集另存为描述 | 条件 cohort 区间，未做来源层随机抽样外推；不发布 p/q | core、leave_one |
+| C_core、留一队列／来源 | 保持冻结签名；C_core 取五个秩同癌种主比较实际通过人数门槛的共同队列，合同交集另存为描述 | 条件 cohort 区间，未做来源层随机抽样外推；不发布 p/q | core、leave_one |
 | 覆盖、来源与基因数 | 冻结输入描述 | 无抽样目的，不给 CI/p | frontier、eligibility、gene_lists |
 
 原尺度与秩资格可能因非有限背景而不同，各格明确保存实际人数；跨评分／候选池的机制差须在共同患者上配对，不能直接相减不同人群均值。没有科学依据的非劣效界值时只做估计，不宣称等价或保留。
 
-## 正式执行结果（2026-10-06）
+## 当前方案与科学问题
 
-本计划已作为增量分析执行。正式入口为 `test/ablation-03/_targets.R`，store 为 `D:/cache/ccs/_ablation-03/targets`，新增科学产品独立位于 `biology-high-coverage/`。四个覆盖档与 raw/rank × all/same-cancer 形成 64 个预设格子，其中 52 个满足推断门槛；其余 12 个保留不可估计状态。原广队列基线、低覆盖诊断及原两份主要报告表共 29 个文件的运行前后 MD5 完全一致。
+IFNγ 与 IL6-JAK-STAT3 分别使用原签名，当前共五个锚点。原合并通路方案及其结果已弃用；本文件不保留旧结果快照。查看原合并结果后的修订时点、正式重算与验收记录见[通路拆分重分析计划](2026-10-06-ablation03-IFNγ与IL6锚点拆分重分析计划.md)，最新结果见[生物锚点报告](../../test/ablation-03/02.02.00.%20生物锚点分析.html)。
 
-下表是选定合同的秩同癌种结果。测量合同与最终评分人数分开记录，不能用合同人数替代效应分母。
+高覆盖验证要解决的是测量对象是否仍能代表原签名，以及在这个测量合同下，d1 与 Direct 的近邻效用和连续信息可读取性是否存在差异。广队列分析可能混合跨队列测量定义和癌种组成的影响；低覆盖残余基因仅作机制探索。每项锚点独立选择可测队列，避免为统一版式再取最低公分母。
 
-| 锚点 | 共同签名 | 合同 query 队列 | 实际效应队列／query | d1−Direct utility（95% CI） | BH q |
-|---|---|---:|---:|---|---:|
-| 增殖 | 14/15（93.3%） | 16 | 不可估计 | 背景 4,848，低于 5,000 门槛 | NA |
-| 免疫 TME | 19/26（73.1%） | 16 | 14／5,211 | −0.004535 [−0.015527, 0.006751] | 0.6188 |
-| 基质 TME | 17/18（94.4%） | 15 | 13／4,804 | −0.016328 [−0.026619, −0.006451] | 0.0449 |
-| IFN/IL6 | 215/265（81.1%） | 15 | 14／5,066 | 0.010245 [−0.005056, 0.022948] | 0.3660 |
-
-三个可估计锚点实际都保留 3 个来源组。仅基质的负差通过固定四锚点 BH 校正；免疫和 IFN/IL6 的区间跨零，没有证明等价或无损。增殖的原尺度对照保留，秩门槛不降低；由于增殖没有合格秩人群，四锚点 C_core 为空。
-
-共同患者上的候选池差中差提供了更直接的机制线索：从全癌种切换为同癌种时，秩效用差分别增加免疫 0.020506 [0.004571, 0.036527]、基质 0.017354 [0.006203, 0.028315]、IFN/IL6 0.026344 [0.005810, 0.043428]。这些是冻结合同内的条件敏感性区间，不附新 p/q，也不是原 43-cohort 负差的归因比例。
-
-读取器使结论更有层次。秩 ridge 的 MAE 差为免疫 0.022441 [−0.003985, 0.049477]、基质 0.018324 [−0.030552, 0.074820]、IFN/IL6 0.025991 [0.003633, 0.052306]；三者的固定四锚点 BH q 均未低于 0.05。预设 reference-CV 触发的秩 XGBoost 中，免疫 MAE 增加 0.036831 [0.015446, 0.058721]，q=0.0303。因此，邻居效用差减弱不能替代信息可恢复性验证；目前也不能将所有锚点统一解释为表示压缩或信息无损。
-
-来源广度仍有实质限制：每个可估计锚点的 cBioPortal 和 GEO 各只有一个队列，另有 11–12 个 UCSC Xena 队列。IFN/IL6 的正向总体点估计主要来自 Xena，两个单队列来源方向为负，不能概括为跨来源一致改善。基质移除 cBioPortal 或 GEO 后区间仍低于零；移除 Xena 后仅剩两个队列，不发布区间。已知平台匹配没有合格共同患者，其他技术限制也按实际支持保留不可估计状态。
-
-完整结果、五张矢量图与全部聚合表见[生物锚点报告](../../test/ablation-03/02.02.00.%20生物锚点分析.html)。患者矩阵、邻居与读取器模型继续留在受控正式缓存。合成验收使用相同 DAG，分别隔离 store、报告输出和 `renv` sandbox；这解决了共享 sandbox 锁导致的新 R 进程启动延迟，并保持既有项目包库及 CCS 0.8.4。
-
-最终报告版本的同 DAG 合成验收已通过：验证了缺失值与混合平台处理、覆盖／来源／reference／秩背景门槛、效应扰动不改变测量选择及旧文件不变；下游推断恢复仅重算 inference，71 项复用缓存。验收记录的源码与 Rmd MD5 均与当前文件一致，证据位于 `test/ablation-03/tmp/tests/high-coverage-20261006/verification.rds`。
-
-环境核查保留一个独立状态：`renv::status()` 仍提示整体未同步，其依赖发现扫描包含历史 `tmp/` 和 sandbox 中第三方包测试，列出本次分析未调用的可选依赖。未据此改写锁文件或安装额外包；本次实际 targets 链、CCS 代码身份门禁与报告生成已经执行通过。该状态不写成完整环境同步通过。
-
-## 通俗解释：究竟发生了什么
-
-- **一句话说明：** 目前 ablation-03 为了让很多外部队列都参加生物锚点分析，要求所有队列共同拥有同一批基因，结果把原本完整的生物学 signature 压缩成了很少几个残余基因；这让“覆盖的队列很多”与“真正测到了原来的 biology”之间发生了冲突。
-- **具体场景：** 这像是要比较 43 家医院的同一种检查。为了让所有医院都能参加，最后只保留了每家医院都做过的极少数化验项目。样本量虽然很大，但此时测量的对象已经不再等同于原本完整的检查套餐。
-- **对应到本问题：**
-  - 医院对应 query/reference cohort；
-  - 检查套餐对应 proliferation、immune TME、stromal TME、IFN/IL6 等预设 biological signatures；
-  - 共同化验项目对应跨 cohort 的共同可测基因；
-  - Direct 与 d1 对应两种患者表示；
-  - “找到的邻居是否具有相近检查结果”对应 biological-anchor utility。
-- **改变前后：**
-  - **现在：** 原始 43 个 query cohort 的主分析显示 d1 相对 Direct 有约 `-0.044 ~ -0.055` 的连续生物锚点局部效用差；但严格诊断中，全体契约 cohort 的共同基因只剩 proliferation `5/15`、immune `4/26`、stromal `1/18`、IFN/IL6 `51/265`，无法确认这个负差究竟来自表示损失，还是来自跨队列测量定义不一致。
-  - **改进后：** 不再强迫所有 cohort 共享最低公分母。对每个 anchor 单独建立一个由**高基因覆盖、足够 query 数、足够 reference 支持**组成的冻结验证集，用同一套完整度更高的基因定义 biological state，再比较 Direct 与 d1；原来的 43-cohort 分析继续保留为 breadth/robustness 证据，而不再承担“完整 biology preservation”的唯一解释责任。
-
-## 专业判断：问题在哪里
-
-### 当前现象
-
-当前正式基线在 43 个 external query cohorts、14,060 个配对 query 上得到一致的负向 biological-anchor utility：
-
-| Anchor | d1 − Direct utility | 95% CI |
-|---|---:|---:|
-| Proliferation | -0.0439 | -0.0614 ~ -0.0247 |
-| Immune TME | -0.0485 | -0.0675 ~ -0.0267 |
-| Stromal TME | -0.0517 | -0.0698 ~ -0.0328 |
-| IFN / IL6 | -0.0547 | -0.0757 ~ -0.0325 |
-
-方向并非由少数 cohort 驱动：四个 anchor 分别有约 38–40/43 个 cohort 的均值为负。因此，“原任务下 d1 的局部连续锚点邻居效用较低”本身是一个稳定观察。
-
-问题在于，这个观察不能直接等同于“d1 丢失了 biological information”。2026-10-04 至 2026-10-05 的根因诊断已经暴露出三个需要分离的问题：
-
-1. **测量对象不稳定。** 当前严格 common-gene contract 对全体契约 cohort 求交集，四个原 anchor 的完整度严重下降。尤其 stromal 只剩 1 个共同基因，已经不能代表原 18-gene signature。
-2. **绝对表达尺度可能参与原负差。** 低覆盖探索中，将残余 signature 从原尺度改为样本内 rank 后，d1−Direct 差值明显向零移动。
-3. **癌种组成也可能参与原负差。** 在 rank proxy 下进一步限制为 same-cancer candidate pool 后，proliferation、immune、IFN/IL6 的差值接近 0；但该结果来自低覆盖 proxy，只能提示机制，不能证明完整 biology 无损。
-
-因此，当前最重要的科学问题已经从“原负差显不显著”变成：
-
-> **当 biological state 用一套跨 cohort 更一致、覆盖度足够高的 signature 定义时，d1 相比 Direct 是否仍存在有实际意义的局部 biology 损失？如果存在，它来自表示信息丢失，还是信息仍可读出但近邻几何使用得不好？**
-
-### 影响范围
-
-如果不调整分析设计，论文会面临两个相反但同样严重的解释风险：
-
-- 把原始 `ΔU ≈ -0.05` 直接写成 “d1 loses biology”，会把 measurement heterogeneity、lineage composition 与 representation loss 混为一谈。
-- 把 low-coverage rank + same-cancer 的 `ΔU ≈ 0` 直接写成 “biology preserved”，又会用 5、4、1、51 个残余基因的 proxy 替代完整 anchor，同样证据不足。
-
-真正需要加强的不是“让结果变成 0”，而是提高 **construct validity**：先确保测量的确还是原先声明的 biological construct，再判断 d1 与 Direct 的差异。
-
-### 已知原因与待验证假设
-
-**已经确认的事实：**
-
-- 原 43-cohort baseline 的负差稳定存在。
-- 全契约 cohort 的共同 signature coverage 不足以通过当前严格门禁。
-- low-coverage rank 与 same-cancer 对照会显著改变观察到的差值。
-- 当前 17 个 same-cancer eligible cohorts / 5,705 query 的癌种支持不能替代 biological measurement 资格。
-
-**仍需验证的假设：**
-
-- H1：原负差主要由跨 cohort biological measurement 不一致造成；提高 signature coverage 后，差值显著缩小。
-- H2：原负差的一部分来自 lineage/cancer composition；在 same-cancer pool 中会缩小。
-- H3：d1 中仍可读取完整 biological state，但默认距离/近邻几何没有把这部分信息用于局部检索。
-- H4：即使在高覆盖、lineage-controlled 的条件下 d1 仍稳定劣于 Direct，提示存在真实的局部 biological geometry trade-off。
-- H5：不同 anchor 的 measurement support 不同，不应为了版式统一而强迫四个 anchor 使用同一最小 cohort 集合。
+五锚点 × 四覆盖档 × 两评分 × 两候选池形成 80 个预设格子。广队列基线、严格诊断、低覆盖探索和高覆盖验证全部按五项定义更新；任何不可估计项保留状态，不降低门槛，也不从五项 BH 分母移除。测量合同依据可用性选择，不读取两臂效应。
 
 ## 要达到什么目标
 
@@ -209,22 +125,23 @@ cohort 的选择只能读取以下信息：
 
 ### 每个 anchor 使用自己的高覆盖 cohort 集合
 
-不再要求 proliferation、immune、stromal、IFN/IL6 必须使用完全相同的 query cohorts。
+不再要求 proliferation、immune、stromal、IFNγ、IL6-JAK-STAT3 必须使用完全相同的 query cohorts。
 
 分别定义：
 
 - `C_proliferation`
 - `C_immune`
 - `C_stromal`
-- `C_ifn_il6`
+- `C_ifn`
+- `C_il6`
 
-原因是四个 signatures 的基因数和平台可测性差异很大。为了统一图形而取四者交集，会再次把分析拖回“最小公分母”。
+原因是五个 signatures 的基因数和平台可测性差异很大。为了统一图形而取五者交集，会再次把分析拖回“最小公分母”。
 
 另定义：
 
-`C_core = C_proliferation ∩ C_immune ∩ C_stromal ∩ C_ifn_il6`
+`C_core = C_proliferation ∩ C_immune ∩ C_stromal ∩ C_ifn ∩ C_il6`
 
-只作为四锚点横向可比的 sensitivity analysis。
+只作为五锚点横向可比的 sensitivity analysis。
 
 主结论按 anchor-specific validation set 报告；`C_core` 用于回答“如果强制同一 cohort 人群，方向是否一致”。
 
@@ -553,7 +470,7 @@ Direct 和 d1 必须使用相同的 reference candidate pool。
 
 `Δ readout error` 或统一为“d1 相对 Direct 的 biological performance”。
 
-四个 anchor 各一个点/区间，帮助区分：
+五个 anchor 各一个点/区间，帮助区分：
 
 - information loss；
 - geometry mismatch；
@@ -581,7 +498,7 @@ Direct 和 d1 必须使用相同的 reference candidate pool。
 - [ ] 先在 query 级配对，再 cohort 内汇总，再 cohort 等权。
 - [ ] 不把数千个患者当成数千个独立跨 cohort 重复。
 - [ ] 95% CI 明确条件于冻结 bank、measurement contract、reference atlas 与 query cohorts。
-- [ ] 四个 anchor 的预设检验族完整保留，并按既定规则做 multiplicity control。
+- [ ] 五个 anchor 的预设检验族完整保留，并按既定规则做 multiplicity control。
 - [ ] CI 跨 0 不写成 equivalence。
 - [ ] 只有在 `δ_anchor` 于 effect 计算前有独立依据并冻结时，才进行 non-inferiority / preservation claim。
 - [ ] leave-one-cohort 和 leave-one-source 不按结果方向筛选。
@@ -603,8 +520,8 @@ Direct 和 d1 必须使用相同的 reference candidate pool。
 
 ### 回归与可复现性
 
-- [ ] 原 43-cohort baseline 172 个 cohort-anchor 格子的点估计与人数保持不变。
-- [ ] 原四个正式科学文件 hash 不被 high-coverage 分支覆盖。
+- [ ] 当前五锚点广队列 baseline 与诊断回算的点估计、人数在 1e-10 容差内一致，不复用旧合并效应。
+- [ ] 高覆盖分支不覆盖当前广队列科学文件；本次拆分不改变原表示分析文件哈希。
 - [ ] 低覆盖 exploratory 结果保持独立，不被新高覆盖结果静默替换。
 - [ ] 合成 fixture 覆盖：不同 cohort 缺不同 signature genes、样本级非有限值、reference 支持不足、rank background 不足、source 重复、癌种标签未知。
 - [ ] 同一 frozen contract 重跑得到相同 cohort/gene list 与相同 seed 派生结果。
@@ -654,7 +571,7 @@ Direct 和 d1 必须使用相同的 reference candidate pool。
 ## 风险与待确认事项
 
 - 高覆盖 subset 可能显著减少 cohort breadth。减少 cohort 本身不是失败，只要 measurement contract 更可信；但需要诚实区分“construct validity 提高”和“external breadth 减少”。
-- IFN/IL6 signature 较大，达到 80–90% 全局共同覆盖可能比其他 anchor 困难。不要为了四图一致降低其它 anchor 的标准；每个 anchor 独立选择最高可行 tier。
+- IFNγ 与 IL6-JAK-STAT3 的签名大小、可测性分别检查，达到 80–90% 全局共同覆盖的支持可能不同。不要为了图形一致降低其它 anchor 的标准；每个 anchor 独立选择最高可行 tier。
 - 当前许多 cohort 的 `expression_unit` / preprocessing evidence 仍为 unknown。rank scoring 可以降低但不能完全消除这一风险；不能因此宣称 platform invariance 已被证明。
 - same-cancer pool 会改变科学问题：它回答“癌种内部 continuous biological state 是否保留”，不是“泛癌所有邻居关系是否保留”。因此 all-cancer 分支仍需保留。
 - subset 选择即使只基于 gene availability，也是在已看过原 broad result 后提出的新设计，应在论文中标记为后续冻结的 validation/sensitivity，而不要伪装成最初未见数据的完全 confirmatory study。
@@ -666,7 +583,7 @@ Direct 和 d1 必须使用相同的 reference candidate pool。
 本轮优化完成后，ablation-03 的生物学部分建议形成以下逻辑链：
 
 1. **Broad observation**  
-   在 43 个 heterogeneous external cohorts 中，d1 的原始 continuous-anchor neighbor utility 比 Direct 低约 0.04–0.055。
+   报告当前五锚点在广队列中的各自效应、区间与有效人数，并说明测量和癌种组成限制。
 
 2. **Measurement audit**  
    强制全 cohort 共同测量使 signature coverage 严重下降，说明 broad result 混合了 representation 与 biological measurement heterogeneity。

@@ -278,7 +278,7 @@ preview_dir <- bensz_run_dir(bensz_preview_root(params$plot_run_dir),
 
 本报告是 `r analysis_name` 实验的结构可复现性模块；读取双向投影与 matched-bank 分析结果，不运行模型计算。前一份生物锚点报告检查“同一患者附近的邻居，在连续表达分数上是否足够接近”；本报告把视线拉远，检查**一组生物状态之间的远近次序，换一批独立患者后是否仍然相似**。局部街道的邻居变了，不等于城市主要地标之间的相对位置也被打乱；两种尺度必须分别测量。
 
-这样做与 CCS 的目标相连：d1 由多队列模型构成，如果它要成为有用的跨癌种表示，至少应检查原本能跨队列辨认的生物组织有没有被任意打散。这里的结果仍不是临床效用或等价性试验；它只检验预先定义的四类表达锚点所形成的状态地图。
+这样做与 CCS 的目标相连：d1 由多队列模型构成，如果它要成为有用的跨癌种表示，至少应检查原本能跨队列辨认的生物组织有没有被任意打散。这里的结果仍不是临床效用或等价性试验；它只检验预先定义的五类表达锚点所形成的状态地图。
 
 ## 数据概览
 
@@ -304,7 +304,7 @@ reference 与 external bank 分别包含 `r structural_reference_modules` 和 `r
 
 ## 独立队列间的生物结构可复现性
 
-可以把四类表达锚点各自的“高”和“低”想成八个地图地标。每个目标 cohort 内分别取 anchor 分数两端三分之一，形成相对高低状态；因此“乳腺癌队列中的免疫高”和“肺癌队列中的免疫高”都只表示各自队列内较高，不要求两者达到同一绝对表达值。每个状态至少有 `r structural_result$method$min_entity_n` 个样本；常量分数或分位边界并列时不强行切分。Direct 和 d1 各自计算地标的质心距离，再比较不同 cohort 中**地标远近的排序**是否一致。排序越相似，说明这套较粗的生物关系越容易跨队列复现；它不表示患者逐一相同。
+可以把五类表达锚点各自的“高”和“低”想成十个地图地标。每个目标 cohort 内分别取 anchor 分数两端三分之一，形成相对高低状态；因此“乳腺癌队列中的免疫高”和“肺癌队列中的免疫高”都只表示各自队列内较高，不要求两者达到同一绝对表达值。每个状态至少有 `r structural_result$method$min_entity_n` 个样本；常量分数或分位边界并列时不强行切分。Direct 和 d1 各自计算地标的质心距离，再比较不同 cohort 中**地标远近的排序**是否一致。排序越相似，说明这套较粗的生物关系越容易跨队列复现；它不表示患者逐一相同。
 
 计算按样本、状态、队列对逐层进行。第一步，在表示 $m$ 中对 cohort $c$ 的状态 $e$ 所有样本坐标取平均，得到该状态的质心 $\boldsymbol\mu_{c,e}^{(m)}$。第二步，在**同一 cohort、同一表示**中计算两个状态 $e,f$ 的质心欧氏距离 $D_{c,e,f}^{(m)}=\|\boldsymbol\mu_{c,e}^{(m)}-\boldsymbol\mu_{c,f}^{(m)}\|_2$。第三步，取 cohort $a,b$ 共有的状态，分别列出所有不重复状态对的距离；对两列距离的名次求相关，得到 $S_{a,b}^{(m)}=\operatorname{Spearman}(D_a^{(m)},D_b^{(m)})$。例如两个队列都把“免疫高”和“免疫低”排成最远的一对，便会提高排序的一致性；它们相差的绝对距离仍可能不同。最后在**同一个队列对**上相减，$\Delta_{a,b}=S_{a,b}^{(d1)}-S_{a,b}^{(Direct)}$，才是在问换成 d1 后跨队列排序更稳定还是更不稳定。相关接近 1 表示这组状态的远近次序较一致，接近 0 表示没有稳定排序关系；它不证明高低状态的临床定义跨队列相同。
 
@@ -536,7 +536,7 @@ knitr::include_graphics(fig13_jpg)
 
 这张图沿用相同的行列顺序；横轴各列仍按左侧队列名从上到下排列。
 
-解读：此图沿用 Direct 热图的格子位置和 −1 至 1 色阶，所以同一个格子的颜色差才对应同一对 cohort 的结构变化。d1 的平均相似度为 `r fmt(structural_all$mean_d1_similarity)`，相对 Direct 的平均差为 `r fmt(structural_all$mean_delta, 4L)`；变化最正向的队列对是 `r structural_best$cohort_a` 与 `r structural_best$cohort_b`（差 `r fmt(structural_best$delta_d1_minus_direct)`），最负向的是 `r structural_worst$cohort_a` 与 `r structural_worst$cohort_b`（差 `r fmt(structural_worst$delta_d1_minus_direct)`）。这些具体格子说明平均值可能遮住方向不同的队列对；挑选极端格子只用于追查共享状态数和来源构成，不可事后当作新发现。这里仅比较四个锚点构成的八种相对状态，总体不确定性仍以共享 cohort 节点的重采样区间判断。
+解读：此图沿用 Direct 热图的格子位置和 −1 至 1 色阶，所以同一个格子的颜色差才对应同一对 cohort 的结构变化。d1 的平均相似度为 `r fmt(structural_all$mean_d1_similarity)`，相对 Direct 的平均差为 `r fmt(structural_all$mean_delta, 4L)`；变化最正向的队列对是 `r structural_best$cohort_a` 与 `r structural_best$cohort_b`（差 `r fmt(structural_best$delta_d1_minus_direct)`），最负向的是 `r structural_worst$cohort_a` 与 `r structural_worst$cohort_b`（差 `r fmt(structural_worst$delta_d1_minus_direct)`）。这些具体格子说明平均值可能遮住方向不同的队列对；挑选极端格子只用于追查共享状态数和来源构成，不可事后当作新发现。这里仅比较五个锚点构成的十种相对状态，总体不确定性仍以共享 cohort 节点的重采样区间判断。
 
 ```{r structural-summary-table, echo=TRUE, interp_check=TRUE}
 render_dt(

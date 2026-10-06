@@ -121,6 +121,19 @@
   if (!identical(a$baseline_hashes, tools::md5sum(names(a$baseline_hashes)))) {
     stop("Baseline products changed during diagnostic execution.", call. = FALSE)
   }
+  # IFN and IL6 are now primary anchors; omit duplicate supplementary tests.
+  if (all(c("ifn", "il6") %in% config$primary_anchors)) {
+    for (name in names(result)) {
+      value <- result[[name]]
+      if (is.data.frame(value) && "comparison" %in% names(value)) {
+        result[[name]] <- value[
+          !grepl("^supplement:.*:split_ifn_il6$", value$comparison), , drop = FALSE]
+      } else if (is.list(value) && !is.null(names(value))) {
+        result[[name]] <- value[
+          !grepl("^supplement:.*:split_ifn_il6$", names(value))]
+      }
+    }
+  }
   result$config <- config
   result$list_identity <- a$list_identity
   .ablation03_bio_save(result, "inference.rds", runtime)

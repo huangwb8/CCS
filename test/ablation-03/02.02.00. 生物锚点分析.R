@@ -41,7 +41,7 @@ if (!identical(normalizePath(sig_path, winslash = "/", mustWork = FALSE), cache$
   stop("ablation-03 biology: signature source mismatch; rebuild the cache.", call. = FALSE)
 }
 config_path <- file.path(
-  .ablation03_dir, "raw", "config", "biological-anchors.yml"
+  .ablation03_dir, "config", "biological-anchors.yml"
 )
 builder_path <- .wf_path("01.03.00. 生物输入准备.R")
 if (!identical(digest::digest(file = sig_path, algo = "md5"), cache$signature$md5) ||
@@ -170,7 +170,8 @@ cohort_deltas <- .biology_cohort_deltas(per_query_utility)
 anchor_inference <- .biology_paired_contrast(
   per_query_utility,
   n_boot = 2000L,
-  seed = 20260830L
+  seed = 20260830L,
+  family_anchors = names(anchors)
 )
 direct <- utility[utility$representation == "Direct-GSClassifier", , drop = FALSE]
 d1 <- utility[utility$representation == "Cohort-d1", , drop = FALSE]

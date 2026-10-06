@@ -60,7 +60,7 @@ main <- function() {
     inputs$full_d1 <- inputs$resCCS_full@Data$Probability$d1
     inputs$metadata <- inputs$ablation_metadata <- metadata
     source("02.02.00. 生物锚点分析_functions.R")
-    anchors <- .biology_select_anchors(yaml::read_yaml("raw/config/biological-anchors.yml"), readRDS(signature_path))
+    anchors <- .biology_select_anchors(yaml::read_yaml("config/biological-anchors.yml"), readRDS(signature_path))
     input_genes <- unique(as.character(unlist(inputs$object@Repeat$geneSet)))
     genes <- unique(c(input_genes, unlist(anchors), paste0("fixture-background-", 1:5002)))
     data <- atlas <- list()
@@ -109,10 +109,28 @@ main <- function() {
     mixed[mixed$role == "reference", ], mixed[mixed$role == "query", ])
   stopifnot(nrow(mixed_inventory$metadata) == nrow(inventory$metadata),
     "fixture-second-platform" %in% mixed_inventory$metadata$platform_id)
-  stopifnot(nrow(result$grid) == 64L, nrow(result$primary) == 4L,
+  stopifnot(nrow(result$grid) == 80L, nrow(result$primary) == 5L,
+    setequal(result$primary$anchor, c("proliferation", "immune_tme", "stromal_tme", "ifn", "il6")),
+    !"ifn_il6" %in% names(inventory$anchors),
+    isTRUE(all.equal(result$primary$q_value, stats::p.adjust(result$primary$p_value, "BH", n = 5L))),
     any(result$primary$status == "estimable"), any(result$readout_inference$status == "estimable"),
     file.exists(file.path(run_root, "output", "02.02.00. 生物锚点分析.html")),
     identical(before, tools::md5sum(files)))
+  for (key in unique(paste(result$grid$tier, result$grid$score_definition, result$grid$pool))) {
+    i <- paste(result$grid$tier, result$grid$score_definition, result$grid$pool) == key
+    tier_q <- stats::p.adjust(result$grid$p_value[i], "BH", n = 5L)
+    secondary <- !result$grid$primary[i]
+    stopifnot(sum(i) == 5L,
+      isTRUE(all.equal(result$grid$q_value[i][secondary], tier_q[secondary])))
+  }
+  primary_grid <- result$grid[result$grid$primary, ]
+  stopifnot(isTRUE(all.equal(primary_grid$q_value,
+    result$primary$q_value[match(primary_grid$comparison, result$primary$comparison)])))
+  grid_export <- read.csv(file.path(run_root, "output", "reports", "tables",
+    "02.02.00. high-coverage-grid.csv"))
+  stopifnot(nrow(grid_export) == 80L,
+    all(grid_export$BH_family[grid_export$primary] == "selected_primary_5_anchors"),
+    all(startsWith(grid_export$BH_family[!grid_export$primary], "coverage:")))
   changed <- inventory
   changed$metadata$delta <- rnorm(nrow(changed$metadata))
   changed$utility_direct <- rnorm(10)
@@ -125,7 +143,7 @@ main <- function() {
       !length(intersect(c$query_cohorts, c$reference_cohorts)))
   }
   # Edge gates are shared across anchors; exercise one complete tier while the
-  # formal DAG above verifies all four anchors and all prespecified tiers.
+  # formal DAG above verifies all five anchors and all prespecified tiers.
   gate_config <- frozen$config
   gate_config$primary_anchors <- frozen$config$primary_anchors[1L]
   gate_config$coverage_tiers <- max(frozen$config$coverage_tiers)
@@ -143,6 +161,26 @@ main <- function() {
   one_source <- inventory
   one_source$metadata$source_system <- "single-source"
   stopifnot(!any(.hc_frontier(one_source, gate_config)$frontier$breadth_eligible))
+  # A signature-only change must propagate beyond an unchanged artifact path.
+  # This uses synthetic inputs and the same DAG; restore the exact config bytes.
+  signature_config <- "config/biological-anchors.yml"
+  config_bytes <- readBin(signature_config, "raw", n = file.info(signature_config)$size)
+  on.exit(writeBin(config_bytes, signature_config), add = TRUE)
+  before_config <- targets::tar_meta(store = store, fields = c(name, time))
+  changed_signature <- yaml::read_yaml(signature_config)
+  changed_signature$anchors$ifn$name <- changed_signature$anchors$il6$name
+  yaml::write_yaml(changed_signature, signature_config)
+  targets::tar_make(names = c(biology_high_coverage_inventory, structural_analysis), store = store)
+  after_config <- targets::tar_meta(store = store, fields = c(name, time))
+  propagated <- c("biology_inputs", "structural_analysis", "biology_high_coverage_inventory")
+  stopifnot(all(after_config$time[match(propagated, after_config$name)] >
+    before_config$time[match(propagated, before_config$name)]))
+  changed_inventory <- readRDS(targets::tar_read(biology_high_coverage_inventory, store = store))
+  stopifnot(identical(changed_inventory$anchors$ifn, inventory$anchors$il6))
+  writeBin(config_bytes, signature_config)
+  targets::tar_make(names = c(biology_high_coverage_inference, biology_report), store = store)
+  restored_inventory <- readRDS(targets::tar_read(biology_high_coverage_inventory, store = store))
+  stopifnot(identical(restored_inventory$anchors, inventory$anchors))
   # Restore only the downstream target; verify measured upstream reuse.
   times <- targets::tar_meta(store = store, fields = c(name, time))
   targets::tar_invalidate(biology_high_coverage_inference, store = store)
@@ -154,10 +192,14 @@ main <- function() {
     identical(before, tools::md5sum(files)))
   saveRDS(list(status = "PASS", formal_entrypoint = "_targets.R", store = store,
     subject_md5 = tools::md5sum(c("R/biology_high_coverage.R", "targets/biology_high_coverage.R",
-      "config/biology-high-coverage.yml", "_targets.R", "02.02.00. 生物锚点分析.Rmd",
+      "config/biology-high-coverage.yml", "config/biological-anchors.yml",
+      "config/biology-diagnostics.yml", "targets/functions.R", "targets/biology_diagnostics.R",
+      "01.03.00. 生物输入准备.R", "02.02.00. 生物锚点分析_functions.R",
+      "_targets.R", "02.02.00. 生物锚点分析.Rmd",
       "scripts/tests/biology-high-coverage-targets.R")),
-    baseline_unchanged = TRUE, outcome_blind_contract = TRUE, upstream_reused = upstream,
-    assertions = "four_anchors_all_tiers_raw_rank_readout_missingness_source_reference_background_recovery"),
+    baseline_unchanged = TRUE, outcome_blind_contract = TRUE,
+    signature_config_propagation = propagated, upstream_reused = upstream,
+    assertions = "five_anchors_all_tiers_raw_rank_readout_missingness_source_reference_background_recovery"),
     file.path(run_root, "verification.rds"))
   cat("High-coverage same-DAG synthetic verification PASS\n")
 }

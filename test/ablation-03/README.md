@@ -34,8 +34,8 @@ targets 文件依赖。图表代码输出到 HTML 并默认折叠，可点击各
 配对效应图采用紧凑森林图与独立统计列，逐行显示差值及 95% CI、有效 cohort 数、
 配对 query 人数和 BH 校正 P 值；统计列不参与效应横轴缩放，锚点顺序沿用冻结配置。
 数据概览与生物锚点报告的五张正式锚点图共用 `scripts/helpers/anchor_plot_labels.R`，
-英文图统一显示 Proliferation、Immune TME、Stromal TME、IFN / IL6；内部数据键保持原有命名。
-队列内区间图直接消费 `statistical_inference$biology_local`，按锚点分为四列，展示各
+英文图统一显示 Proliferation、Immune TME、Stromal TME、IFNγ、IL6–JAK–STAT3；内部键为 proliferation、immune_tme、stromal_tme、ifn、il6。
+队列内区间图直接消费 `statistical_inference$biology_local`，按锚点分为五列，展示各
 cohort 配对均值与点式 95% query bootstrap 区间，并导出同源 CSV；区间图与明细表
 位于“队列间效应分布”的热图之后，连续核对同一格子的均值与不确定性。该区间未作同时
 覆盖校正，不替代 cohort 间主效应区间，也不提供单格显著性结论。
@@ -77,8 +77,8 @@ decoder 的 cohort 等权区间与原合并 query 逐特征分数分列；结构
 分面和人数标签；报告正文说明省略原因，完整状态与资格仍保留在聚合表中。
 队列异质性图共享队列纵轴，仅在左侧显示名称，各锚点按相同队列顺序对齐。
 报告将高覆盖补充验证作为“连续表达锚点 readout”的子节，置于原广队列结果之后。
-四个选定锚点固定构成主检验族，缺失锚点仍计入 BH 的四项分母；coverage
-档的其它四格分别校正。95% cohort bootstrap 条件于固定 bank、合同及 atlas；没有独立
+五个选定锚点固定构成主检验族，缺失锚点仍计入 BH 的五项分母；coverage
+档的其它比较按完整五项族校正。完整表以 `BH_family` 逐行标明口径：主比较行沿用各锚点选定档位组成的五项主族，其余行使用对应覆盖档、评分及候选池的五项族；同一覆盖档显示的 q 值可能属于不同族。95% cohort bootstrap 条件于固定 bank、合同及 atlas；没有独立
 冻结的非劣效界值，不据 CI 跨零宣称无损。距离及技术限制使用配对患者差中差，留一及
 C_core 只作预设敏感性估计。
 
@@ -95,7 +95,7 @@ run root，并通过 `TAR_CONFIG` 使用隔离 YAML，不切换正式 `tar_watch
 & "C:/R/R-4.3.1/bin/Rscript.exe" --vanilla test/ablation-03/scripts/tests/biology-high-coverage-targets.R
 ```
 
-连续生物锚点根因诊断由 `raw/config/biology-diagnostics.yml` 冻结设计，计算层为
+连续生物锚点根因诊断由 `config/biology-diagnostics.yml` 冻结设计，计算层为
 `R/ablation_biology.R`，同一 `_targets.R` 的 `biology_diagnostic_*` targets 调用
 已安装 CCS。新结果写入 cache root 的 `biology-diagnostics/`，保留旧基线并以
 1e-10 容差核对原 cohort 格子的效应和人数；冻结基因清单为独立 file target。
@@ -104,7 +104,7 @@ run root，并通过 `TAR_CONFIG` 使用隔离 YAML，不切换正式 `tar_watch
 
 当前恢复共同原尺度／样本内秩评分与全癌种／同癌种候选池四格，配套 reference
 cohort 五折连续读取器及两个单因素 d1 距离对照，主评分为秩。严格秩背景至少
-5,000 基因，原尺度无背景门槛。IFN/IL6、直接输入不重叠、技术来源和对称留一
+5,000 基因，原尺度无背景门槛。直接输入不重叠、技术来源和对称留一
 为严格补充。低覆盖探索产品独立保存，使用固定残余清单和有效 reference 标尺，
 要求样本签名完整、秩背景完整及两臂 top-15 完整。多基因仅发布满足人数门槛的
 cohort 条件区间，不发布 p/q；基质单基因只描述，不训练低覆盖读取器。
@@ -145,22 +145,7 @@ biology_report target 更新 HTML，沿用原诊断产品与门槛。导出
 该验收还分别验证科学代码身份和表示输入文件内容的失效传播，恢复后保留
 原始字节；可用第二个参数指定已有隔离 run root，让 targets 增量恢复。
 
-此前严格诊断正式运行已完成，原 172 个格子的效应和人数复现误差为 0，基线科学文件
-哈希不变。共同签名仍取全部 190 个契约队列的交集，四原锚点共同覆盖为
-5/15、4/26、1/18、51/265，均未通过预设门槛。新效应与连续读取器因此
-严格不可估计／未拟合；1,130 个共同背景低于严格秩门槛。另以残余基因做探索，报告保留完整资格
-及状态表，停止输出空白效果图。
-17 个 cohort、5,705 query 的癌种候选池资格不能替代测量资格；本轮尚不能
-区分原负差的各候选机制，也未证明负差由测量因素造成。后续须先按测量来源
-确定可比较人群并冻结共同清单。恢复设计详见
-[恢复与低覆盖计划](../../docs/plans/2026-10-05-ablation03-恢复秩评分与低覆盖探索性诊断计划.md)。验收与边界详见
-[验证记录](../../docs/plans/2026-10-04-ablation03-生物锚点诊断验证记录.md)。
-
-恢复后的低覆盖探索已正式执行：72 行结果（54 多基因探索、18 单基因描述），
-四格共同患者为 16 cohort／5,578 query。同癌种候选池使秩增殖／免疫残余代理
-相对差值提高约 0.0188／0.0290，IFN/IL6 的原尺度→秩切换提高约 0.0362；
-两个距离规则对免疫代理的方向相反。它们提示比较规则的敏感性，不能确证完整
-锚点负差根因。严格结果仍不可估计；原 172 格与四个科学文件哈希不变。
+当前五锚点的共同覆盖、实际人群及效应由最新生物报告动态展示；严格测量门槛不降低。合并炎症锚点及其旧效应不再作为当前方案或结果。
 
 必须使用 Windows R 4.3.1、项目 renv 和与仓库 `DESCRIPTION` 版本一致的已安装 CCS 包。
 正式输入快照来自已有的 01-data/inputs.rds，位于同一 cache root 但不会被数据准备阶段覆盖；切勿重新将 01-data/inputs.rds 作为输入。
@@ -254,3 +239,9 @@ ablation-03 只依赖已安装的 CCS 包，不从仓库 `source()` `R/ablation.
 targets store、科学产物和 observability 均位于显式 cache root；不得把大型 RDS 或个人/专有基因组数据提交到仓库。
 报告渲染产生的 JPG 预览位于 cache root 的 `logs/report-previews/`，正式 HTML
 与 PDF/CSV 图表材料仍分别位于分析项目根目录和 `reports/`。
+
+## IFNγ 与 IL6 拆分修订
+
+2026-10-06 按负责人要求，IFNγ 与 IL6-JAK-STAT3 分别使用原签名评分，不再以基因并集作为当前锚点。五项定义冻结于 `config/biological-anchors.yml`；旧合并配置已移除，其余 raw 输入保持只读。广队列效用、高覆盖效用与读取器采用各自固定五项 BH 校正族，低覆盖探索不发布 p/q。修订发生于查看原合并结果之后，不视为原始预注册。不保留旧合并分析归档；当前数据概览、生物与结构报告通过同一 targets DAG 重算。
+
+五锚点正式重算与结果核验已完成；高覆盖共 80 格，原表示分析的 18 个科学文件与其余 raw 输入哈希不变，CCS 保持 0.8.4。具体效应、95% CI、固定五项 BH 校正及不可估计原因见最新生物报告和拆分重分析计划。

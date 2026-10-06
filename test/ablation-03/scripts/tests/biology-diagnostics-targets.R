@@ -24,7 +24,7 @@ source_bundle <- if (length(args)) args[1L] else
 if (!file.exists(source_bundle)) stop("Provide a local frozen input bundle for the synthetic bank fixture.")
 if (length(args) < 2L) {
 inputs <- readRDS(source_bundle)
-config <- yaml::read_yaml("raw/config/biology-diagnostics.yml")
+config <- yaml::read_yaml("config/biology-diagnostics.yml")
 set.seed(config$seed)
 original <- inputs$metadata
 cohorts <- original[!duplicated(original$cohort_key), ]
@@ -75,7 +75,7 @@ signature_path <- Sys.getenv("CCS_GENE_SIGNATURE_RDS",
   unset = "E:/RCloud/database/Signature/report/GeneSignature-HWB.rds")
 signatures <- readRDS(signature_path)
 source("02.02.00. 生物锚点分析_functions.R")
-anchor_genes <- unlist(.biology_select_anchors(yaml::read_yaml("raw/config/biological-anchors.yml"), signatures))
+anchor_genes <- unlist(.biology_select_anchors(yaml::read_yaml("config/biological-anchors.yml"), signatures))
 input_genes <- unique(as.character(unlist(inputs$object@Repeat$geneSet)))
 genes <- unique(c(input_genes, anchor_genes, paste0("fixture-gene-", seq_len(5002L))))
 data <- list()

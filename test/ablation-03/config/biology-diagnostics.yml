@@ -1,5 +1,5 @@
 schema_version: 1
-experiment_id: biology-root-cause-restored-rank-20261005
+experiment_id: biology-root-cause-split-pathways-20261006
 seed: 20261004
 k: 15
 min_signature_fraction: 0.5
@@ -33,7 +33,7 @@ readout:
     nthread: 1
     tree_method: hist
     seed: 20261004
-primary_anchors: [proliferation, immune_tme, stromal_tme, ifn_il6]
+primary_anchors: [proliferation, immune_tme, stromal_tme, ifn, il6]
 score_definitions: [common_raw, common_rank]
 primary_score_definition: common_rank
 low_coverage_exploration: true

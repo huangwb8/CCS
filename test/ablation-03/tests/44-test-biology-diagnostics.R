@@ -1,7 +1,7 @@
 # Scientific invariants for continuous biology diagnostics; no real identities.
 source(file.path("R", "ablation.R"))
 source(file.path("R", "ablation_biology.R"))
-config <- yaml::read_yaml("test/ablation-03/raw/config/biology-diagnostics.yml")
+config <- yaml::read_yaml("test/ablation-03/config/biology-diagnostics.yml")
 raw_config <- config
 raw_config$score_definitions <- "common_raw"
 raw_config$primary_score_definition <- "common_raw"
@@ -27,9 +27,9 @@ query <- metadata("q", 4L, 24L)
 ids <- c(ref$sample_id, query$sample_id)
 expression <- matrix(round(stats::rnorm(length(genes) * length(ids)), 1L),
   nrow = length(genes), dimnames = list(genes, ids))
-anchors <- stats::setNames(lapply(seq_len(4L), function(i)
+anchors <- stats::setNames(lapply(seq_along(config$primary_anchors), function(i)
   genes[(i - 1L) * 12L + seq_len(12L)]), config$primary_anchors)
-signatures <- list(`IFN-IL6` = stats::setNames(list(genes[49:60], genes[61:72]),
+signatures <- list(`IFN-IL6` = stats::setNames(list(anchors$ifn, anchors$il6),
   c("IFNγ signaling", "IL6-JAK-STAT3 signaling")))
 mat <- matrix(stats::rnorm(length(ids) * 12L), length(ids),
   dimnames = list(ids, paste0("f", 1:12)))
@@ -158,7 +158,7 @@ raw_readout <- .ablation_bio_readout(prepared, raw_audit, raw_scores, raw_config
 raw_result <- .ablation_bio_inference(prepared, raw_audit, raw_scores,
   raw_retrieval, raw_readout, raw_config)
 raw_grid <- raw_result$inference[grepl("^grid:", raw_result$inference$comparison), ]
-stopifnot(nrow(raw_grid) == 8L, all(raw_grid$status == "estimable"),
+stopifnot(nrow(raw_grid) == 2L * length(config$primary_anchors), all(raw_grid$status == "estimable"),
   all(raw_grid$query_count == nrow(query)),
   !any(grepl("common_rank|rank_pool|all_score|same_score", raw_result$inference$comparison)),
   !any(grepl("common_rank", raw_result$branch_status$experiment)),
