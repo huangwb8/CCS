@@ -308,6 +308,8 @@ result <- ablation(
 
 ## 结果解读边界
 
+ablation-03 另增加高覆盖生物锚点验证，在每个原签名上独立冻结共同基因、可测队列和 reference 支持，与原大队列基线及低覆盖诊断并列保留。该分支由同一 `_targets.R` 中的 `biology_high_coverage_*` targets 执行，分析专用函数位于 `test/ablation-03/R/`，设计在 `config/biology-high-coverage.yml`，结果独立写入 `biology-high-coverage/`。它不修改公共 `ablation()` API 或重训 bank。全部预设覆盖率与 raw/rank × all/same-cancer 对照保留，队列选择不读取两臂效应；连续读取器用于区分信息可恢复性和近邻几何。支持不足保持不可估计，没有预先冻结的非劣效界值时不将 CI 跨零解释为等价。
+
 1. 先看 `endpoint_eligibility` 和 `evidence_level`；candidate query 不等于可用于 cancer-labelled endpoint 的 estimable query。
 2. 把 primary、diagnostic 和 mechanism 分开；lineage readout 或 decoder 不能替代外部 biology 的主证据。
 3. Direct/d1 的 `delta_*` 必须在同一 query、fold、sequence 或 resample 内解释。
