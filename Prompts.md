@@ -32,6 +32,10 @@ ablation-03里{chapter}的写作太过粗糙。 你学一下ablation-03里`输�
 
 ---
 
+基于 docs\plans\2026-10-06-ablation03-high-coverage-biology-anchor-validation-plan.md 优化分析。原理的 low gene coverage but high cohort volume 的分析可以保留；你就相当于多做一点分析，懂吗？ 
+
+---
+
 基于 docs\plans\2026-10-04-ablation03-连续生物锚点根因辨别与优化计划.md 优化 albation-03 里“生物锚点”的相关分析。
 
 ---

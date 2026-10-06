@@ -1,0 +1,11 @@
+"role","source_system","assay_type","cohort_count","contract_samples","expression_samples"
+"query","cBioPortal","RNA-seq",10,2538,2538
+"query","GEO","microarray",1,72,72
+"query","UCSC Xena","microarray",1,285,285
+"query","UCSC Xena","RNA-seq",31,11165,11165
+"reference","cBioPortal","microarray",5,2514,2514
+"reference","cBioPortal","RNA-seq",11,1913,1913
+"reference","GEO","microarray",97,16454,16454
+"reference","GEO","RNA-seq",5,773,773
+"reference","UCSC Xena","microarray",10,1678,1678
+"reference","UCSC Xena","RNA-seq",19,1155,1155

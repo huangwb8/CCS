@@ -20,6 +20,7 @@ if (!requireNamespace("crew", quietly = TRUE) ||
 }
 
 targets::tar_source("targets")
+targets::tar_source("R")
 cache_root <- .ablation03_cache_root()
 store <- .ablation03_store(cache_root)
 observability <- .ablation03_observability_config(cache_root)
@@ -194,6 +195,69 @@ list(
       biology_diagnostic_scores, biology_diagnostic_retrieval,
       biology_diagnostic_readout, biology_diagnostic_config, runtime_config)
     }, format = "file"),
+  # Additional high-coverage validation leaves all broad/low-coverage targets intact.
+  targets::tar_target(biology_high_coverage_config_file,
+    "config/biology-high-coverage.yml", format = "file"),
+  targets::tar_target(biology_high_coverage_config,
+    yaml::read_yaml(biology_high_coverage_config_file)),
+  targets::tar_target(biology_high_coverage_sources,
+    c("R/biology_high_coverage.R", "targets/biology_high_coverage.R"), format = "file"),
+  targets::tar_target(biology_high_coverage_inventory, {
+    biology_high_coverage_sources
+    biology_diagnostic_code_identity
+    ccs_code_identity
+    .ablation03_hc_inventory(biology_diagnostic_representation_file,
+      biology_diagnostic_sources, biology_inputs, runtime_config)
+  }, format = "file"),
+  targets::tar_target(biology_high_coverage_measurement_frontier,
+    .ablation03_hc_frontier(biology_high_coverage_inventory,
+      biology_high_coverage_config, runtime_config), format = "file"),
+  targets::tar_target(biology_high_coverage_contracts,
+    .ablation03_hc_contracts(biology_high_coverage_measurement_frontier, runtime_config), format = "file"),
+  targets::tar_target(biology_high_coverage_scores, {
+    biology_high_coverage_sources
+    biology_diagnostic_code_identity
+    ccs_code_identity
+    .ablation03_hc_scores(biology_high_coverage_contracts,
+      biology_diagnostic_sources, runtime_config)
+  }, format = "file"),
+  targets::tar_target(biology_high_coverage_retrieval_specs,
+    .ablation03_hc_specs(biology_high_coverage_contracts), iteration = "list"),
+  targets::tar_target(biology_high_coverage_retrieval, {
+    biology_high_coverage_sources
+    biology_diagnostic_code_identity
+    ccs_code_identity
+    .ablation03_hc_retrieval(biology_diagnostic_representation_file,
+      biology_high_coverage_contracts, biology_high_coverage_scores,
+      biology_high_coverage_retrieval_specs, runtime_config)
+  }, pattern = map(biology_high_coverage_retrieval_specs), format = "file"),
+  targets::tar_target(biology_high_coverage_readout_specs,
+    .ablation03_hc_readout_specs(biology_high_coverage_contracts), iteration = "list"),
+  targets::tar_target(biology_high_coverage_readout, {
+    biology_high_coverage_sources
+    biology_diagnostic_code_identity
+    ccs_code_identity
+    .ablation03_hc_readout(biology_diagnostic_representation_file,
+      biology_high_coverage_contracts, biology_high_coverage_scores,
+      biology_high_coverage_readout_specs, runtime_config)
+  }, pattern = map(biology_high_coverage_readout_specs), format = "file"),
+  targets::tar_target(biology_high_coverage_sensitivity, {
+    biology_high_coverage_sources
+    biology_diagnostic_code_identity
+    ccs_code_identity
+    .ablation03_hc_sensitivity(biology_diagnostic_representation_file,
+      biology_high_coverage_contracts, biology_high_coverage_scores,
+      biology_high_coverage_retrieval, biology_high_coverage_readout_specs, runtime_config)
+  }, pattern = map(biology_high_coverage_readout_specs), format = "file"),
+  targets::tar_target(biology_high_coverage_inference, {
+    biology_high_coverage_sources
+    biology_diagnostic_code_identity
+    ccs_code_identity
+    .ablation03_hc_inference(biology_high_coverage_contracts,
+      biology_high_coverage_scores, biology_high_coverage_retrieval,
+      biology_high_coverage_readout, biology_high_coverage_sensitivity,
+      biology_diagnostic_baseline_files, runtime_config)
+  }, format = "file"),
   targets::tar_target(
     statistical_inference,
     .ablation03_statistical_inference(
@@ -233,6 +297,7 @@ list(
       learning_query_inference
       geometry_sensitivity
       biology_diagnostic_inference
+      biology_high_coverage_inference
       .ablation03_read_resource_metrics(list(observability = observability_config))
     }
   ),
@@ -248,6 +313,7 @@ list(
       representation = representation_analysis,
       biology = biology_analysis,
       biology_diagnostics = biology_diagnostic_inference,
+      biology_high_coverage = biology_high_coverage_inference,
       structural = structural_analysis,
       statistical_inference = statistical_inference,
       learning_query_inference = learning_query_inference,
@@ -323,7 +389,11 @@ list(
       "scripts/helpers/plot_delivery_helpers.R",
       "scripts/helpers/datatables_helper.R",
       "templates/liquid_glass_theme.css",
-      "templates/liquid_glass_lightbox.html"),
+      "templates/liquid_glass_lightbox.html",
+      file.path(biology_analysis$directory, "ablation03-biology.rds"),
+      file.path(runtime_config$cache_root, "ablation-experiment",
+        c("sample-contract.rds", "anchor_retrieval.rds")),
+      file.path(runtime_config$cache_root, "01-biology", "expression-anchor-cache.rds")),
     format = "file"
   ),
   targets::tar_target(
@@ -333,7 +403,7 @@ list(
       .ablation03_render_report(
         "02.02.00. 生物锚点分析.Rmd",
         dependency = list(biology_analysis, statistical_inference,
-          biology_diagnostic_inference),
+          biology_diagnostic_inference, biology_high_coverage_inference),
         cache_root = runtime_config$cache_root
       )
     },

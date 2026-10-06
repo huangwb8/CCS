@@ -1,0 +1,191 @@
+"role","cohort_key","cohort","tissue","cancer_type","source_system","assay_type","platform_id","contract_samples","expression_samples","reference_scale","selected_reference_direct","selected_reference_d1"
+"query","ACC/TCGATARGET-ACC","TCGATARGET-ACC","ACC","ACC","UCSC Xena","RNA-seq","unknow",77,77,FALSE,0,0
+"query","BLCA/TCGATARGET-BLCA","TCGATARGET-BLCA","BLCA","BLCA","UCSC Xena","RNA-seq","unknow",407,407,FALSE,0,0
+"query","Blood/Broad-Blood-2022","Broad-Blood-2022","Blood","Blood","cBioPortal","RNA-seq","unknow",715,715,FALSE,0,0
+"query","Blood/OHSU-Blood-2018","OHSU-Blood-2018","Blood","Blood","cBioPortal","RNA-seq","unknow",451,451,FALSE,0,0
+"query","Blood/OHSU-Blood-2022","OHSU-Blood-2022","Blood","Blood","cBioPortal","RNA-seq","unknow",671,671,FALSE,0,0
+"query","Blood/PCAWG-PanCan-2017_Blood","PCAWG-PanCan-2017_Blood","Blood","Blood","UCSC Xena","RNA-seq","unknow",101,101,FALSE,0,0
+"query","Blood/TCGATARGET-Blood","TCGATARGET-Blood","Blood","Blood","UCSC Xena","RNA-seq","unknow",761,761,FALSE,0,0
+"query","BRCA/CPTAC-BRCA-2020","CPTAC-BRCA-2020","BRCA","BRCA","cBioPortal","RNA-seq","unknow",122,122,FALSE,0,0
+"query","BRCA/TCGATARGET-BRCA","TCGATARGET-BRCA","BRCA","BRCA","UCSC Xena","RNA-seq","unknow",1094,1094,FALSE,0,0
+"query","CESC/TCGATARGET-CESC","TCGATARGET-CESC","CESC","CESC","UCSC Xena","RNA-seq","unknow",306,306,FALSE,0,0
+"query","CHOL/TCGATARGET-CHOL","TCGATARGET-CHOL","CHOL","CHOL","UCSC Xena","RNA-seq","unknow",36,36,FALSE,0,0
+"query","CRC/TCGATARGET-COAD","TCGATARGET-COAD","CRC","CRC","UCSC Xena","RNA-seq","unknow",290,290,FALSE,0,0
+"query","CRC/TCGATARGET-READ","TCGATARGET-READ","CRC","CRC","UCSC Xena","RNA-seq","unknow",93,93,FALSE,0,0
+"query","GBM/CPTAC-GBM-2021","CPTAC-GBM-2021","GBM","GBM","cBioPortal","RNA-seq","unknow",99,99,FALSE,0,0
+"query","GBM/TCGATARGET-GBM","TCGATARGET-GBM","GBM","GBM","UCSC Xena","RNA-seq","unknow",166,166,FALSE,0,0
+"query","HNSC/TCGATARGET-HNSC","TCGATARGET-HNSC","HNSC","HNSC","UCSC Xena","RNA-seq","unknow",520,520,FALSE,0,0
+"query","KIRC/TCGATARGET-KIRC","TCGATARGET-KIRC","KIRC","KIRC","UCSC Xena","RNA-seq","unknow",732,732,FALSE,0,0
+"query","KIRP/TCGATARGET-KIRP","TCGATARGET-KIRP","KIRP","KIRP","UCSC Xena","RNA-seq","unknow",289,289,FALSE,0,0
+"query","LGG/TCGATARGET-LGG","TCGATARGET-LGG","LGG","LGG","UCSC Xena","RNA-seq","unknow",523,523,FALSE,0,0
+"query","LIHC/TCGATARGET-LIHC","TCGATARGET-LIHC","LIHC","LIHC","UCSC Xena","RNA-seq","unknow",434,434,FALSE,0,0
+"query","LUAD/CPTAC-LUAD-2020","CPTAC-LUAD-2020","LUAD","LUAD","cBioPortal","RNA-seq","unknow",110,110,FALSE,0,0
+"query","LUAD/TCGATARGET-LUAD","TCGATARGET-LUAD","LUAD","LUAD","UCSC Xena","RNA-seq","unknow",512,512,FALSE,0,0
+"query","LUSC/CPTAC-LUSC-2021","CPTAC-LUSC-2021","LUSC","LUSC","cBioPortal","RNA-seq","unknow",108,108,FALSE,0,0
+"query","LUSC/TCGATARGET-LUSC","TCGATARGET-LUSC","LUSC","LUSC","UCSC Xena","RNA-seq","unknow",498,498,FALSE,0,0
+"query","MESO/TCGATARGET-MESO","TCGATARGET-MESO","MESO","MESO","UCSC Xena","RNA-seq","unknow",24,24,FALSE,0,0
+"query","Other/TCGATARGET-Other","TCGATARGET-Other","Other","Other","UCSC Xena","RNA-seq","unknow",162,162,FALSE,0,0
+"query","PAAD/CPTAC-PAAD-2021","CPTAC-PAAD-2021","PAAD","PAAD","cBioPortal","RNA-seq","unknow",140,140,FALSE,0,0
+"query","PAAD/TCGATARGET-PAAD","TCGATARGET-PAAD","PAAD","PAAD","UCSC Xena","RNA-seq","unknow",179,179,FALSE,0,0
+"query","PCPG/TCGATARGET-PCPG","TCGATARGET-PCPG","PCPG","PCPG","UCSC Xena","RNA-seq","unknow",182,182,FALSE,0,0
+"query","Pediatric/CBTTC-Pediatric-2019","CBTTC-Pediatric-2019","Pediatric","Pediatric","UCSC Xena","RNA-seq","unknow",973,973,FALSE,0,0
+"query","Pediatric/GSE37382","GSE37382","Pediatric","Pediatric","UCSC Xena","microarray","GPL11532",285,285,FALSE,0,0
+"query","PRAD/TCGATARGET-PRAD","TCGATARGET-PRAD","PRAD","PRAD","UCSC Xena","RNA-seq","unknow",496,496,FALSE,0,0
+"query","SARC/TCGATARGET-SARC","TCGATARGET-SARC","SARC","SARC","UCSC Xena","RNA-seq","unknow",262,262,FALSE,0,0
+"query","SKCM/TCGATARGET-SKCM","TCGATARGET-SKCM","SKCM","SKCM","UCSC Xena","RNA-seq","unknow",548,548,FALSE,0,0
+"query","SKCM/UCLA-SKCM-2016","UCLA-SKCM-2016","SKCM","SKCM","cBioPortal","RNA-seq","unknow",27,27,FALSE,0,0
+"query","STAD/GSE21983","GSE21983","STAD","STAD","GEO","microarray","GPL6106",72,72,FALSE,0,0
+"query","STAD/TCGATARGET-ESCA","TCGATARGET-ESCA","STAD","STAD","UCSC Xena","RNA-seq","unknow",182,182,FALSE,0,0
+"query","STAD/TCGATARGET-STAD","TCGATARGET-STAD","STAD","STAD","UCSC Xena","RNA-seq","unknow",414,414,FALSE,0,0
+"query","TGCT/TCGATARGET-TGCT","TCGATARGET-TGCT","TGCT","TGCT","UCSC Xena","RNA-seq","unknow",154,154,FALSE,0,0
+"query","THCA/TCGATARGET-THCA","TCGATARGET-THCA","THCA","THCA","UCSC Xena","RNA-seq","unknow",512,512,FALSE,0,0
+"query","UCEC/CPTAC-UCEC-2020","CPTAC-UCEC-2020","UCEC","UCEC","cBioPortal","RNA-seq","unknow",95,95,FALSE,0,0
+"query","UCEC/TCGATARGET-UCEC","TCGATARGET-UCEC","UCEC","UCEC","UCSC Xena","RNA-seq","unknow",181,181,FALSE,0,0
+"query","UCS/TCGATARGET-UCS","TCGATARGET-UCS","UCS","UCS","UCSC Xena","RNA-seq","unknow",57,57,FALSE,0,0
+"reference","ACC/GSE143383","GSE143383","ACC","ACC","GEO","microarray","GPL16043",63,63,TRUE,11,53
+"reference","ACC/GSE19750","GSE19750","ACC","ACC","GEO","microarray","GPL570",48,48,TRUE,19,22
+"reference","ACC/GSE33371","GSE33371","ACC","ACC","GEO","microarray","GPL570",55,55,TRUE,8,33
+"reference","ACC/GSE49278","GSE49278","ACC","ACC","GEO","microarray","GPL16686",44,44,TRUE,6,17
+"reference","ACC/GSE75415","GSE75415","ACC","ACC","GEO","microarray","GPL96",23,23,TRUE,0,4
+"reference","ACC/GSE76019","GSE76019","ACC","ACC","GEO","microarray","GPL13158",34,34,TRUE,28,31
+"reference","ACC/GSE76021","GSE76021","ACC","ACC","GEO","microarray","GPL96",29,29,TRUE,1,2
+"reference","ACC/GSE90713","GSE90713","ACC","ACC","GEO","microarray","GPL15207",58,58,TRUE,19,51
+"reference","BLCA/Cornell-NatCom-2019","Cornell-NatCom-2019","BLCA","BLCA","cBioPortal","RNA-seq","unknow",32,32,TRUE,29,30
+"reference","BLCA/MSK-BLCA-2013","MSK-BLCA-2013","BLCA","BLCA","cBioPortal","microarray","unknow",58,58,TRUE,2,5
+"reference","BRCA/Caldas-BRCA-2007","Caldas-BRCA-2007","BRCA","BRCA","UCSC Xena","microarray","Agilent Human 1A (V2) microarray",135,135,TRUE,12,23
+"reference","BRCA/Chin-BRCA-2006","Chin-BRCA-2006","BRCA","BRCA","UCSC Xena","microarray","Affymetrix U133 family",118,118,TRUE,16,20
+"reference","BRCA/GSE102484","GSE102484","BRCA","BRCA","GEO","microarray","GPL570",683,683,TRUE,14,98
+"reference","BRCA/GSE105777","GSE105777","BRCA","BRCA","GEO","microarray","GPL10558",426,426,TRUE,70,140
+"reference","BRCA/GSE124647","GSE124647","BRCA","BRCA","GEO","microarray","GPL96",140,140,TRUE,64,81
+"reference","BRCA/GSE167977","GSE167977","BRCA","BRCA","GEO","RNA-seq","GPL16791",526,526,TRUE,1,2
+"reference","BRCA/GSE25055","GSE25055","BRCA","BRCA","GEO","microarray","GPL96",310,310,TRUE,126,175
+"reference","BRCA/GSE25065","GSE25065","BRCA","BRCA","GEO","microarray","GPL96",198,198,TRUE,77,91
+"reference","BRCA/GSE27830","GSE27830","BRCA","BRCA","GEO","microarray","GPL570",155,155,TRUE,25,45
+"reference","BRCA/GSE3494_GPL96","GSE3494_GPL96","BRCA","BRCA","UCSC Xena","microarray","GPL96",251,251,TRUE,82,170
+"reference","BRCA/GSE48091","GSE48091","BRCA","BRCA","GEO","microarray","GPL10379",623,623,TRUE,15,75
+"reference","BRCA/GSE5327","GSE5327","BRCA","BRCA","UCSC Xena","microarray","GPL96",58,58,TRUE,21,32
+"reference","BRCA/GSE7390","GSE7390","BRCA","BRCA","UCSC Xena","microarray","GPL96",198,198,TRUE,149,175
+"reference","BRCA/GSE80999","GSE80999","BRCA","BRCA","GEO","microarray","GPL14550",381,381,TRUE,121,137
+"reference","BRCA/Hess-BRCA-2006","Hess-BRCA-2006","BRCA","BRCA","UCSC Xena","microarray","Affymetrix U133 family",133,133,TRUE,25,27
+"reference","BRCA/MBC-BRCA-2021","MBC-BRCA-2021","BRCA","BRCA","cBioPortal","RNA-seq","unknow",157,157,TRUE,41,105
+"reference","BRCA/MET500-PanCan-2018_BRCA","MET500-PanCan-2018_BRCA","BRCA","BRCA","UCSC Xena","RNA-seq","unknow",159,159,TRUE,153,157
+"reference","BRCA/METABRIC-BRCA-2012","METABRIC-BRCA-2012","BRCA","BRCA","cBioPortal","microarray","Illumina HT-12 v3 microarray",1980,1980,TRUE,237,723
+"reference","BRCA/PCAWG-PanCan-2017_BRCA","PCAWG-PanCan-2017_BRCA","BRCA","BRCA","UCSC Xena","RNA-seq","unknow",47,47,TRUE,46,47
+"reference","BRCA/Vijver-BRCA-2002","Vijver-BRCA-2002","BRCA","BRCA","UCSC Xena","microarray","Agilent/Rosetta custom microarray family",295,295,TRUE,54,63
+"reference","CHOL/MET500-PanCan-2018_CHOL","MET500-PanCan-2018_CHOL","CHOL","CHOL","UCSC Xena","RNA-seq","unknow",45,45,TRUE,41,38
+"reference","CRC/GPTAC2-COAD-2019","GPTAC2-COAD-2019","CRC","CRC","cBioPortal","RNA-seq","unknow",106,106,TRUE,106,106
+"reference","CRC/GSE100179","GSE100179","CRC","CRC","GEO","microarray","GPL17586",20,20,TRUE,0,2
+"reference","CRC/GSE103479","GSE103479","CRC","CRC","GEO","microarray","GPL23985",156,156,TRUE,0,4
+"reference","CRC/GSE104645","GSE104645","CRC","CRC","GEO","microarray","GPL6480",193,193,TRUE,19,23
+"reference","CRC/GSE106582","GSE106582","CRC","CRC","GEO","microarray","GPL10558",77,77,TRUE,18,24
+"reference","CRC/GSE106584","GSE106584","CRC","CRC","GEO","microarray","GPL17586",156,156,TRUE,13,13
+"reference","CRC/GSE113513","GSE113513","CRC","CRC","GEO","microarray","GPL15207",28,28,TRUE,7,23
+"reference","CRC/GSE117606","GSE117606","CRC","CRC","GEO","microarray","GPL25373",74,74,TRUE,4,31
+"reference","CRC/GSE12032","GSE12032","CRC","CRC","GEO","microarray","GPL1291",198,198,TRUE,14,15
+"reference","CRC/GSE131418","GSE131418","CRC","CRC","GEO","microarray","GPL15048",1135,1135,TRUE,27,175
+"reference","CRC/GSE132024","GSE132024","CRC","CRC","GEO","RNA-seq","GPL11154; GPL16791",98,98,TRUE,87,95
+"reference","CRC/GSE143985","GSE143985","CRC","CRC","GEO","microarray","GPL570",91,91,TRUE,11,27
+"reference","CRC/GSE146009","GSE146009","CRC","CRC","GEO","RNA-seq","GPL18573",33,33,TRUE,28,33
+"reference","CRC/GSE147571","GSE147571","CRC","CRC","GEO","microarray","GPL6480",308,308,TRUE,26,32
+"reference","CRC/GSE161158","GSE161158","CRC","CRC","GEO","microarray","GPL570",250,250,TRUE,12,74
+"reference","CRC/GSE17536","GSE17536","CRC","CRC","GEO","microarray","GPL570",177,177,TRUE,2,37
+"reference","CRC/GSE17537","GSE17537","CRC","CRC","GEO","microarray","GPL570",55,55,TRUE,8,34
+"reference","CRC/GSE178120","GSE178120","CRC","CRC","GEO","microarray","GPL17586",105,105,TRUE,1,19
+"reference","CRC/GSE18105","GSE18105","CRC","CRC","GEO","microarray","GPL570",94,94,TRUE,31,54
+"reference","CRC/GSE20970","GSE20970","CRC","CRC","GEO","microarray","GPL1528",73,73,TRUE,17,8
+"reference","CRC/GSE26906","GSE26906","CRC","CRC","GEO","microarray","GPL570",90,90,TRUE,2,19
+"reference","CRC/GSE27854","GSE27854","CRC","CRC","GEO","microarray","GPL570",115,115,TRUE,36,66
+"reference","CRC/GSE30378","GSE30378","CRC","CRC","GEO","microarray","GPL5175",95,95,TRUE,33,53
+"reference","CRC/GSE33113","GSE33113","CRC","CRC","GEO","microarray","GPL570",90,90,TRUE,2,13
+"reference","CRC/GSE33193","GSE33193","CRC","CRC","GEO","microarray","GPL6480",100,100,TRUE,7,9
+"reference","CRC/GSE35144","GSE35144","CRC","CRC","GEO","microarray","GPL570",64,64,TRUE,26,30
+"reference","CRC/GSE37182","GSE37182","CRC","CRC","GEO","microarray","GPL6947",84,84,TRUE,8,20
+"reference","CRC/GSE37892","GSE37892","CRC","CRC","GEO","microarray","GPL570",130,130,TRUE,3,29
+"reference","CRC/GSE38832","GSE38832","CRC","CRC","GEO","microarray","GPL570",122,122,TRUE,13,55
+"reference","CRC/GSE39582","GSE39582","CRC","CRC","GEO","microarray","GPL570",585,585,TRUE,26,146
+"reference","CRC/GSE39923","GSE39923","CRC","CRC","GEO","microarray","GPL570",42,42,TRUE,29,35
+"reference","CRC/GSE41258","GSE41258","CRC","CRC","GEO","microarray","GPL96",255,255,TRUE,37,47
+"reference","CRC/GSE4459","GSE4459","CRC","CRC","GEO","microarray","GPL570",89,89,TRUE,5,27
+"reference","CRC/GSE45404","GSE45404","CRC","CRC","GEO","microarray","GPL570",42,42,TRUE,4,17
+"reference","CRC/GSE49355","GSE49355","CRC","CRC","GEO","microarray","GPL96",57,57,TRUE,13,37
+"reference","CRC/GSE64110","GSE64110","CRC","CRC","GEO","microarray","GPL4091",30,30,TRUE,2,3
+"reference","CRC/GSE71222","GSE71222","CRC","CRC","GEO","microarray","GPL570",152,152,TRUE,28,72
+"reference","CRC/GSE74843","GSE74843","CRC","CRC","GEO","microarray","GPL16043",58,58,TRUE,10,11
+"reference","CRC/GSE83889","GSE83889","CRC","CRC","GEO","microarray","GPL10558",101,101,TRUE,12,26
+"reference","CRC/GSE87211","GSE87211","CRC","CRC","GEO","microarray","GPL13497",203,203,TRUE,5,62
+"reference","CRC/PCAWG-PanCan-2017_COAD","PCAWG-PanCan-2017_COAD","CRC","CRC","UCSC Xena","RNA-seq","unknow",32,32,TRUE,32,32
+"reference","HNSC/MET500-PanCan-2018_HNSC","MET500-PanCan-2018_HNSC","HNSC","HNSC","UCSC Xena","RNA-seq","unknow",45,45,TRUE,45,44
+"reference","KIRC/GSE105261","GSE105261","KIRC","KIRC","GEO","microarray","GPL10558",35,35,TRUE,3,4
+"reference","KIRC/GSE151419","GSE151419","KIRC","KIRC","GEO","RNA-seq","GPL15456",57,57,TRUE,55,56
+"reference","KIRC/GSE15641","GSE15641","KIRC","KIRC","GEO","microarray","GPL96",92,92,TRUE,23,46
+"reference","KIRC/GSE167093","GSE167093","KIRC","KIRC","GEO","microarray","GPL10558",656,656,TRUE,75,117
+"reference","KIRC/GSE17818","GSE17818","KIRC","KIRC","GEO","microarray","GPL9101",102,102,TRUE,42,42
+"reference","KIRC/GSE19949","GSE19949","KIRC","KIRC","GEO","microarray","GPL3921",113,113,TRUE,77,105
+"reference","KIRC/GSE46699","GSE46699","KIRC","KIRC","GEO","microarray","GPL570",67,67,TRUE,0,23
+"reference","KIRC/GSE65615","GSE65615","KIRC","KIRC","GEO","microarray","GPL10558",122,122,TRUE,38,47
+"reference","KIRC/GSE73731","GSE73731","KIRC","KIRC","GEO","microarray","GPL570",265,265,TRUE,16,53
+"reference","KIRC/MSK-Rectal-2022","MSK-Rectal-2022","KIRC","KIRC","cBioPortal","RNA-seq","unknow",113,113,TRUE,97,112
+"reference","KIRC/PCAWG-PanCan-2017_KIRC","PCAWG-PanCan-2017_KIRC","KIRC","KIRC","UCSC Xena","RNA-seq","unknow",96,96,TRUE,93,96
+"reference","LGG/GLASS-LGG-2019","GLASS-LGG-2019","LGG","LGG","cBioPortal","RNA-seq","unknow",79,79,TRUE,62,66
+"reference","LGG/GLASS-LGG-Raw01","GLASS-LGG-Raw01","LGG","LGG","cBioPortal","RNA-seq","unknow",355,355,TRUE,321,340
+"reference","LGG/PCAWG-PanCan-2017_LGG","PCAWG-PanCan-2017_LGG","LGG","LGG","UCSC Xena","RNA-seq","unknow",25,25,TRUE,25,25
+"reference","LIHC/PCAWG-PanCan-2017_LIHC","PCAWG-PanCan-2017_LIHC","LIHC","LIHC","UCSC Xena","RNA-seq","unknow",47,47,TRUE,47,47
+"reference","LUAD/GSE12667","GSE12667","LUAD","LUAD","UCSC Xena","microarray","GPL570",75,75,TRUE,2,9
+"reference","LUAD/GSE4573","GSE4573","LUAD","LUAD","UCSC Xena","microarray","GPL96",130,130,TRUE,30,54
+"reference","LUAD/OncoSG-LUAD-2020","OncoSG-LUAD-2020","LUAD","LUAD","cBioPortal","RNA-seq","unknow",169,169,TRUE,62,53
+"reference","LUNG/MET500-PanCan-2018_LUNG","MET500-PanCan-2018_LUNG","LUNG","LUNG","UCSC Xena","RNA-seq","unknow",42,42,TRUE,40,41
+"reference","LUSC/PCAWG-PanCan-2017_LUSC","PCAWG-PanCan-2017_LUSC","LUSC","LUSC","UCSC Xena","RNA-seq","unknow",23,23,TRUE,23,23
+"reference","MISC/BCGSC-MISC-2020","BCGSC-MISC-2020","MISC","MISC","cBioPortal","RNA-seq","unknow",570,570,TRUE,516,524
+"reference","MISC/MET500-PanCan-2018_MISC","MET500-PanCan-2018_MISC","MISC","MISC","UCSC Xena","RNA-seq","unknow",70,70,TRUE,68,63
+"reference","OV/GSE9891","GSE9891","OV","OV","UCSC Xena","microarray","GPL570",285,285,TRUE,78,123
+"reference","OV/PCAWG-PanCan-2017_OV","PCAWG-PanCan-2017_OV","OV","OV","UCSC Xena","RNA-seq","unknow",57,57,TRUE,56,54
+"reference","PAAD/GSE102238","GSE102238","PAAD","PAAD","GEO","microarray","GPL19072",100,100,TRUE,2,14
+"reference","PAAD/GSE15471","GSE15471","PAAD","PAAD","GEO","microarray","GPL570",78,78,TRUE,1,9
+"reference","PAAD/GSE183795","GSE183795","PAAD","PAAD","GEO","microarray","GPL6244",139,139,TRUE,17,22
+"reference","PAAD/GSE21501","GSE21501","PAAD","PAAD","GEO","microarray","GPL4133",132,132,TRUE,30,10
+"reference","PAAD/GSE242915","GSE242915","PAAD","PAAD","GEO","RNA-seq","GPL24676",59,59,TRUE,30,42
+"reference","PAAD/GSE28735","GSE28735","PAAD","PAAD","GEO","microarray","GPL6244",45,45,TRUE,16,17
+"reference","PAAD/GSE50827","GSE50827","PAAD","PAAD","GEO","microarray","GPL10558",103,103,TRUE,2,17
+"reference","PAAD/GSE62165","GSE62165","PAAD","PAAD","GEO","microarray","GPL13667",118,118,TRUE,26,77
+"reference","PAAD/GSE62452","GSE62452","PAAD","PAAD","GEO","microarray","GPL6244",69,69,TRUE,22,27
+"reference","PAAD/GSE73338","GSE73338","PAAD","PAAD","GEO","microarray","GPL20945",88,88,TRUE,0,3
+"reference","PAAD/PACA-PAAD-2016","PACA-PAAD-2016","PAAD","PAAD","UCSC Xena","RNA-seq","unknow",96,96,TRUE,60,86
+"reference","PAAD/PCAWG-PanCan-2017_PAAD","PCAWG-PanCan-2017_PAAD","PAAD","PAAD","UCSC Xena","RNA-seq","unknow",37,37,TRUE,37,36
+"reference","PAAD/QCMG-PAAD-2016","QCMG-PAAD-2016","PAAD","PAAD","cBioPortal","RNA-seq","unknow",96,96,TRUE,95,94
+"reference","PRAD/DKFZ-PRAD-2018","DKFZ-PRAD-2018","PRAD","PRAD","cBioPortal","RNA-seq","unknow",118,118,TRUE,98,107
+"reference","PRAD/Fred-PRAD-2016","Fred-PRAD-2016","PRAD","PRAD","cBioPortal","microarray","unknow",171,171,TRUE,24,92
+"reference","PRAD/GSE116918","GSE116918","PRAD","PRAD","GEO","microarray","GPL25318",248,248,TRUE,0,0
+"reference","PRAD/GSE134051","GSE134051","PRAD","PRAD","GEO","microarray","GPL26898",52,52,TRUE,0,1
+"reference","PRAD/GSE157548","GSE157548","PRAD","PRAD","GEO","microarray","GPL5175",838,838,TRUE,40,92
+"reference","PRAD/GSE169038","GSE169038","PRAD","PRAD","GEO","microarray","GPL5175",1152,1152,TRUE,113,149
+"reference","PRAD/GSE200879","GSE200879","PRAD","PRAD","GEO","microarray","GPL32170",128,128,TRUE,26,32
+"reference","PRAD/GSE209954","GSE209954","PRAD","PRAD","GEO","microarray","GPL5175",226,226,TRUE,18,27
+"reference","PRAD/GSE21034","GSE21034","PRAD","PRAD","GEO","microarray","GPL5188",150,150,TRUE,17,37
+"reference","PRAD/GSE35988","GSE35988","PRAD","PRAD","GEO","microarray","GPL6480",88,88,TRUE,11,15
+"reference","PRAD/GSE60329","GSE60329","PRAD","PRAD","GEO","microarray","GPL14550",122,122,TRUE,7,23
+"reference","PRAD/GSE70768","GSE70768","PRAD","PRAD","GEO","microarray","GPL10558",125,125,TRUE,9,34
+"reference","PRAD/MET500-PanCan-2018_PRAD","MET500-PanCan-2018_PRAD","PRAD","PRAD","UCSC Xena","RNA-seq","unknow",155,155,TRUE,139,138
+"reference","PRAD/MSK-PRAD-2010","MSK-PRAD-2010","PRAD","PRAD","cBioPortal","microarray","unknow",156,156,TRUE,69,119
+"reference","PRAD/SU2CPCF-PRAD-2015","SU2CPCF-PRAD-2015","PRAD","PRAD","cBioPortal","RNA-seq","unknow",118,118,TRUE,111,112
+"reference","SARC/MET500-PanCan-2018_SARC","MET500-PanCan-2018_SARC","SARC","SARC","UCSC Xena","RNA-seq","unknow",100,100,TRUE,95,97
+"reference","SARC/MSKCCB-Sarcoma-2010","MSKCCB-Sarcoma-2010","SARC","SARC","cBioPortal","microarray","unknow",149,149,TRUE,14,46
+"reference","SECR/MET500-PanCan-2018_SECR","MET500-PanCan-2018_SECR","SECR","SECR","UCSC Xena","RNA-seq","unknow",33,33,TRUE,29,30
+"reference","STAD/GSE13861","GSE13861","STAD","STAD","GEO","microarray","GPL6884",65,65,TRUE,10,18
+"reference","STAD/GSE13911","GSE13911","STAD","STAD","GEO","microarray","GPL570",39,39,TRUE,4,6
+"reference","STAD/GSE15081","GSE15081","STAD","STAD","GEO","microarray","GPL1291",141,141,TRUE,23,17
+"reference","STAD/GSE15459","GSE15459","STAD","STAD","GEO","microarray","GPL570",192,192,TRUE,5,37
+"reference","STAD/GSE22377","GSE22377","STAD","STAD","GEO","microarray","GPL570",43,43,TRUE,1,3
+"reference","STAD/GSE26901","GSE26901","STAD","STAD","GEO","microarray","GPL6947",108,108,TRUE,23,34
+"reference","STAD/GSE27342","GSE27342","STAD","STAD","GEO","microarray","GPL5175",80,80,TRUE,6,34
+"reference","STAD/GSE29272","GSE29272","STAD","STAD","GEO","microarray","GPL96",134,134,TRUE,31,54
+"reference","STAD/GSE38024","GSE38024","STAD","STAD","GEO","microarray","GPL10558",48,48,TRUE,8,9
+"reference","STAD/GSE51105","GSE51105","STAD","STAD","GEO","microarray","GPL570",94,94,TRUE,1,8
+"reference","STAD/GSE54129","GSE54129","STAD","STAD","GEO","microarray","GPL570",111,111,TRUE,2,3
+"reference","STAD/GSE57303","GSE57303","STAD","STAD","GEO","microarray","GPL570",70,70,TRUE,0,10
+"reference","STAD/GSE62254","GSE62254","STAD","STAD","GEO","microarray","GPL570",300,300,TRUE,4,37
+"reference","STAD/GSE65801","GSE65801","STAD","STAD","GEO","microarray","GPL14550",32,32,TRUE,2,15
+"reference","STAD/GSE74553","GSE74553","STAD","STAD","GEO","microarray","GPL17692",122,122,TRUE,11,31
+"reference","STAD/GSE84437","GSE84437","STAD","STAD","GEO","microarray","GPL6947",433,433,TRUE,89,107
+"reference","STAD/GSE96669","GSE96669","STAD","STAD","GEO","microarray","GPL10558",25,25,TRUE,0,3
+"reference","STAD/MET500-PanCan-2018_ESCA","MET500-PanCan-2018_ESCA","STAD","STAD","UCSC Xena","RNA-seq","unknow",21,21,TRUE,14,17
+"reference","UCEC/PCAWG-PanCan-2017_UCEC","PCAWG-PanCan-2017_UCEC","UCEC","UCEC","UCSC Xena","RNA-seq","unknow",25,25,TRUE,23,23

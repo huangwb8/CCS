@@ -1,0 +1,44 @@
+schema_version: 1
+experiment_id: biology-high-coverage-20261006
+seed: 20261006
+coverage_tiers: [0.6, 0.7, 0.8, 0.9]
+selection_rule: deterministic_availability_seed_search
+primary_min_query_cohorts: 8
+primary_min_source_groups: 3
+limited_min_query_cohorts: 5
+min_query_per_cohort: 20
+min_reference_cohorts: 2
+min_signature_genes: 8
+min_background_genes: 5000
+k: 15
+min_inference_cohorts: 3
+bootstrap: 2000
+min_valid_bootstrap: 1900
+primary_anchors: [proliferation, immune_tme, stromal_tme, ifn_il6]
+score_definitions: [common_raw, common_rank]
+primary_score_definition: common_rank
+primary_pool: same_cancer
+non_inferiority_margin: null
+readout:
+  folds: 5
+  lambda: [0.1, 1, 10]
+  nonlinear_trigger: any_reference_cv_d1_mae_exceeds_direct_or_mean
+  xgboost:
+    objective: reg:squarederror
+    max_depth: 3
+    eta: 0.05
+    nrounds: 200
+    subsample: 1
+    colsample_bytree: 1
+    nthread: 1
+    tree_method: hist
+    seed: 20261006
+retrieval:
+  validation_per_cohort: 20
+  min_mean_recall: 0.95
+  min_cohort_recall: 0.90
+  n_trees: 50
+  search_budgets: [5000, 20000]
+  tie_tolerance: 1.0e-8
+  exact_batch_size: 64
+inference_scope: conditional_on_frozen_bank_contract_reference_and_query_cohorts

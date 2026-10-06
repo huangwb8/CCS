@@ -164,9 +164,94 @@ external_cohort_count <- length(unique(external_coverage$cohort_key))
 partial_external_count <- sum(external_coverage$coverage < 1)
 missing_pair_count <- sum(biology_missing$missing_score_pairs)
 cohort_negative_fraction <- mean(biology_cohort$delta_d1_minus_direct < 0)
+sample_contract <- readRDS(file.path(result_dir, "sample-contract.rds"))
+expression_cache <- readRDS(.wf_output("01-biology", "expression-anchor-cache.rds"))
+anchor_neighbors <- readRDS(file.path(result_dir, "anchor_retrieval.rds"))$neighbors
+anchor_neighbors <- anchor_neighbors[anchor_neighbors$neighbor_rank <= 15L, , drop = FALSE]
+if (length(intersect(sample_contract$reference$sample_id, sample_contract$query$sample_id)) ||
+    length(intersect(sample_contract$reference$cohort_key, sample_contract$query$cohort_key)) ||
+    !setequal(expression_cache$sample_ids,
+      c(sample_contract$reference$sample_id, sample_contract$query$sample_id))) {
+  stop("Biology report requires disjoint reference/query contracts aligned to the expression cache.",
+    call. = FALSE)
+}
+collapse_metadata <- function(x) paste(sort(unique(as.character(x))), collapse = "; ")
+cohort_usage <- do.call(rbind, lapply(names(sample_contract), function(role) {
+  metadata <- sample_contract[[role]]
+  do.call(rbind, lapply(split(metadata, metadata$cohort_key), function(cohort) {
+    key <- cohort$cohort_key[1L]
+    cached <- expression_cache$cohorts[[key]]
+    reference_hits <- anchor_neighbors[
+      anchor_neighbors$reference_sample %in% cohort$sample_id, , drop = FALSE]
+    data.frame(
+      role = role, cohort_key = key, cohort = cohort$cohort[1L],
+      tissue = collapse_metadata(cohort$tissue),
+      cancer_type = collapse_metadata(cohort$cancer_type),
+      source_system = collapse_metadata(cohort$source_system),
+      assay_type = collapse_metadata(cohort$assay_type),
+      platform_id = collapse_metadata(cohort$platform_id),
+      contract_samples = nrow(cohort),
+      expression_samples = length(cached$sample_id),
+      reference_scale = role == "reference" && key %in% biology_result$scaling$reference_cohorts,
+      selected_reference_direct = length(unique(reference_hits$reference_sample[
+        reference_hits$representation == "Direct-GSClassifier"])),
+      selected_reference_d1 = length(unique(reference_hits$reference_sample[
+        reference_hits$representation == "Cohort-d1"])),
+      stringsAsFactors = FALSE
+    )
+  }))
+}))
+rownames(cohort_usage) <- NULL
+cohort_usage <- cohort_usage[order(cohort_usage$role, cohort_usage$cohort_key), ]
+cohort_sources <- stats::aggregate(
+  cbind(contract_samples, expression_samples) ~ role + source_system + assay_type,
+  data = cohort_usage, FUN = sum)
+source_cohort_counts <- stats::aggregate(
+  cohort_key ~ role + source_system + assay_type, data = cohort_usage, FUN = length)
+names(source_cohort_counts)[names(source_cohort_counts) == "cohort_key"] <- "cohort_count"
+cohort_sources <- merge(source_cohort_counts, cohort_sources,
+  by = c("role", "source_system", "assay_type"), sort = TRUE)
+query_usage <- merge(external_coverage[, c("cohort_key", "cohort", "anchor",
+    "sample_count", "genes_required", "genes_found", "coverage")],
+  biology_cohort[, c("query_cohort", "anchor", "query_count")],
+  by.x = c("cohort", "anchor"), by.y = c("query_cohort", "anchor"), all.x = TRUE)
+query_usage$query_count[is.na(query_usage$query_count)] <- 0L
+query_usage$excluded_queries <- query_usage$sample_count - query_usage$query_count
+query_usage <- query_usage[order(query_usage$cohort_key, query_usage$anchor), ]
+query_counts <- stats::aggregate(query_count ~ anchor, data = query_usage, FUN = sum)
+if (any(query_usage$excluded_queries < 0L) ||
+    !isTRUE(all.equal(as.numeric(query_counts$query_count),
+      as.numeric(biology_inference$query_count[match(query_counts$anchor,
+        biology_inference$anchor)]))) ||
+    !setequal(unique(query_usage$cohort_key), unique(sample_contract$query$cohort_key))) {
+  stop("Biology cohort inventory does not reproduce the formal paired query counts.", call. = FALSE)
+}
+for (name in c("cohort_usage", "cohort_sources", "query_usage")) {
+  utils::write.csv(get(name), file.path(table_dir,
+    paste0("02.02.00. ", gsub("_", "-", name), ".csv")), row.names = FALSE)
+}
+fmt_n <- function(x) format(x, big.mark = ",", scientific = FALSE, trim = TRUE)
 plot_zh <- identical(params$plot_language, "zh")
 plot_label <- function(en, zh) if (plot_zh) zh else en
 anchor_labels <- .ablation03_anchor_labels(params$plot_language)
+high_coverage <- readRDS(targets::tar_read(biology_high_coverage_inference,
+  store = file.path(Sys.getenv("CCS_ABLATION_CACHE_ROOT"), "targets")))
+hc_tables <- high_coverage[c("frontier", "primary", "grid", "cohort", "leave_one",
+  "core", "readout_metrics", "readout_inference", "status", "eligibility", "gene_lists", "scales",
+  "sensitivity", "sensitivity_status", "changes", "source_summary")]
+for (name in names(hc_tables)) utils::write.csv(hc_tables[[name]], file.path(table_dir,
+  paste0("02.02.00. high-coverage-", name, ".csv")), row.names = FALSE)
+hc_text <- function(x) {
+  paste(vapply(seq_len(nrow(x)), function(i) {
+    row <- x[i, ]
+    label <- unname(anchor_labels[row$anchor])
+    if (row$status != "estimable") return(paste0(label, "：不可估计（", row$reason, "）"))
+    paste0(label, "：", fmt(row$estimate), "，95% CI [", fmt(row$ci_low), ", ",
+      fmt(row$ci_high), "]，", row$cohort_count, " 个队列 / ", row$query_count, " 个 query")
+  }, character(1)), collapse = "；")
+}
+hc_save_plot <- function(plot, stem, width, height) .ae_save_plot(plot, stem,
+  figure_dir, preview_dir, list(width_in = width, height_in = height), params$plot_preview_dpi)
 diagnostic_dir <- .wf_output("biology-diagnostics")
 diagnostic_audit <- readRDS(file.path(diagnostic_dir, "audit.rds"))
 diagnostic_scores <- readRDS(file.path(diagnostic_dir, "scores.rds"))
@@ -278,7 +363,54 @@ diagnostic_change_plot <- function(data, labels, file_stem) {
 
 ## 数据概览
 
-候选外部队列为 `r manifest$external_candidate_cohort_count` 个，表达覆盖审计包含 `r nrow(biology_coverage)` 行。实际有效 query 由两臂 top-`r 15L` 分数完整性共同决定。
+### Reference 与 query 各自用于什么
+
+**本报告的生物锚点主效应评估外部 query 患者；reference 同时提供表达评分标尺和检索邻居。两边都需要表达数据。** 本次冻结样本契约包含 `r length(unique(sample_contract$reference$cohort_key))` 个 reference 队列、`r fmt_n(nrow(sample_contract$reference))` 个样本，以及 `r length(unique(sample_contract$query$cohort_key))` 个 query 队列、`r fmt_n(nrow(sample_contract$query))` 个样本。两组样本 ID 和 cohort key 均不重叠。
+
+| 阶段 | Reference 的用途 | Query 的用途 |
+|---|---|---|
+| 表达输入准备 | 按冻结样本契约提取锚点基因表达 | 按同一契约提取锚点基因表达；不另招募患者 |
+| 基因标尺与锚点评分 | 合并 reference 中每个基因的有限表达观测，估计均值与标准差；也计算自身锚点分数 | 仅应用固定 reference 标尺计算锚点分数，不参与标尺拟合 |
+| 两臂 top-15 检索 | 作为共同候选库；实际选中哪些样本取决于 Direct 或 d1 的距离 | 每位 query 分别在两臂检索，排除同 cohort 样本；原主效应候选池包含所有癌种 |
+| 接近度与主效应推断 | 用被选中邻居的锚点分数与 query 比较；不是主效应的重采样单位 | 要求两臂 top-15 分数完整，先做患者内配对，再在 query cohort 内平均，最后对 query cohort 等权 |
+| 后文连续读取器诊断 | 仅在 reference 训练和按 cohort 五折调参；训练折内重新拟合所需标尺 | 固定模型后外部评估，不参与调参；目标支持不足时不拟合、不发布效应 |
+
+原主效应的表达来自本地泛癌表达 atlas（GEO、cBioPortal 与 UCSC Xena 汇编），由 `r biology_input_script_name` 按契约提取到 `01-biology/expression-anchor-cache.rds`；签名来自 `r basename(biology_result$source_signature)`，选择规则冻结于 `raw/config/biological-anchors.yml`。两臂邻居来自正式表示分析产物 `ablation-experiment/anchor_retrieval.rds`。报告只读取这些正式产物，不重新训练 bank 或按生物锚点结果调整患者集合。reference 的 d1 来自冻结 bank 内表示，query 的 d1 为外部冻结变换；这里的“外部”描述样本与 bank 的使用关系，不代表表达锚点是独立临床结局。
+
+### 队列来源、检测类型与完整清单
+
+下表按样本契约中的来源系统和检测类型汇总。`contract_samples` 是进入本次契约的样本数，`expression_samples` 是表达缓存中实际找到的样本数，均不代表原研究的全部入组人数。来源系统是数据获取渠道，同一来源下可有多个研究队列，不能把来源数当作独立队列数。
+
+```{r biology-cohort-sources}
+render_dt_output(cohort_sources, n = nrow(cohort_sources), pageLength = 10)
+```
+
+完整清单包含全部 `r nrow(cohort_usage)` 个队列，可用表格搜索框筛选 `reference`、`query`、组织、研究名称或来源。`reference_scale` 标记是否属于原主效应的标尺来源；各基因仍只使用该队列中实际存在的有限表达观测。`selected_reference_direct` 与 `selected_reference_d1` 是各臂在全部 query 的 top-15 名单中选中的该队列**不同 reference 样本数**，不是邻居对次数；query 行为 0，因为 query 不进入 reference 候选库。零次被选中不会取消某个 reference 队列的候选资格或标尺贡献。`platform_id=unknow` 表示平台资料未知，不是一个真实平台。
+
+```{r biology-cohort-inventory}
+render_dt_output(cohort_usage, n = nrow(cohort_usage), pageLength = 15)
+```
+
+### 从候选 query 到各锚点的有效配对
+
+共享候选 query 为 `r manifest$external_candidate_cohort_count` 个队列、`r fmt_n(manifest$external_candidate_sample_count)` 个样本。**表示报告中的癌种 readout 合格子集为 `r manifest$query_cohort_count` 个队列、`r fmt_n(manifest$query_sample_count)` 个样本，不能把这个子集当作生物锚点的样本来源。** 癌种 readout 要求相应癌种在 reference 中有足够的跨队列支持；原连续生物锚点主效应按自身表达与两臂完整配对条件使用候选 query，不继承该癌种支持筛选。
+
+下面逐锚点列出实际参与主效应的队列和患者数，直接读取正式推断表；邻居对重复出现不会增加患者数或独立队列数。
+
+```{r biology-anchor-query-counts}
+render_dt_output(biology_inference[, c("anchor", "cohort_count", "query_count",
+  "inference_status")], n = nrow(biology_inference))
+```
+
+逐队列、逐锚点表中，`sample_count` 为缓存中的候选 query 数，`query_count` 为两臂都有完整 top-15 锚点分数的配对 query 数，`excluded_queries` 是二者差值。`genes_found / genes_required` 描述该队列的输入基因覆盖；基因覆盖不足 100% 与 query 被排除是两种不同情况，不能互相替代。原主效应至少需要两个有效 reference 标尺基因，样本分数须有限；它未要求所有队列使用完全相同的签名基因。
+
+```{r biology-query-cohort-usage}
+render_dt_output(query_usage, n = nrow(query_usage), pageLength = 15)
+```
+
+三份队列级 CSV 与表格同源：[来源汇总](reports/tables/02.02.00.%20cohort-sources.csv)、[完整队列清单](reports/tables/02.02.00.%20cohort-usage.csv)、[锚点有效配对清单](reports/tables/02.02.00.%20query-usage.csv)。这些导出仅含队列级元数据与计数，不含患者 ID 或表达原值。表达覆盖审计共 `r nrow(biology_coverage)` 行，分别对应 cohort–anchor 组合。
+
+后文受控根因诊断仍从同一冻结契约开始，但另有共同签名、秩背景、同癌种 reference 支持、每 cohort 最低 query 数和两臂完整配对等门槛；其可估计人数应读该诊断的资格表。原主效应使用了某个 query 队列，不表示它在所有严格诊断中都可估计；低覆盖探索人数也不能替代完整锚点诊断人数。
 
 ## 关键函数、参数与源代码位置
 
@@ -298,6 +430,160 @@ diagnostic_change_plot <- function(data, labels, file_stem) {
 | `r "95%"` CI 与 BH 校正 P 值 | 对完整 cohort 重采样得到区间，锚点组内校正检验 | 区间反映队列间波动；跨零不证明等价，样本级区间不能替代队列级区间 |
 
 双侧 sign-flip 检验在 cohort 数不超过 `r 18L` 时枚举符号组合，否则采用 Monte Carlo 加一校正；保留原有统计实现与 seed。
+
+## 高覆盖生物锚点补充验证
+
+本节在原大队列分析上增加测量条件更一致的验证。每个锚点独立选择队列与原签名的共同基因；原广覆盖分析和低覆盖诊断继续完整保留在后文。队列选择只读取基因可测性、有限值、样本数、已确认的癌种与冻结外部 query 来源，不读取两臂效用或预测误差。以下结果属于观察原基线后冻结的后续验证，区间条件于既有 bank、测量合同及 reference/query 队列，不包含重训 bank 的不确定性。
+
+### 覆盖率与队列广度
+
+预设覆盖率为 `r paste(fmt_pct(high_coverage$config$coverage_tiers, 0), collapse = "、")`。各档合同要求至少 `r high_coverage$config$min_signature_genes` 个原签名基因、每队列至少 `r high_coverage$config$min_query_per_cohort` 个完整 query、同癌种至少 `r high_coverage$config$min_reference_cohorts` 个 reference 队列及完整 top-`r high_coverage$config$k`。主设计选择达到 `r high_coverage$config$primary_min_query_cohorts` 个 query 队列和 `r high_coverage$config$primary_min_source_groups` 个已知来源组的最高档；支持较少时依预定规则降为有限外部验证或敏感性证据，保留全部覆盖率档。
+
+搜索以基因可用频率的固定排序产生全体、单队列及两队列交集种子，再纳入所有可兼容队列，按队列数、来源数、query 数、共同基因数、reference 队列数依次选择。它是确定性的有界搜索，未证明获得全局最大队列集合。每份合同保存队列、样本、唯一共同原签名、共同秩背景及哈希；每个样本须完整测到冻结签名，秩分数还须完整测到背景。未知来源不计作独立来源组。
+
+```{r high-coverage-frontier, echo=TRUE, fig.height=7, fig.width=11}
+frontier <- high_coverage$frontier
+frontier_long <- do.call(rbind, lapply(c("query_cohorts", "source_groups", "background_genes"), function(metric) {
+  x <- frontier
+  x$metric <- metric
+  x$value <- x[[metric]]
+  x
+}))
+p_hc_frontier <- ggplot2::ggplot(frontier_long,
+  ggplot2::aes(x = 100 * tier, y = value, color = anchor, group = anchor)) +
+  ggplot2::geom_hline(data = data.frame(metric = c("query_cohorts", "source_groups", "background_genes"),
+    boundary = c(high_coverage$config$primary_min_query_cohorts,
+      high_coverage$config$primary_min_source_groups, high_coverage$config$min_background_genes)),
+    ggplot2::aes(yintercept = boundary), linetype = 2, color = "grey65") +
+  ggplot2::geom_line(linewidth = .5) + ggplot2::geom_point(size = 2) +
+  ggplot2::facet_grid(metric ~ anchor, scales = "free_y",
+    labeller = ggplot2::labeller(anchor = ggplot2::as_labeller(anchor_labels),
+      metric = ggplot2::as_labeller(c(query_cohorts = "Query\ncohorts",
+        source_groups = "Source\ngroups", background_genes = "Common\nbackground genes")))) +
+  ggplot2::scale_color_manual(values = stats::setNames(unname(nature_colors[c("navy", "green", "red", "purple")]), names(anchor_labels)),
+    labels = anchor_labels) +
+  ggplot2::scale_x_continuous(breaks = 100 * high_coverage$config$coverage_tiers) +
+  ggplot2::scale_y_continuous(breaks = function(x) unique(round(pretty(x, n = 3)))) +
+  ggplot2::labs(x = "Required signature coverage (%)", y = "Measurement support", color = NULL) +
+  theme_nature_readable(base_size = 10, legend_position = "none") +
+  ggplot2::theme(strip.text.y = ggplot2::element_text(angle = 0))
+jpg <- hc_save_plot(p_hc_frontier, "02.02.00. high-coverage-frontier", width = 11, height = 7)
+knitr::include_graphics(jpg)
+render_dt(frontier, pageLength = 16)
+```
+
+图中只显示测量支持，未使用 Direct/d1 差值选择档位。选定合同共涉及 `r sum(frontier$selected)` 个锚点，其中 `r sum(frontier$selected & frontier$breadth_eligible)` 个达到预设队列和来源广度。最高覆盖未必提供最多队列；共同背景另需达到 `r high_coverage$config$min_background_genes` 个基因才能发布秩主结果。基因明细和队列资格分别导出为 high-coverage-gene_lists.csv 和 high-coverage-eligibility.csv，可核对相同签名的测量定义及实际分母。
+
+### 秩评分与同癌种主比较
+
+在冻结高覆盖签名上使用样本内百分位秩均值，再用完整 reference 样本定标。候选 reference 样本先通过相同签名与背景资格，再分别检索两臂；同癌种至少两个独立 reference 队列，绝不先找邻居再删除缺分数者。每个 query 先计算配对效用差，再在队列内平均、队列间等权。主比较四锚点构成固定 BH 校正族，技术下限为 `r high_coverage$config$min_inference_cohorts` 个队列及 `r high_coverage$config$min_valid_bootstrap` 次有效 cohort bootstrap。
+
+```{r high-coverage-primary, echo=TRUE, fig.height=4, fig.width=9}
+hc_primary <- high_coverage$primary
+if (any(is.finite(hc_primary$estimate))) {
+  hc_primary$label <- paste0(unname(anchor_labels[hc_primary$anchor]), "  ",
+    hc_primary$common_genes, "/", hc_primary$original_genes, " genes; ",
+    hc_primary$cohort_count, " cohorts; ", hc_primary$query_count, " queries")
+  p_hc_primary <- ggplot2::ggplot(hc_primary,
+    ggplot2::aes(x = estimate, y = label)) +
+    ggplot2::geom_vline(xintercept = 0, linetype = 2, color = "grey60") +
+    ggplot2::geom_errorbar(ggplot2::aes(xmin = ci_low, xmax = ci_high),
+      orientation = "y", width = .12, na.rm = TRUE) + ggplot2::geom_point(size = 2) +
+    ggplot2::geom_text(data = hc_primary[hc_primary$status != "estimable", ],
+      ggplot2::aes(y = label), x = 0, label = "Not estimable", inherit.aes = FALSE,
+      colour = "grey45", size = 3) +
+    ggplot2::labs(x = "Neighbor utility: d1 minus Direct (95% CI)", y = NULL) + theme_nature_readable(base_size = 10)
+  jpg <- hc_save_plot(p_hc_primary, "02.02.00. high-coverage-primary", width = 9, height = 4)
+  knitr::include_graphics(jpg)
+}
+render_dt(high_coverage$primary, pageLength = 4)
+```
+
+当前选定合同的秩同癌种结果为：`r hc_text(high_coverage$primary)`。表中 selected 表示按测量支持预选的档位，并不自动表示论文级主证据；实际有效队列和来源支持仍须核对。秩背景不足或有效样本不足保留不可估计，原尺度对照继续显示。本次没有冻结具有独立生物学依据的非劣效界值，因此区间跨零只表示差异估计的不确定性，不能证明等价或无损。
+
+### 全部覆盖率与评分／候选池对照
+
+```{r high-coverage-tiers, echo=TRUE, fig.height=5, fig.width=9}
+hc_tiers <- high_coverage$grid[high_coverage$grid$score_definition == "common_rank" &
+  high_coverage$grid$pool == "same_cancer", ]
+hc_tiers$label_hjust <- ifelse(hc_tiers$tier == min(high_coverage$config$coverage_tiers), 0,
+  ifelse(hc_tiers$tier == max(high_coverage$config$coverage_tiers), 1, .5))
+if (any(is.finite(hc_tiers$estimate))) {
+  p_hc_tiers <- ggplot2::ggplot(hc_tiers, ggplot2::aes(x = 100 * tier, y = estimate)) +
+    ggplot2::geom_hline(yintercept = 0, linetype = 2, color = "grey60") +
+    ggplot2::geom_errorbar(ggplot2::aes(ymin = ci_low, ymax = ci_high), width = 1.5, na.rm = TRUE) +
+    ggplot2::geom_point(size = 2, na.rm = TRUE) +
+    ggplot2::geom_text(ggplot2::aes(label = paste0(cohort_count, "c / ", query_count, "q"),
+      hjust = label_hjust),
+      vjust = -1, size = 2.7, na.rm = TRUE) +
+    ggplot2::facet_wrap(~anchor, labeller = ggplot2::as_labeller(anchor_labels)) +
+    ggplot2::scale_x_continuous(breaks = 100 * high_coverage$config$coverage_tiers) +
+    ggplot2::labs(x = "Required signature coverage (%)", y = "Utility: d1 minus Direct") + theme_nature_readable(base_size = 10)
+  jpg <- hc_save_plot(p_hc_tiers, "02.02.00. high-coverage-tiers", width = 9, height = 5)
+  knitr::include_graphics(jpg)
+}
+htmltools::tagList(render_dt(high_coverage$grid, pageLength = 16),
+  render_dt(high_coverage$changes, pageLength = 8))
+```
+
+全部预设四格和覆盖率档均保存在表中，共 `r nrow(high_coverage$grid)` 行，其中 `r sum(high_coverage$grid$status == "estimable")` 行满足区间门槛。图内 c/q 是每档实际队列与配对 query 数；不同档位同时改变基因完整度和验证人群，曲线变化不能仅归因于覆盖率。原尺度与秩资格可能不同，跨格机制对比须看固定共同患者的敏感性产品，不能直接相减不同分母的总体均值。没有有效值的格子保持空缺，不补作零效应。
+
+### 信息可读取性与邻居几何
+
+连续读取器在同一冻结签名上仅使用 reference 队列分组交叉验证，拟合特征缩放、原尺度基因标尺并选择 ridge lambda。XGBoost 只由预设 reference-CV 规则触发且两臂同时运行。外部 query 只参与最终预测评估。标准化平均绝对误差（MAE）按 reference target 标准差计量，d1−Direct 为正表示读取更差，与效用差的好坏方向相反。
+
+```{r high-coverage-readout, echo=TRUE, fig.height=4, fig.width=8}
+hc_readout <- high_coverage$readout_inference
+if (nrow(hc_readout)) {
+  reader <- hc_readout[hc_readout$score_definition == "common_rank" & hc_readout$reader == "ridge", ]
+  mechanism <- merge(high_coverage$primary, reader, by = "anchor", suffixes = c("_utility", "_mae"))
+  mechanism <- mechanism[is.finite(mechanism$estimate_mae) & is.finite(mechanism$estimate_utility), ]
+  if (nrow(mechanism) && any(is.finite(mechanism$estimate_mae) & is.finite(mechanism$estimate_utility))) {
+    p_hc_map <- ggplot2::ggplot(mechanism,
+      ggplot2::aes(x = estimate_utility, y = estimate_mae, color = anchor)) +
+      ggplot2::geom_vline(xintercept = 0, linetype = 2, color = "grey60") +
+      ggplot2::geom_hline(yintercept = 0, linetype = 2, color = "grey60") +
+      ggplot2::geom_errorbar(ggplot2::aes(ymin = ci_low_mae, ymax = ci_high_mae), width = 0) +
+      ggplot2::geom_errorbar(ggplot2::aes(xmin = ci_low_utility, xmax = ci_high_utility),
+        orientation = "y", width = 0) + ggplot2::geom_point(size = 2.5) +
+      ggplot2::scale_color_manual(values = stats::setNames(unname(nature_colors[c("navy", "green", "red", "purple")]), names(anchor_labels)), labels = anchor_labels) +
+      ggplot2::labs(x = "Neighbor utility: d1 minus Direct", y = "Readout MAE: d1 minus Direct", color = NULL) + theme_nature_readable(base_size = 10)
+    jpg <- hc_save_plot(p_hc_map, "02.02.00. high-coverage-mechanism", width = 8, height = 4)
+    knitr::include_graphics(jpg)
+  }
+}
+htmltools::tagList(render_dt(high_coverage$readout_inference, pageLength = 8),
+  render_dt(high_coverage$status, pageLength = 8))
+```
+
+秩 ridge 读取器结果为：`r if (nrow(hc_readout)) hc_text(hc_readout[hc_readout$score_definition == "common_rank" & hc_readout$reader == "ridge", ]) else "没有达到读取器门槛的目标；原因见分支状态表。"`。若邻居效用下降而读取误差没有同等恶化，才更倾向信息仍在而距离利用不足；两者同时恶化才增加表示压缩的证据。不同任务与有效分母须一起检查，这些表达签名仍不是独立病理或临床结局。完整单臂 MAE、相关及 reference 均值基准保存在 high-coverage-readout_metrics.csv。
+
+预设非线性读取器也须一起判断。秩 XGBoost 分支中，`r if (nrow(hc_readout)) { x <- hc_readout[hc_readout$score_definition == "common_rank" & hc_readout$reader == "xgboost" & hc_readout$status == "estimable" & is.finite(hc_readout$q_value) & hc_readout$q_value < .05 & hc_readout$ci_low > 0, ]; if (nrow(x)) paste0("存在 BH 校正后 MAE 增加的锚点：", hc_text(x), "，q = ", paste(fmt(x$q_value, 4), collapse = "、")) else "未获得四锚点 BH 校正后的 MAE 增加证据" } else "没有可估计结果"`。同癌种近邻效用差接近零，仍不能代替连续目标的可恢复性验证；读取器的不利差异也只对应当前签名、训练规则和冻结参考集，不等同于全部生物信息消失。未触发 XGBoost 或评分资格不足的空格均不补作零误差差。
+
+### 队列、来源与共同人群敏感性
+
+```{r high-coverage-heterogeneity, echo=TRUE, fig.height=5, fig.width=11}
+hc_cohort <- high_coverage$cohort[high_coverage$cohort$score_definition == "common_rank" &
+  high_coverage$cohort$pool == "same_cancer" & high_coverage$cohort$id %in%
+    high_coverage$frontier$id[high_coverage$frontier$selected], ]
+if (nrow(hc_cohort)) {
+  p_hc_cohort <- ggplot2::ggplot(hc_cohort, ggplot2::aes(x = value, y = cohort)) +
+    ggplot2::geom_vline(xintercept = 0, linetype = 2, color = "grey60") +
+    ggplot2::geom_point(size = 1.7) +
+    ggplot2::facet_wrap(~anchor, scales = "free_y", labeller = ggplot2::as_labeller(anchor_labels)) +
+    ggplot2::labs(x = "Cohort mean utility: d1 minus Direct", y = NULL) + theme_nature_readable(base_size = 10)
+  hc_height <- max(5, .35 * max(table(hc_cohort$anchor)) + 1.5)
+  jpg <- hc_save_plot(p_hc_cohort, "02.02.00. high-coverage-cohorts", width = 11, height = hc_height)
+  knitr::include_graphics(jpg)
+}
+htmltools::tagList(render_dt(high_coverage$leave_one, pageLength = 8),
+  render_dt(high_coverage$source_summary, pageLength = 8),
+  render_dt(high_coverage$core, pageLength = 4),
+  render_dt(high_coverage$sensitivity, pageLength = 8),
+  render_dt(high_coverage$sensitivity_status, pageLength = 8))
+```
+
+所有合格队列的方向均保留。留一队列／来源后在剩余队列上重新计算等权区间，来源不足时不伪造独立来源；来源留一属于稳健性诊断，不是来源层随机抽样推断。四锚点冻结合同的队列交集有 `r length(high_coverage$core_contract_cohorts)` 个队列；进一步取四个秩同癌种比较实际通过完整评分和人数门槛的共同队列，C_core 有 `r length(high_coverage$core_cohorts)` 个队列。该对照固定相同队列，患者仍按各签名的完整值资格配对；不重新挑基因，也不反向修改各锚点合同。距离与技术限制的变化先在同一患者匹配再汇总，敏感性区间不附新 p/q。原广队列效应继续回答异质部署条件下的现实表现，与本节测量一致性验证并列解读。
 
 ## 连续表达锚点 readout
 
@@ -788,7 +1074,7 @@ render_dt(local_biology, pageLength = 20L)
 
 测量门禁不通过，说明当前新诊断缺少可比较目标，**不能据此认定测量问题造成了原基线负差，也不能把未拟合的读取器解释为 d1 预测失败**。癌种标签与完整邻居的资格不能替代测量资格。检索召回、邻居组成、模块相关及距离贡献仍可作描述，无法单独排序测量尺度、癌种组成、距离权重或信息损失的根因。
 
-本轮保留全部固定输入，没有按效应挑选队列或基因。严格门槛保留；低覆盖分析在计算前独立冻结于恢复计划，仅描述固定残余基因。完整锚点证据仍需依据测量来源预先确定可比较平台与人群，另行冻结契约；该后续人群设计尚未执行。
+原诊断保留全部固定输入，没有按效应挑选队列或基因。严格门槛保留；低覆盖分析在计算前独立冻结于恢复计划，仅描述固定残余基因。前面的高覆盖补充验证另按测量支持冻结各锚点队列与共同签名，其实际资格、完整评分背景、人数及区间决定能否加强完整锚点证据；它与本节大队列诊断并列保留。
 
 ### 测量与候选池的资格
 
@@ -912,33 +1198,93 @@ render_dt(diagnostic$branch_status, pageLength = 10)
 overlap <- diagnostic$neighbor_summary
 if (nrow(overlap)) {
   overlap$pool_label <- factor(overlap$pool, levels = c("all", "same_cancer"),
-    labels = c(plot_label("All cancers", "全癌种"), plot_label("Within cancer", "同癌种")))
-  restriction_labels <- c(none = plot_label("No technical restriction", "不限制技术来源"),
+    labels = c(plot_label("All\ncancers", "全癌种"), plot_label("Within\ncancer", "同癌种")))
+  restriction_labels <- c(none = plot_label("No restriction", "不限制技术来源"),
     assay_type = plot_label("Same assay", "同检测类型"),
     source_system = plot_label("Same source", "同来源"), platform_id = plot_label("Same platform", "同平台"))
-  overlap$restriction_label <- factor(overlap$restriction, levels = names(restriction_labels),
-    labels = unname(restriction_labels))
+  overlap_groups <- unique(overlap[, c("pool", "restriction", "pool_label")])
+  overlap_groups <- overlap_groups[order(match(overlap_groups$pool, c("all", "same_cancer")),
+    match(overlap_groups$restriction, names(restriction_labels))), ]
+  overlap_groups$key <- paste(overlap_groups$pool, overlap_groups$restriction, sep = ":")
+  overlap$key <- paste(overlap$pool, overlap$restriction, sep = ":")
+  overlap_summaries <- lapply(overlap_groups$key, function(key) {
+    values <- overlap$mean_neighbor_jaccard[overlap$key == key]
+    data.frame(cohort_count = length(values),
+      median = stats::median(values),
+      q1 = unname(stats::quantile(values, .25)),
+      q3 = unname(stats::quantile(values, .75)))
+  })
+  overlap_groups <- cbind(overlap_groups, do.call(rbind, overlap_summaries))
+  overlap_groups$row_label <- paste0(unname(restriction_labels[overlap_groups$restriction]),
+    plot_label("  (n = ", "  （n = "), overlap_groups$cohort_count,
+    plot_label(" cohorts)", " 个队列）"))
+  row_labels <- stats::setNames(overlap_groups$row_label, overlap_groups$key)
+  row_levels <- rev(overlap_groups$key)
+  overlap_groups$row <- factor(overlap_groups$key, levels = row_levels)
+  overlap$row <- factor(overlap$key, levels = row_levels)
   p_overlap <- ggplot2::ggplot(overlap,
-    ggplot2::aes(x = mean_neighbor_jaccard, y = restriction_label)) +
-    ggplot2::geom_boxplot(width = .4, outlier.shape = NA, fill = "grey95", colour = "grey50") +
+    ggplot2::aes(x = mean_neighbor_jaccard, y = row, colour = pool_label)) +
     ggplot2::geom_point(position = ggplot2::position_jitter(width = 0, height = .08, seed = 1),
-      size = 1.8, alpha = .75, colour = nature_colors[["navy"]]) +
-    ggplot2::facet_wrap(~ pool_label, ncol = 2) +
-    ggplot2::scale_x_continuous(limits = c(0, 1), breaks = seq(0, 1, .25)) +
+      size = 1.8, alpha = .5) +
+    ggplot2::geom_segment(data = overlap_groups, inherit.aes = FALSE,
+      ggplot2::aes(x = q1, xend = q3, y = row, yend = row, colour = pool_label),
+      linewidth = 1.2, lineend = "round") +
+    ggplot2::geom_point(data = overlap_groups, inherit.aes = FALSE,
+      ggplot2::aes(x = median, y = row, colour = pool_label),
+      shape = 23, fill = "white", size = 2.8, stroke = .8) +
+    ggplot2::geom_text(data = overlap_groups, inherit.aes = FALSE,
+      ggplot2::aes(x = .98, y = row,
+        label = paste0(fmt(median), " [", fmt(q1), ", ", fmt(q3), "]")),
+      hjust = 1, size = 3.2, colour = "grey30") +
+    ggplot2::facet_grid(pool_label ~ ., scales = "free_y", space = "free_y") +
+    ggplot2::scale_y_discrete(labels = row_labels) +
+    ggplot2::scale_colour_manual(values = unname(nature_colors[c("navy", "green")]),
+      guide = "none") +
+    ggplot2::scale_x_continuous(limits = c(0, 1), breaks = seq(0, 1, .2),
+      expand = ggplot2::expansion(mult = c(.01, .01))) +
     ggplot2::labs(x = plot_label("Direct-d1 neighbor Jaccard (cohort mean)",
-      "Direct 与 d1 邻居 Jaccard（队列均值）"), y = NULL) +
-    ggplot2::theme_bw(base_size = 10) +
-    ggplot2::theme(panel.grid.minor = ggplot2::element_blank())
+      "Direct 与 d1 邻居 Jaccard（队列均值）"), y = NULL,
+      caption = plot_label("Dots: cohorts; diamond: median; line: interquartile range. Right: median [Q1, Q3].",
+        "小点：队列；菱形：中位数；短横线：四分位范围。右侧：中位数 [Q1, Q3]。")) +
+    theme_nature_readable(base_size = 10, legend_position = "none") +
+    ggplot2::theme(panel.border = ggplot2::element_blank(),
+      axis.line.y = ggplot2::element_blank(), axis.ticks.y = ggplot2::element_blank(),
+      panel.grid.major.x = ggplot2::element_line(colour = "grey92", linewidth = .3),
+      strip.background = ggplot2::element_blank(),
+      strip.text.y = ggplot2::element_text(angle = 0),
+      panel.spacing.y = grid::unit(.65, "lines"),
+      plot.caption = ggplot2::element_text(size = 9, colour = "grey35", hjust = 0))
   jpg <- .ae_save_plot(p_overlap, "02.02.00. diagnostic-neighbor-overlap",
-    figure_dir, preview_dir, list(width_in = 10, height_in = 4), params$plot_preview_dpi)
+    figure_dir, preview_dir, list(width_in = 9, height_in = 3.8), params$plot_preview_dpi)
   knitr::include_graphics(jpg)
 }
 ```
 
-解读：每点为一个 cohort 内两臂共同 query 的平均邻居 Jaccard；0 表示名单不重叠，1 表示一致。箱体概括 cohort 分布的中位数与四分位数，不是置信区间。只展示有邻居支持的层，缺少支持的平台层不补零。全癌种、同癌种与技术限制的可用 cohort／患者不同，这些点不能直接相减作为受控改善；测量不合格时，名单重排也不能说明生物效用提高。完整人数见 neighbor_summary 表。
+解读：每个小点为一个 cohort 内两臂共同 query 的平均邻居 Jaccard；0 表示名单不重叠，1 表示一致。菱形标示队列中位数，短横线覆盖第 25 至第 75 百分位，右侧列出中位数 [Q1, Q3]；这些是队列间的描述性分布，不是置信区间。上下两组共用 [0,1] 横轴，仅为实际有结果的条件分配行高；行标签中的 n 是有效队列数。全癌种仅包含不限制技术来源的实验，同检测类型／同来源限制只在同癌种中设置；同平台层缺少支持，不补零。全癌种、同癌种与技术限制的可用 cohort／患者不同，这些点不能直接相减作为受控改善；测量不合格时，名单重排也不能说明生物效用提高。完整人数见 neighbor_summary 表。
+
+### 哪些模型模块在决定患者相似性
+
+**这张图问的是：d1 判断两名患者“有多像”时，依据是否主要来自少数模型模块？**
+d1 把患者交给多个训练队列对应的模型，每个模型给出一组概率，这一组输出就是一个模块。
+找邻居时，会把两名患者在各模块上的输出差异合并为距离；差异越大，两人越不像。
+本图把这份距离拆开，看看每个模块占多少。可以把它想成用多门课的成绩比较两名学生：
+总差距是很多门课共同形成的，还是主要由少数几门课形成的？
+
+横轴表示**纳入了多少比例的模块**，按本条曲线的距离贡献从大到小依次加入；
+纵轴表示这些模块累计占了**多少比例的平方距离**。例如，曲线在横轴 10%、纵轴 50%
+处，意思是“贡献最大的十分之一模块，合计占了总平方距离的一半”。灰色对角虚线
+代表各模块贡献完全相同：加入 10% 的模块，就累计 10% 的份额。因此，**曲线越向左上
+弯曲，距离贡献越集中；越靠近对角线，贡献越分散。**这里的高低描述集中程度，
+不表示生物学表现的好坏。
+
+左右面板分别是在所有癌种中找邻居和仅在同癌种中找邻居。蓝线使用当前基线距离；
+红线取消“每列除以其 reference 标准差”的缩放步骤；绿线改为先让各组织获得相同的
+预设权重，再在组织内平衡模块及模块内的列数。后者平衡的是组织权重，不保证每个
+模块对实际距离的贡献相同。
 
 ```{r diagnostic-module-distance-concentration, echo=TRUE, fig.height=4.5, fig.width=10}
 contribution <- diagnostic$module_diagnostics$distance_contributions
+concentration_summary <- data.frame()
 if (nrow(contribution)) {
   totals <- stats::aggregate(mean_squared_contribution ~ cohort + distance + pool, contribution, sum)
   names(totals)[4L] <- "total"
@@ -949,6 +1295,17 @@ if (nrow(contribution)) {
   }
   contribution$share <- contribution$mean_squared_contribution / contribution$total
   shares <- stats::aggregate(share ~ module + distance + pool, contribution, mean)
+  concentration_summary <- do.call(rbind, lapply(split(shares,
+    interaction(shares$distance, shares$pool)), function(x) {
+    x <- x[order(-x$share, x$module), ]
+    module_count <- nrow(x)
+    top_count <- ceiling(.1 * module_count)
+    data.frame(pool = x$pool[1L], distance = x$distance[1L], module_count = module_count,
+      cohort_count = length(unique(contribution$cohort[contribution$pool == x$pool[1L] &
+        contribution$distance == x$distance[1L]])), top_count = top_count,
+      top_share = sum(x$share[seq_len(top_count)]), max_share = max(x$share),
+      half_count = which(cumsum(x$share) >= .5)[1L])
+  }))
   curves <- do.call(rbind, lapply(split(shares, interaction(shares$distance, shares$pool)), function(x) {
     x <- x[order(-x$share, x$module), ]
     stopifnot(abs(sum(x$share) - 1) < 1e-8)
@@ -978,7 +1335,68 @@ if (nrow(contribution)) {
 }
 ```
 
-解读：先在每个 cohort 的同一距离规则、候选池内把全部模块贡献归一化为 100%，再对 cohort 等权平均；各曲线按自己的模块份额独立排序，曲线越向左上弯曲，说明距离越集中于少数模块，灰虚线代表完全均分。颜色展示两个预定距离改变，不筛选模块。每种规则重新检索邻居，曲线同时反映权重与所选邻居的变化；全癌种与同癌种的 cohort 支持也不同。因此这张图描述几何组成，不能当作固定邻居上的纯权重分解、生物效用改善或原负差的根因贡献比例。
+```{r diagnostic-concentration-reading, echo=TRUE, results='asis'}
+if (nrow(concentration_summary)) {
+  concentration_value <- function(distance, pool, field) {
+    concentration_summary[[field]][concentration_summary$distance == distance &
+      concentration_summary$pool == pool]
+  }
+  cat("**当前蓝线的结论是：贡献有不均匀，但没有由极少数模块包揽距离。**\n\n",
+    "当前每种规则均有 ", unique(concentration_summary$module_count), " 个模块，前 10% 即 ",
+    unique(concentration_summary$top_count), " 个。基线下，这些模块在全癌种／同癌种中分别占 ",
+    fmt_pct(concentration_value("baseline", "all", "top_share")), "／",
+    fmt_pct(concentration_value("baseline", "same_cancer", "top_share")),
+    " 的平方距离；要累计达到一半，需要分别加入 ",
+    concentration_value("baseline", "all", "half_count"), "／",
+    concentration_value("baseline", "same_cancer", "half_count"), " 个模块。其余 ",
+    unique(concentration_summary$module_count - concentration_summary$top_count),
+    " 个模块仍合计占 ", fmt_pct(1 - concentration_value("baseline", "all", "top_share")),
+    "／", fmt_pct(1 - concentration_value("baseline", "same_cancer", "top_share")), "。\n\n",
+    "**红线与蓝线接近，说明取消逐列标准差缩放后，距离贡献的整体集中程度变化不大。**\n\n",
+    "全癌种／同癌种下，前 10% 模块的份额分别为 ",
+    fmt_pct(concentration_value("module_unscaled", "all", "top_share")), "／",
+    fmt_pct(concentration_value("module_unscaled", "same_cancer", "top_share")),
+    "。这只说明集中程度接近，不能推断具体模块权重、患者距离或邻居名单完全相同。\n\n",
+    "**绿线明显更向左上弯曲，说明组织等权规则下，距离反而更集中在少数模块。**\n\n",
+    "前 10% 模块在全癌种／同癌种中分别占 ",
+    fmt_pct(concentration_value("tissue_balanced", "all", "top_share")), "／",
+    fmt_pct(concentration_value("tissue_balanced", "same_cancer", "top_share")),
+    "；分别 ", concentration_value("tissue_balanced", "all", "half_count"), "／",
+    concentration_value("tissue_balanced", "same_cancer", "half_count"),
+    " 个模块就累计达到一半。组织等权并不等于模块等权：一个组织若只有少数模块，",
+    "其组织份额会分给更少的模块。这是理解绿线的一种权重机制，但实际曲线还受模块输出差异",
+    "和新邻居名单影响，不能仅凭本图把原因全部归于组织模块数量。\n\n",
+    "本图的实际提示是：**基线相似性判断仍综合了许多模块；组织等权会明显改变模块贡献",
+    "的分布，因此不能把“权重更均匀”直接理解成“模块贡献更分散”或“邻居更好”。**\n\n",
+    "这里的“距离份额”是平方欧氏距离的组成，不能读成生物信息保留率、预测准确率或",
+    "原锚点差距的成因占比。\n\n", sep = "")
+} else {
+  cat("当前没有可用的模块距离贡献，无法描述实际集中程度；不生成曲线或补零。\n\n")
+}
+```
+
+```{r diagnostic-concentration-summary, echo=TRUE}
+if (nrow(concentration_summary)) {
+  concentration_table <- concentration_summary[order(match(concentration_summary$pool,
+    c("all", "same_cancer")), match(concentration_summary$distance, names(distance_labels))), ]
+  concentration_table <- data.frame(
+    候选范围 = ifelse(concentration_table$pool == "all", "全癌种", "同癌种"),
+    距离规则 = unname(distance_labels[concentration_table$distance]),
+    有效队列数 = concentration_table$cohort_count,
+    前10_模块的距离份额 = fmt_pct(concentration_table$top_share),
+    达到一半所需模块数 = paste0(concentration_table$half_count, " / ", concentration_table$module_count),
+    check.names = FALSE)
+  names(concentration_table)[4L] <- "前 10% 模块的距离份额"
+  render_dt(concentration_table, pageLength = 6)
+}
+```
+
+计算时先在每个 cohort 内，把其当前距离规则及邻居名单上的各模块平均平方差归一化
+为 100%，再对 cohort 等权汇总；所以大队列不会仅凭患者更多而获得更多票。各条
+曲线分别排序，同一横轴位置并不对应同一组模块。每种距离规则也会重新找邻居，
+曲线同时反映权重与所选邻居的变化。各条件的有效队列数见上表；两面板不构成同一批
+患者的配对变化。本图不提供置信区间或显著性检验，只描述
+当前冻结模型和候选池下的距离组成；是否改善生物锚点接近度，应另看对应的效用比较。
 
 ### 固定残余基因的低覆盖探索
 
@@ -1076,7 +1494,7 @@ render_dt(validation_summary, pageLength = 12)
 
 ## 讨论与分析
 
-### 当前结果明确显示了哪一种局部代价
+### 原大队列基线显示了哪一种局部代价
 
 本次预设锚点包括增殖、免疫微环境、基质微环境及 IFN/IL6 相关签名。它们问的是：对同一个外部患者，d1 找到的邻居在这些连续表达分数上，是否比 Direct 找到的邻居更接近？当前 `r sum(biology_inference$estimate < 0)`／`r nrow(biology_inference)` 项 cohort 等权点估计为负，`r sum(biology_inference_estimable$ci_high < 0)` 项可估计结果的 95% 区间完全低于零。具体差值与区间为：`r paste(paste0(biology_inference$anchor, "：", fmt(biology_inference$estimate), " [", fmt(biology_inference$ci_low), ", ", fmt(biology_inference$ci_high), "]"), collapse = "；")`。这些是各锚点 utility 的绝对差，负值表示当前局部表达接近度偏向 Direct。
 
@@ -1088,9 +1506,17 @@ utility 先把每个邻居的分数距离转换为指数接近度，再平均。
 
 Direct 保留用于比较的原始特征，d1 则把患者变成多个冻结模型的概率输出。对模型判断很相近的两个患者，某一连续签名仍可能相差不少；因此在 d1 空间中成为邻居，并不要求所有表达细节都相近。好比两名学生在几门考试的成绩等级相同，逐题得分却不相同：按等级找到的同伴，未必是逐题最相似的同伴。
 
-原基线的负差支持一种待检验的解释：概率重编码可能保留了较粗状态，同时弱化了精细表达排序。癌种或来源迁移、距离权重与输入同源性也可能影响结果；新增诊断预设了逐项受控比较，是否得到机制证据以共同测量和推断资格为准。`r if (!any(diagnostic_primary_coverage$estimable)) "本轮测量支持不足，尚未获得这些机制比较的可估计证据。" else "各项机制证据须结合新增比较的效应、区间和覆盖判断。"` 即便某项差值缩小，也不能把全部负差归于单一机制。要判断这种表达代价是否换来了值得接受的收益，还需另一项独立目标的正面证据。
+原基线的负差支持一种待检验的解释：概率重编码可能保留了较粗状态，同时弱化了精细表达排序。癌种或来源迁移、距离权重与输入同源性也可能影响结果；新增诊断预设了逐项受控比较，是否得到机制证据以共同测量和推断资格为准。`r if (!any(diagnostic_primary_coverage$estimable)) "原全队列严格诊断的共同签名不足，其机制比较未达到可估计门槛；高覆盖分支的资格与结果单独评估。" else "各项机制证据须结合新增比较的效应、区间和覆盖判断。"` 即便某项差值缩小，也不能把全部负差归于单一机制。要判断这种表达代价是否换来了值得接受的收益，还需另一项独立目标的正面证据。
 
 结构报告将同一批锚点划为高低状态，再比较状态之间的距离排序。患者附近的连续分数可以变得较不接近，而高低状态的大体地图仍然相似；两种结果在测量尺度上可以共存。不过当前结构平均差接近零，仍不能证明粗状态无损，更不能用它抵消本页已经观察到的局部负差。用途若是寻找表达状态尽量接近的邻居，本页直接对应这一需求；用途若是跨队列状态分层，则需结合结构结果和独立验证。
+
+### 高覆盖验证怎样补充原基线
+
+选定高覆盖合同的共同签名与测量人数为：`r paste(vapply(which(high_coverage$frontier$selected), function(i) { x <- high_coverage$frontier[i, ]; paste0(x$anchor, " ", x$common_genes, "/", x$original_genes, " 基因（", fmt_pct(x$coverage, 1), "），", x$query_cohorts, " 个 query cohort、", x$source_groups, " 个来源组") }, character(1)), collapse = "；")`。这些是测量合同的人数，效应分析还要通过完整背景、评分及候选池支持门槛。可估计的秩同癌种主比较有 `r sum(high_coverage$primary$status == "estimable")` 项，其中 `r sum(high_coverage$primary$ci_high < 0, na.rm = TRUE)` 项 95% 区间完全低于零：`r hc_text(high_coverage$primary)`。
+
+高覆盖验证回答统一签名、癌种内部的邻居几何，原 43-cohort 基线回答异质测量条件下的广队列部署表现。两者改变了评分定义和验证人群，不能将总体差值的减小直接解释为某个机制贡献的比例；该问题应结合冻结合同内、共同患者上的评分／候选池差中差。连续读取器进一步检验同一目标能否从表示中恢复：秩 ridge 的标准化 MAE 差为 `r if (nrow(high_coverage$readout_inference)) hc_text(high_coverage$readout_inference[high_coverage$readout_inference$score_definition == "common_rank" & high_coverage$readout_inference$reader == "ridge", ]) else "不可估计，原因见读取器状态表"`，正值表示 d1 更差。效用与读取器同时出现不利证据，才加强表示压缩的解释；读取器区间跨零仍不足以证明信息无损。
+
+任何一个锚点未通过秩门槛，都应作为结论边界保留。四锚点共同验证人群 C_core 只有 `r length(high_coverage$core_cohorts)` 个合格队列；不能用原合同的队列交集替代实际评分资格。当前结果条件于冻结 bank、reference atlas 和合同，来源共享与未确认的预处理差异仍限制向全新测量系统的推广。
 
 ### 总体负差是否意味着每个 cohort 都变差
 
@@ -1117,4 +1543,4 @@ Direct 保留用于比较的原始特征，d1 则把患者变成多个冻结模�
 | 来源 | 当前 anchor CSV/RDS 与表示分析的来源凭据逐项核验 |
 | 配对 | 两臂各有完整 top-`r 15L` 后按同一 query 配对 |
 | 独立单位 | cohort 等权效应与 cohort bootstrap；BH 校正 |
-| 数字 | 正文动态读取当前 `biology_inference`，未复制历史结果 |
+| 数字 | 原基线读取 `biology_inference`，高覆盖读取正式 `biology_high_coverage_inference` target；未复制历史结果 |

@@ -25,6 +25,12 @@ targets 文件依赖。图表代码输出到 HTML 并默认折叠，可点击各
 或用报告顶部的 Code → Show All Code 一次展开全部代码；setup 初始化代码不输出。
 生物锚点报告附带配对效应、cohort 异质性、基因覆盖与队列内区间四张 PDF，并在
 `reports/tables/` 导出队列级配对差值，供核对图中每个格子的样本数与方向。
+报告“数据概览”从正式样本契约、表达缓存及 top-15 邻居名单动态列出 reference/query
+的评分、检索和推断角色，展示来源与检测类型、全部队列及逐锚点有效 query 数；
+区分共享外部候选与癌种 readout 合格子集、严格诊断和低覆盖探索的资格。
+同源汇总保存为 `02.02.00. cohort-sources.csv`、`02.02.00. cohort-usage.csv` 和
+`02.02.00. query-usage.csv`，仅含队列元数据与计数；实际选中的 reference 数按不同
+样本计数，不等同于邻居对次数，报告输入由 `biology_report_sources` 跟踪。
 配对效应图采用紧凑森林图与独立统计列，逐行显示差值及 95% CI、有效 cohort 数、
 配对 query 人数和 BH 校正 P 值；统计列不参与效应横轴缩放，锚点顺序沿用冻结配置。
 数据概览与生物锚点报告的五张正式锚点图共用 `scripts/helpers/anchor_plot_labels.R`，
@@ -48,6 +54,42 @@ decoder 的 cohort 等权区间与原合并 query 逐特征分数分列；结构
 `ccs_code_files` 与 `ccs_code_identity` targets 跟踪项目 `R/ablation.R`、已安装 CCS 包的代码及版本描述，并在表示分析前核验关键函数体一致。`representation_sources` 同时跟踪科学参数和阶段脚本；源码或已安装包变化会触发 targets 失效，源码与已安装代码不一致时先停止正式计算。
 
 ## 正式运行
+
+高覆盖生物锚点验证作为补充分析接入同一 DAG，不替换原 43-cohort 基线或低覆盖诊断。
+设计冻结在 `config/biology-high-coverage.yml`，分析函数放在本分析的
+`R/biology_high_coverage.R`，I/O 由 `targets/biology_high_coverage.R` 负责；直接复用
+已安装 CCS 的检索、reference-only 读取器和 cohort 配对推断，不修改公共包 API 或版本。
+`biology_high_coverage_inventory` 只提取测量信息，frontier/contracts 不依赖效应或读取器结果。
+配置另放 `config/`，保持已有 `raw/` 只读。
+
+每个锚点在 60/70/80/90% 档独立搜索可兼容队列，冻结原签名共同基因及背景。
+确定性搜索用基因可用频率排序生成全体、单队列及两队列交集种子，依次最大化 query
+队列数、已知来源组数、query 数、共同签名数和 reference 队列数；这是有界搜索，
+不宣称找到全局最优集合。主档优先选满足至少 8 个 query 队列、3 个来源组的最高覆盖档，
+否则按预设 5 队列及 3 队列边界报告有限验证或敏感性证据。所有档完整保留。
+每个 query 队列至少 20 人，同癌种 candidate pool 至少两个 reference 队列、15 个完整样本。
+秩背景至少 5,000 个共同基因且样本背景完整；门槛不足保持不可估计。
+
+新产品只写入正式 cache root 的 `biology-high-coverage/`；患者级矩阵、邻居和读取器模型
+留在该受控缓存。报告导出 `reports/tables/02.02.00. high-coverage-*.csv` 的聚合表和五张
+`high-coverage-*.pdf` 图，包括测量 frontier、主效应、覆盖率稳定性、效用／读取器机制及
+队列异质性。四个选定锚点固定构成主检验族，缺失锚点仍计入 BH 的四项分母；coverage
+档的其它四格分别校正。95% cohort bootstrap 条件于固定 bank、合同及 atlas；没有独立
+冻结的非劣效界值，不据 CI 跨零宣称无损。距离及技术限制使用配对患者差中差，留一及
+C_core 只作预设敏感性估计。
+
+`scripts/tests/biology-high-coverage-targets.R` 在隔离 `tmp/tests/high-coverage-*` 中用合成
+数据执行同一 DAG 与报告，并核对效应列变化不改变合同、缺失／未知癌种、来源重复、
+reference／秩背景不足、原正式文件不变及下游失效后的上游复用。该验收默认创建唯一
+run root，并通过 `TAR_CONFIG` 使用隔离 YAML，不切换正式 `tar_watch()` 的 store。
+验收的 `renv` sandbox 同样放入该 run root，避免并发 R 进程等待共享 sandbox 锁；
+项目包库与锁文件保持原有配置。
+第二个参数可指定已有隔离 run root，供同一 fixture 的增量恢复。
+从仓库根目录执行验收，并使用 `--vanilla` 避免 `.Rprofile` 在路径隔离前激活环境：
+
+```powershell
+& "C:/R/R-4.3.1/bin/Rscript.exe" --vanilla test/ablation-03/scripts/tests/biology-high-coverage-targets.R
+```
 
 连续生物锚点根因诊断由 `raw/config/biology-diagnostics.yml` 冻结设计，计算层为
 `R/ablation_biology.R`，同一 `_targets.R` 的 `biology_diagnostic_*` targets 调用
@@ -87,6 +129,12 @@ biology_report target 更新 HTML，沿用原诊断产品与门槛。导出
 有效人数分别保存在 diagnostic-low_coverage_*.csv，
 包括分支状态、测量／候选池资格、推断、模块相关和单臂距离。患者级矩阵、
 名单、读取器及共同 query 清单仅留在受控缓存。未知预处理保持未知。
+邻居重叠图上下排列全癌种与同癌种实验，各组只保留实际有结果的条件，共用 [0,1]
+横轴。行标签注明有效队列数，小点保留全部队列均值，菱形及短横线显示队列中位数
+与四分位范围，右侧给出相应数值；该范围为描述性分布，不是置信区间。
+模块距离集中度图配套面向初学者的坐标／参照线说明，并从同源份额展示前 10% 模块
+的贡献及累计一半距离所需模块数，解释组织等权为什么不等于实际模块贡献均分；
+保留重新检索、不同有效队列和纯描述性结果的边界。
 `tests/44-test-biology-diagnostics.R` 验证科学不变量；
 `scripts/tests/biology-diagnostics-targets.R` 使用合成数据执行同一 DAG 和报告，
 并在独立 `tmp/tests/biology-*` 中核对恢复、正式路径未变及 store 配置还原。
