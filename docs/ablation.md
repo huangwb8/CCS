@@ -328,3 +328,9 @@ ablation-03 另增加高覆盖生物锚点验证，在每个原签名上独立�
 - 改变缓存边界：同步更新 cache key、state 校验和 manifest 的 node 状态；
 - 改变公共 API：同步更新 `R/ablation.R` 的 roxygen 与 `man/`，再 `devtools::document()`；
 - 不把 `.ablation_*` 函数当作独立脚本；新逻辑应挂在“入口 → 准备 → 评估 → 汇总 → 落盘”层次上。
+
+## ablation-03 通路锚点拆分
+
+2026-10-06 将 IFNγ 与 IL6-JAK-STAT3 拆为分别评分的通路锚点，当前分析使用五项锚点和固定五项 BH 族。配置位于 `test/ablation-03/config/biological-anchors.yml`，旧合并方案已弃用，不保留归档；这是查看原合并结果后的方案修订。广队列、高覆盖、诊断与结构复现均沿既有 targets DAG 执行，测量与可估计性门槛不变。详情见[拆分重分析计划](plans/2026-10-06-ablation03-IFNγ与IL6锚点拆分重分析计划.md)。
+
+五锚点正式重算与结果核验已完成；高覆盖共 80 格，原表示分析的 18 个科学文件与其余 raw 输入哈希不变，CCS 保持 0.8.4。具体效应、95% CI、固定五项 BH 校正及不可估计原因见最新生物报告和拆分重分析计划。
