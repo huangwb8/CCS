@@ -160,9 +160,9 @@ biology_top_anchor_signal <- paste(
 )
 ```
 
-本报告是数据审计阶段，同时审计 `r main_feature_count` 特征主输入、biology anchor 的完整表达矩阵派生缓存、组织标签恢复和 reference-query 原始构成。它不运行表示学习，也不根据样本量、效应大小或显著性阈值筛选数据；确认性表示实验的资格条件与结果由 `r experiment_report_name` 单独报告。
+本报告是数据审计阶段，同时审计 `r main_feature_count` 特征主输入、gene signature 的完整表达矩阵派生缓存、组织标签恢复和 reference-query 原始构成。它不运行表示学习，也不根据样本量、效应大小或显著性阈值筛选数据；确认性表示实验的资格条件与结果由 `r experiment_report_name` 单独报告。
 
-之所以把数据审计放在所有模型分析之前，是因为组织、队列和样本身份决定后续比较的单位。如果同一个队列被写成两个组织，breadth 分析会多算一种背景；如果不同队列被并成一个，队列级区间会少算一个独立单位。本阶段先核对样本总数、组织归属、reference/query 角色和表达锚点可用性，再进入 d1 与 Direct-GSClassifier 的比较。
+之所以把数据审计放在所有模型分析之前，是因为组织、队列和样本身份决定后续比较的单位。如果同一个队列被写成两个组织，breadth 分析会多算一种背景；如果不同队列被并成一个，队列级区间会少算一个独立单位。本阶段先核对样本总数、组织归属、reference/query 角色和 gene signature 可用性，再进入 d1 与 Direct-GSClassifier 的比较。
 
 ## 数据概览
 
@@ -198,7 +198,7 @@ render_dt(
 | 双 cohort key | `.atd_resolve_cohort_keys()` | `bank_cohort_key` / `cohort_key` | 同时满足冻结模型追溯与真实 tissue 分层 | `r paste0(data_functions_name, ":", find_source_line(".atd_resolve_cohort_keys <- function"))` |
 | 全量数据画像 | `.atd_build_data_profile()` | 不应用业务阈值 | 保留全部 cohort 与样本供审计，展示层不改变数据 | `r paste0(data_functions_name, ":", find_source_line(".atd_build_data_profile <- function"))` |
 | 审计产物 | `saveRDS()` | `r profile_path` | 让 Rmd 不重复加载完整表达矩阵与冻结模型 | `r data_script_name` |
-| biology anchor 摘要 | `.atd_biology_profile()` | `r biology_cache_path` | 复用完整表达矩阵派生缓存，集中审计 anchor 基因覆盖，不在 Rmd 重算大矩阵 | `r paste0(data_functions_name, ":", find_source_line(".atd_biology_profile <- function"))` |
+| gene signature 摘要 | `.atd_biology_profile()` | `r biology_cache_path` | 复用完整表达矩阵派生缓存，集中审计 gene signature 基因覆盖，不在 Rmd 重算大矩阵 | `r paste0(data_functions_name, ":", find_source_line(".atd_biology_profile <- function"))` |
 
 ## 指标取值与通俗解读
 
@@ -266,7 +266,7 @@ knitr::include_graphics(fig_data1_jpg)
 
 #### 结果解读
 
-解读：每个 tissue 的蓝色和橙色横条分别计 reference 与 external query 样本，长度只表示人数。当前 `r tissue_totals$tissue[1]` 共有 `r tissue_totals$sample_count[1]` 个样本、`r tissue_totals$cohort_count[1]` 个 cohort；第二、第三大的 tissue 分别是 `r tissue_totals$tissue[2]`（`r tissue_totals$sample_count[2]` 人）和 `r tissue_totals$tissue[3]`（`r tissue_totals$sample_count[3]` 人）。原始 external query 共 `r external_sample_count` 人，但它们是按冻结模型记录的 cohort 身份指定，**不是随机切出的测试集**。横条较长可能只因某一个 cohort 很大，不能当作更多独立验证；后续癌种检索、表达锚点和结构分析各有资格条件，实际 query 数须回到各自报告核对。
+解读：每个 tissue 的蓝色和橙色横条分别计 reference 与 external query 样本，长度只表示人数。当前 `r tissue_totals$tissue[1]` 共有 `r tissue_totals$sample_count[1]` 个样本、`r tissue_totals$cohort_count[1]` 个 cohort；第二、第三大的 tissue 分别是 `r tissue_totals$tissue[2]`（`r tissue_totals$sample_count[2]` 人）和 `r tissue_totals$tissue[3]`（`r tissue_totals$sample_count[3]` 人）。原始 external query 共 `r external_sample_count` 人，但它们是按冻结模型记录的 cohort 身份指定，**不是随机切出的测试集**。横条较长可能只因某一个 cohort 很大，不能当作更多独立验证；后续癌种检索、gene signature 和结构分析各有资格条件，实际 query 数须回到各自报告核对。
 
 ## cohort 规模与来源异质性
 
@@ -395,17 +395,17 @@ knitr::include_graphics(fig_data3_jpg)
 
 当前数据结果显示，这张热图的每一行先固定一个 tissue，再把该 tissue 的样本按 GEO、cBioPortal、UCSC Xena 分成占比；因此每行合计为 100%，颜色深浅不是全项目的样本占比。在 `r nrow(tissue_totals)` 个 tissue 中，来源最集中的一行是 `r data_profile$source_profile$tissue[which.max(data_profile$source_profile$tissue_fraction)]`：`r data_profile$source_profile$source_system[which.max(data_profile$source_profile$tissue_fraction)]` 占 `r scales::percent(max(data_profile$source_profile$tissue_fraction), accuracy = 0.1)`。这个数说明该 tissue 的观测主要来自同一种数据来源，不能把同一来源内的许多样本当成跨来源重复。当前只完成构成审计，尚未进行 leave-one-source-out；后续应逐次移除主要来源并重算预设终点，检查效应方向是否保持，才可评价来源依赖。
 
-## Biology anchor 数据审计
+## Gene signature 数据审计
 
-上面的主数据画像来自 `r main_feature_count` 特征表达数据；本节单独核对 biology anchor 所依赖的完整表达矩阵入口。完整矩阵由 `01.03.00. 生物输入准备.R` 一次性读取，再按冻结的五类 gene signature 提取所需基因；因此这里读取的是可追溯的派生缓存，不会在 Rmd 中重复载入大矩阵。
+上面的主数据画像来自 `r main_feature_count` 特征表达数据；本节单独核对 gene signature 所依赖的完整表达矩阵入口。完整矩阵由 `01.03.00. 生物输入准备.R` 一次性读取，再按冻结的五类 gene signature 提取所需基因；因此这里读取的是可追溯的派生缓存，不会在 Rmd 中重复载入大矩阵。
 
-当前缓存状态为 `r biology_cache$status`，来源文件为 `r biology_profile$source_file`，包含 `r biology_profile$required_gene_count` 个唯一 anchor 基因、`r biology_profile$anchor_count` 类 anchor、`r biology_profile$cohort_count` 个 cohort 和 `r biology_profile$sample_count` 个目标样本，覆盖 `r biology_profile$tissue_count` 个 tissue。这个范围由主实验的完整 reference 与候选 query 合同确定，不再只缓存被选中的邻居；经过输入对齐后，它不等同于上面的全量 `r raw_sample_count` 个原始样本。
+当前缓存状态为 `r biology_cache$status`，来源文件为 `r biology_profile$source_file`，包含 `r biology_profile$required_gene_count` 个唯一 gene signature 基因、`r biology_profile$anchor_count` 类 gene signature、`r biology_profile$cohort_count` 个 cohort 和 `r biology_profile$sample_count` 个目标样本，覆盖 `r biology_profile$tissue_count` 个 tissue。这个范围由主实验的完整 reference 与候选 query 合同确定，不再只缓存被选中的邻居；经过输入对齐后，它不等同于上面的全量 `r raw_sample_count` 个原始样本。
 
-### Anchor 基因覆盖
+### gene signature 基因覆盖
 
-下表按 anchor 汇总所需基因数、参与的 cohort 数和实际基因覆盖率。覆盖率越低，表示该 anchor 在部分 cohort 中缺少更多 signature 基因；`estimable` 表示至少找到两个基因，可以计算该 cohort 的 anchor 分数。
+下表按 gene signature 汇总所需基因数、参与的 cohort 数和实际基因覆盖率。覆盖率越低，表示该 gene signature 在部分 cohort 中缺少更多 signature 基因；`estimable` 表示至少找到两个基因，可以计算该 cohort 的 gene signature 分数。
 
-对锚点 $a$ 与队列 $c$，覆盖率为 $\mathrm{coverage}_{a,c}=|G_a\cap G_c|/|G_a|$，分母是预先规定的签名基因集，分子是该队列实际可用的基因。好比菜谱要求十种原料，找齐八种意味着覆盖率 80%，却无法保证做出的味道与原配方相同。覆盖率回答“能用多少基因计算”，不回答“这个签名是否能预测疾病或证明 d1 有用”。
+对 gene signature $a$ 与队列 $c$，覆盖率为 $\mathrm{coverage}_{a,c}=|G_a\cap G_c|/|G_a|$，分母是预先规定的 gene signature 基因集，分子是该队列实际可用的基因。好比菜谱要求十种原料，找齐八种意味着覆盖率 80%，却无法保证做出的味道与原配方相同。覆盖率回答“能用多少基因计算”，不回答“这个 gene signature 是否能预测疾病或证明 d1 有用”。
 
 ```{r biology-anchor-summary, interp_check=TRUE}
 biology_anchor_summary_display <- biology_profile$anchor_summary
@@ -418,11 +418,11 @@ biology_anchor_summary_display$min_coverage <- scales::label_percent(
 render_dt(biology_anchor_summary_display, pageLength = 10)
 ```
 
-解读：表中 `r nrow(biology_profile$anchor_summary)` 行对应预设的锚点签名，每行同时给出预设基因数、各 cohort 覆盖的中位数和最低值。中位覆盖最低的是 `r biology_anchor_rank$anchor[nrow(biology_anchor_rank)]`，为 `r scales::percent(biology_anchor_rank$median_coverage[nrow(biology_anchor_rank)], accuracy = 0.1)`；它提示该签名在典型 cohort 中使用的基因子集可能更不完整。`estimable` 仅表示该 cohort 至少有两个签名基因可算分数，不保证 query 及两臂前 15 个邻居均有完整分数。进入效用比较前，应到生物锚点报告核对缺失邻居对与配对 query 数；覆盖率本身不是 d1 的生物学表现。
+解读：表中 `r nrow(biology_profile$anchor_summary)` 行对应预设的 gene signature，每行同时给出预设基因数、各 cohort 覆盖的中位数和最低值。中位覆盖最低的是 `r biology_anchor_rank$anchor[nrow(biology_anchor_rank)]`，为 `r scales::percent(biology_anchor_rank$median_coverage[nrow(biology_anchor_rank)], accuracy = 0.1)`；它提示该 gene signature 在典型 cohort 中使用的基因子集可能更不完整。`estimable` 仅表示该 cohort 至少有两个 gene signature 基因可算分数，不保证 query 及两臂前 15 个邻居均有完整分数。进入效用比较前，应到 gene signature 报告核对缺失邻居对与配对 query 数；覆盖率本身不是 d1 的生物学表现。
 
-### Anchor 覆盖率分布图
+### gene signature 覆盖率分布图
 
-每个点代表一个 cohort 的 signature 基因覆盖率，箱线表示中位数与四分位范围；各 cohort 等权，不按样本量加权。纵轴固定为 `r paste(scales::label_percent(accuracy = 1)(c(0, 1)), collapse = "–")`，顶部标注每类 anchor 所需的基因数和可计算 cohort 数。点的横向偏移仅用于减少重叠，不代表额外指标；同一 cohort 在五类 anchor 中重复出现，因此这些点不是独立生物学重复。
+每个点代表一个 cohort 的 signature 基因覆盖率，箱线表示中位数与四分位范围；各 cohort 等权，不按样本量加权。纵轴固定为 `r paste(scales::label_percent(accuracy = 1)(c(0, 1)), collapse = "–")`，顶部标注每类 gene signature 所需的基因数和可计算 cohort 数。点的横向偏移仅用于减少重叠，不代表额外指标；同一 cohort 在五类 gene signature 中重复出现，因此这些点不是独立生物学重复。
 
 ```{r figure-data-biology-anchor-coverage, interp_check=TRUE}
 # Purpose: Audit the full cohort-level signature coverage distribution.
@@ -483,11 +483,11 @@ knitr::include_graphics(fig_data4_jpg)
 
 #### 图形解读
 
-本图保留全部 `r nrow(biology_profile$coverage)` 条记录；覆盖率低于 100% 的记录有 `r sum(biology_profile$coverage$coverage < 1)` 条。五类 anchor 的最低覆盖率依次为 `r paste(biology_profile$anchor_summary$anchor, scales::label_percent(accuracy = 0.1)(biology_profile$anchor_summary$min_coverage), sep = " = ", collapse = "；")`。靠近顶部的点表示 signature 基因较完整，较低的点提示应在下方明细表核查具体 cohort 与基因标识类型。可计算只要求至少找到两个基因，不等同于 signature 完整，也不证明跨组织或跨来源的生物学有效性。
+本图保留全部 `r nrow(biology_profile$coverage)` 条记录；覆盖率低于 100% 的记录有 `r sum(biology_profile$coverage$coverage < 1)` 条。五类 gene signature 的最低覆盖率依次为 `r paste(biology_profile$anchor_summary$anchor, scales::label_percent(accuracy = 0.1)(biology_profile$anchor_summary$min_coverage), sep = " = ", collapse = "；")`。靠近顶部的点表示 signature 基因较完整，较低的点提示应在下方明细表核查具体 cohort 与基因标识类型。可计算只要求至少找到两个基因，不等同于 signature 完整，也不证明跨组织或跨来源的生物学有效性。
 
 #### 结果解读
 
-五类 anchor 在当前缓存中共有 `r nrow(biology_profile$coverage)` 条 cohort-anchor 审计记录，其中 `r sum(biology_profile$coverage$status == "estimable")` 条满足当前基因数门槛；按覆盖率中位数排序的前三类为 `r biology_top_anchor_signal`。图上每个点相当于问“这一队列能找到多少签名基因”，而不是问“d1 能否找到正确生物邻居”。即使箱体靠近 100%，也还需确认两臂邻居的分数完整，且同一签名在不同来源的测量含义可比；本阶段跨来源敏感性分析完成 `r 0L` 轮，不能把高覆盖率写成生物学效用已通过外部验证。
+五类 gene signature 在当前缓存中共有 `r nrow(biology_profile$coverage)` 条 cohort-gene signature 审计记录，其中 `r sum(biology_profile$coverage$status == "estimable")` 条满足当前基因数门槛；按覆盖率中位数排序的前三类为 `r biology_top_anchor_signal`。图上每个点相当于问“这一队列能找到多少 gene signature 基因”，而不是问“d1 能否找到正确生物邻居”。即使箱体靠近 100%，也还需确认两臂邻居的分数完整，且同一 gene signature 在不同来源的测量含义可比；本阶段跨来源敏感性分析完成 `r 0L` 轮，不能把高覆盖率写成生物学效用已通过外部验证。
 
 ### Cohort 级覆盖明细
 
@@ -502,7 +502,7 @@ biology_coverage_display$coverage <- scales::label_percent(accuracy = 0.1)(
 render_dt(biology_coverage_display, pageLength = 15)
 ```
 
-解读：每行固定一个 tissue、cohort 和 anchor，`genes_found/genes_required` 对应覆盖率，`sample_count` 是该队列进入锚点缓存的样本数。覆盖最低的记录是 `r biology_profile$coverage$cohort[which.min(biology_profile$coverage$coverage)]` 的 `r biology_profile$coverage$anchor[which.min(biology_profile$coverage$coverage)]`：找到 `r biology_profile$coverage$genes_found[which.min(biology_profile$coverage$coverage)]`／`r biology_profile$coverage$genes_required[which.min(biology_profile$coverage$coverage)]` 个基因。若后续该队列效应异常或无法估计，应先核对这一行的 `id_type`、基因数和配对 query 完整性。这里的锚点清单用于判断表达签名能否计算，前面的 `r main_feature_count` 特征主输入用于构造 Direct；二者的基因范围与样本角色不同，不能互换。
+解读：每行固定一个 tissue、cohort 和 gene signature，`genes_found/genes_required` 对应覆盖率，`sample_count` 是该队列进入 gene signature 缓存的样本数。覆盖最低的记录是 `r biology_profile$coverage$cohort[which.min(biology_profile$coverage$coverage)]` 的 `r biology_profile$coverage$anchor[which.min(biology_profile$coverage$coverage)]`：找到 `r biology_profile$coverage$genes_found[which.min(biology_profile$coverage$coverage)]`／`r biology_profile$coverage$genes_required[which.min(biology_profile$coverage$coverage)]` 个基因。若后续该队列效应异常或无法估计，应先核对这一行的 `id_type`、基因数和配对 query 完整性。这里的 gene signature 清单用于判断 gene signature 能否计算，前面的 `r main_feature_count` 特征主输入用于构造 Direct；二者的基因范围与样本角色不同，不能互换。
 
 ## 讨论与分析
 
@@ -520,15 +520,15 @@ render_dt(biology_coverage_display, pageLength = 15)
 
 ### 基因可用性与生物效用之间还隔着一步
 
-Direct 主输入包含 `r main_feature_count` 个特征，生物锚点另从完整表达矩阵提取 `r biology_profile$required_gene_count` 个所需基因，缓存覆盖 `r biology_profile$sample_count` 个目标样本。在 `r nrow(biology_profile$coverage)` 条 cohort–anchor 记录中，`r sum(biology_profile$coverage$status == "estimable")` 条达到计算门槛，`r sum(biology_profile$coverage$coverage < 1)` 条未达完整覆盖。这里核对的是能否按同一份签名清单计算分数；基因齐全不表示 d1 找到的邻居更接近，也不表示签名已通过临床验证。
+Direct 主输入包含 `r main_feature_count` 个特征，gene signature 另从完整表达矩阵提取 `r biology_profile$required_gene_count` 个所需基因，缓存覆盖 `r biology_profile$sample_count` 个目标样本。在 `r nrow(biology_profile$coverage)` 条 cohort–gene signature 记录中，`r sum(biology_profile$coverage$status == "estimable")` 条达到计算门槛，`r sum(biology_profile$coverage$coverage < 1)` 条未达完整覆盖。这里核对的是能否按同一份 gene signature 清单计算分数；基因齐全不表示 d1 找到的邻居更接近，也不表示 gene signature 已通过临床验证。
 
-部分覆盖还带来一个具体的可比性问题：不同队列的同名签名可能由不同基因子集计算。如果一个队列缺失的恰好是变化最大的基因，它的分数波动就可能与完整覆盖队列不同。后续若在该队列看到异常效应，应先核对缺失基因、配对 query 数和来源，再讨论表示机制。当前表达签名与模型输入共享表达数据来源，能够检查表达信息是否保留，但仍需其他测量或临床结局检验其独立用途。
+部分覆盖还带来一个具体的可比性问题：不同队列的同名 gene signature 可能由不同基因子集计算。如果一个队列缺失的恰好是变化最大的基因，它的分数波动就可能与完整覆盖队列不同。后续若在该队列看到异常效应，应先核对缺失基因、配对 query 数和来源，再讨论表示机制。当前 gene signature 与模型输入共享表达数据来源，能够检查表达信息是否保留，但仍需其他测量或临床结局检验其独立用途。
 
 ### 如何把这份审计带入后续结果
 
-全量画像中的外部 query 有 `r external_sample_count` 个样本，但每个分析还要满足各自的标签、候选邻居和锚点资格。进入 `r experiment_report_name` 时，应分别核对该终点纳入的 query 与 cohort 数、汇总权重及缺失原因；生物锚点与结构报告也应使用各自的有效总体。不能把本页的原始样本总数写到所有结果图旁边，作为同样充分的外部证据。
+全量画像中的外部 query 有 `r external_sample_count` 个样本，但每个分析还要满足各自的标签、候选邻居和 gene signature 资格。进入 `r experiment_report_name` 时，应分别核对该终点纳入的 query 与 cohort 数、汇总权重及缺失原因；gene signature 与结构报告也应使用各自的有效总体。不能把本页的原始样本总数写到所有结果图旁边，作为同样充分的外部证据。
 
-后续数据验证可以沿两条具体路径进行。其一，在来源信息完整且组织相同的队列中复核当前方向，并固定候选池做留一来源分析；若结论只在某一来源存在，应将适用范围限制到该来源。其二，对部分覆盖的锚点预先规定共同基因集，重新准备分数并通过正式 targets 流程比较效应；若差值因覆盖口径改变而明显变号，应优先解释测量可比性。这两项尚未在本次数据审计中执行，当前报告提供的是设计与输入边界。
+后续数据验证可以沿两条具体路径进行。其一，在来源信息完整且组织相同的队列中复核当前方向，并固定候选池做留一来源分析；若结论只在某一来源存在，应将适用范围限制到该来源。其二，对部分覆盖的 gene signature 预先规定共同基因集，重新准备分数并通过正式 targets 流程比较效应；若差值因覆盖口径改变而明显变号，应优先解释测量可比性。这两项尚未在本次数据审计中执行，当前报告提供的是设计与输入边界。
 
 ## 数字准确性验证
 
@@ -538,6 +538,6 @@ Direct 主输入包含 `r main_feature_count` 个特征，生物锚点另从完�
 | tissue 恢复规模 | `data_profile$resolution_audit` | 同上 |
 | reference-query 原始构成 | `data_profile$tissue_profile` | 同上 |
 | cohort 与来源异质性 | `data_profile$tissue_totals` / `$source_profile` | 同上 |
-| biology anchor 基因与覆盖 | `biology_profile$anchor_summary` / `$coverage` | `r biology_cache_path` |
+| gene signature 基因与覆盖 | `biology_profile$anchor_summary` / `$coverage` | `r biology_cache_path` |
 
-主数据画像的核心数字均从 `data-profile.rds` 动态嵌入；biology 数字均从 `expression-anchor-cache.rds` 动态嵌入。三张主数据图和一张 biology anchor 覆盖率图均由对应审计对象生成矢量 PDF，再转换为保持相同比例的 JPG 供 HTML 展示；Rmd 只读取 biology 派生缓存，不重复加载完整表达矩阵，也未对数据应用业务阈值。
+主数据画像的核心数字均从 `data-profile.rds` 动态嵌入；biology 数字均从 `expression-anchor-cache.rds` 动态嵌入。三张主数据图和一张 gene signature 覆盖率图均由对应审计对象生成矢量 PDF，再转换为保持相同比例的 JPG 供 HTML 展示；Rmd 只读取 biology 派生缓存，不重复加载完整表达矩阵，也未对数据应用业务阈值。

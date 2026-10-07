@@ -837,13 +837,13 @@ preview_dir <- bensz_run_dir(bensz_preview_root(params$plot_run_dir),
 
 这项消融首先问**重编码改变了什么**，再问改变是否符合跨癌种表示的目的。癌种标签能否找回，是检查重要生物差异有没有被过度模糊的一把尺子，却不是 d1 的总成绩；平台和来源是否仍把邻居拉到一起，是另一把尺子；连续表达状态与跨队列结构则补充检查生物关系。若冻结模型只读取同一份 Direct 特征，d1 不会凭空增加单个样本的信息，但可能把已有线索组织得更适合多队列比较。要证明“更适合”，还需要在预先选定的独立跨癌种任务上看到可迁移的收益。
 
-本次修订统一了 readout 的训练/测试尺度，扩展连续 anchor 到全部候选 query，并核验本模块的输入与结果指纹。下文按“数据范围—空间改写—旧癌种标签—队列证据与技术来源—可恢复信息”阅读，每一层只回答它实际测到的问题。
+本次修订统一了 readout 的训练/测试尺度，扩展gene signature 分数评估到全部候选 query，并核验本模块的输入与结果指纹。下文按“数据范围—空间改写—旧癌种标签—队列证据与技术来源—可恢复信息”阅读，每一层只回答它实际测到的问题。
 
 当前证据等级为 `r manifest$evidence_level`。reference d1 来源为 `r paste(ablation_result$evidence$reference_provenance, collapse = ", ")`，query d1 来源为 `r paste(ablation_result$evidence$query_provenance, collapse = ", ")`。由于 reference 表示包含 in-sample 生成路径，而 query 使用冻结外部预测，两侧来源不对称；因此本报告只作描述性外部评价，不把检索库或 readout 结果标为确认性证据。
 
 ## 数据概览
 
-本次 reference 有 `r manifest$reference_sample_count` 个样本、`r manifest$reference_cohort_count` 个队列；external candidates 有 `r manifest$external_candidate_sample_count` 个样本、`r manifest$external_candidate_cohort_count` 个队列。癌种 readout 的可估计子集为 `r manifest$query_sample_count` 个样本、`r manifest$query_cohort_count` 个队列。**连续 anchor 的候选范围不再由癌种支持门槛决定**；最终有效范围还取决于表达覆盖和成对 top-`r 15L` 分数是否完整。
+本次 reference 有 `r manifest$reference_sample_count` 个样本、`r manifest$reference_cohort_count` 个队列；external candidates 有 `r manifest$external_candidate_sample_count` 个样本、`r manifest$external_candidate_cohort_count` 个队列。癌种 readout 的可估计子集为 `r manifest$query_sample_count` 个样本、`r manifest$query_cohort_count` 个队列。**gene signature 分数的候选范围不再由癌种支持门槛决定**；最终有效范围还取决于表达覆盖和成对 top-`r 15L` 分数是否完整。
 
 ```{r data-overview-table}
 # Purpose: Expose the exact data and representation contract used by all analyses.
@@ -884,7 +884,7 @@ overview_table <- data.frame(
 render_dt(overview_table, pageLength = 12)
 ```
 
-解读：这张表固定样本身份，只改变每个样本的坐标表示：Direct 有 `r manifest$direct_feature_count` 个输入特征，d1 有 `r manifest$d1_feature_count` 个模块输出列，列数差不能当作信息量或性能差。reference 包含 `r manifest$reference_sample_count` 个样本、`r manifest$reference_cohort_count` 个队列；外部候选有 `r manifest$external_candidate_sample_count` 个样本、`r manifest$external_candidate_cohort_count` 个队列，其中旧癌种任务实际可估计 `r manifest$query_sample_count` 个样本、`r manifest$query_cohort_count` 个队列。这个收缩来自癌种及 reference 支持资格，不表示其他候选样本在连续表达锚点上都不可用。后续若比较两臂差值，必须在同一 query 身份和同一终点资格内配对，不能拿不同总体的汇总值相减。
+解读：这张表固定样本身份，只改变每个样本的坐标表示：Direct 有 `r manifest$direct_feature_count` 个输入特征，d1 有 `r manifest$d1_feature_count` 个模块输出列，列数差不能当作信息量或性能差。reference 包含 `r manifest$reference_sample_count` 个样本、`r manifest$reference_cohort_count` 个队列；外部候选有 `r manifest$external_candidate_sample_count` 个样本、`r manifest$external_candidate_cohort_count` 个队列，其中旧癌种任务实际可估计 `r manifest$query_sample_count` 个样本、`r manifest$query_cohort_count` 个队列。这个收缩来自癌种及 reference 支持资格，不表示其他候选样本在连续 gene signature 分数上都不可用。后续若比较两臂差值，必须在同一 query 身份和同一终点资格内配对，不能拿不同总体的汇总值相减。
 
 ## 关键函数、参数与源代码位置
 
@@ -1023,7 +1023,7 @@ fig1_jpg <- .ae_save_plot(
 knitr::include_graphics(fig1_jpg)
 ```
 
-解读：在同一批 `r native_geometry$metrics$sample_count[1L]` 个 reference 样本上，CKA 为 `r fmt(metric_value("linear_cka"))`，说明整体样本关系矩阵仍有相似结构；距离 Spearman 为 `r fmt(metric_value("distance_spearman"))`，说明抽样样本对的远近顺序也有一定一致性。前 `r max(manifest$config$geometry$k)` 名近邻的平均 Jaccard 为 `r fmt(metric_value("knn_jaccard"))`，表示局部名单并未完全沿用 Direct。三个数的定义不同，不能比较柱高并把它们说成三种“保留率”；联合起来只能描述大尺度关系尚有延续、局部邻居出现重排。新邻居是否更符合生物状态，仍需用后面的外部癌种检索、技术标签和预设表达锚点逐项核对；这些锚点与模型输入同源，几何变化本身也不标记好坏。
+解读：在同一批 `r native_geometry$metrics$sample_count[1L]` 个 reference 样本上，CKA 为 `r fmt(metric_value("linear_cka"))`，说明整体样本关系矩阵仍有相似结构；距离 Spearman 为 `r fmt(metric_value("distance_spearman"))`，说明抽样样本对的远近顺序也有一定一致性。前 `r max(manifest$config$geometry$k)` 名近邻的平均 Jaccard 为 `r fmt(metric_value("knn_jaccard"))`，表示局部名单并未完全沿用 Direct。三个数的定义不同，不能比较柱高并把它们说成三种“保留率”；联合起来只能描述大尺度关系尚有延续、局部邻居出现重排。新邻居是否更符合生物状态，仍需用后面的外部癌种检索、技术标签和预设 gene signature 逐项核对；这些 gene signature 与模型输入同源，几何变化本身也不标记好坏。
 
 ```{r geometry-inference-table}
 geometry_inference_table <- geometry_inference[, c(
@@ -1078,7 +1078,7 @@ retrieval_inference_table <- retrieval_inference[, c(
 render_dt(retrieval_inference_table, pageLength = 3L)
 ```
 
-解读：在 `r length(unique(retrieval$paired$cohort))` 个外部队列中，Top-`r params$display_k` 同癌种比例的 cohort 等权差为 `r fmt(retrieval_cohort_mean_delta)`，即 d1 比 Direct 平均`r if (retrieval_cohort_mean_delta < 0) "低" else "高"`约 `r fmt(abs(100 * retrieval_cohort_mean_delta))` 个百分点；其 95% cohort bootstrap 区间为 `r fmt_ci(retrieval_inference[retrieval_inference$endpoint == "top_k_label_rate", ])`。MRR@`r params$display_k` 的等权差为 `r fmt(retrieval_cohort_mrr_delta)`，区间为 `r fmt_ci(retrieval_inference[retrieval_inference$endpoint == "mrr", ])`。本次两个负向点估计分别指向“前 `r params$display_k` 位同癌种邻居比例较低”和“首次同癌种命中倾向排得更后或根本未命中”。Top-k 的区间 `r if (retrieval_inference$ci_low[retrieval_inference$endpoint == "top_k_label_rate"] <= 0 && retrieval_inference$ci_high[retrieval_inference$endpoint == "top_k_label_rate"] >= 0) "跨过零，不能据此排除两种方向" else "未跨过零，应结合区间范围判断方向"`；MRR 的区间 `r if (retrieval_inference$ci_low[retrieval_inference$endpoint == "mrr"] <= 0 && retrieval_inference$ci_high[retrieval_inference$endpoint == "mrr"] >= 0) "跨过零" else "未跨过零"`。表中的 `p_value_adj` 是对 Top-k、MRR 和 top-1 **三个检索终点一起做 Holm 校正**后的值；当前 Top-k 为 `r fmt(retrieval_inference$p_value_adj[retrieval_inference$endpoint == "top_k_label_rate"])`，MRR 为 `r fmt(retrieval_inference$p_value_adj[retrieval_inference$endpoint == "mrr"])`。这两项校正 P 值 `r if (all(retrieval_inference$p_value_adj[retrieval_inference$endpoint %in% c("top_k_label_rate", "mrr")] >= 0.05)) "均未低于 0.05；MRR 的未校正区间虽未跨零，也不应称为通过了三终点校正后的显著结果" else "需要分别结合区间和校正阈值判断"`。这里的下降仍不能区分被弱化的是平台捆绑的旧癌种边界，还是可迁移的癌种生物关系；需与后面的技术标签、表达锚点和独立下游任务合看。
+解读：在 `r length(unique(retrieval$paired$cohort))` 个外部队列中，Top-`r params$display_k` 同癌种比例的 cohort 等权差为 `r fmt(retrieval_cohort_mean_delta)`，即 d1 比 Direct 平均`r if (retrieval_cohort_mean_delta < 0) "低" else "高"`约 `r fmt(abs(100 * retrieval_cohort_mean_delta))` 个百分点；其 95% cohort bootstrap 区间为 `r fmt_ci(retrieval_inference[retrieval_inference$endpoint == "top_k_label_rate", ])`。MRR@`r params$display_k` 的等权差为 `r fmt(retrieval_cohort_mrr_delta)`，区间为 `r fmt_ci(retrieval_inference[retrieval_inference$endpoint == "mrr", ])`。本次两个负向点估计分别指向“前 `r params$display_k` 位同癌种邻居比例较低”和“首次同癌种命中倾向排得更后或根本未命中”。Top-k 的区间 `r if (retrieval_inference$ci_low[retrieval_inference$endpoint == "top_k_label_rate"] <= 0 && retrieval_inference$ci_high[retrieval_inference$endpoint == "top_k_label_rate"] >= 0) "跨过零，不能据此排除两种方向" else "未跨过零，应结合区间范围判断方向"`；MRR 的区间 `r if (retrieval_inference$ci_low[retrieval_inference$endpoint == "mrr"] <= 0 && retrieval_inference$ci_high[retrieval_inference$endpoint == "mrr"] >= 0) "跨过零" else "未跨过零"`。表中的 `p_value_adj` 是对 Top-k、MRR 和 top-1 **三个检索终点一起做 Holm 校正**后的值；当前 Top-k 为 `r fmt(retrieval_inference$p_value_adj[retrieval_inference$endpoint == "top_k_label_rate"])`，MRR 为 `r fmt(retrieval_inference$p_value_adj[retrieval_inference$endpoint == "mrr"])`。这两项校正 P 值 `r if (all(retrieval_inference$p_value_adj[retrieval_inference$endpoint %in% c("top_k_label_rate", "mrr")] >= 0.05)) "均未低于 0.05；MRR 的未校正区间虽未跨零，也不应称为通过了三终点校正后的显著结果" else "需要分别结合区间和校正阈值判断"`。这里的下降仍不能区分被弱化的是平台捆绑的旧癌种边界，还是可迁移的癌种生物关系；需与后面的技术标签、gene signature 和独立下游任务合看。
 
 ```{r figure-retrieval-cohort, interp_check=TRUE}
 # ==== Figure 2: External retrieval cohort deltas (user-adjustable parameters) ====
@@ -1205,7 +1205,7 @@ fig2_jpg <- .ae_save_plot(
 knitr::include_graphics(fig2_jpg)
 ```
 
-解读：纵轴每一行是一个外部 query cohort，红点为该队列的 Top-`r params$display_k` 同癌种比例差，蓝点为 MRR 差；横轴零线左侧表示 d1 较低，右侧表示 d1 较高。普通队列点没有误差线，不能当成逐队列显著性结论。只有至少 `r params$min_cohort_n` 位 query 的队列画在图中；底部 Overall 行却使用**所有可估计队列**等权计算，误差线为其 cohort bootstrap 区间。两条彩色虚线分别标出两项总体均值，不是某个队列的阈值。当前 Top-k 总体差为 `r fmt(retrieval_cohort_mean_delta)`；图中最正向的 `r retrieval_top$cohort[1L]` 为 `r fmt(retrieval_top$estimate[1L])`（`r retrieval_top$sample_count[1L]` 位 query），最负向的 `r retrieval_bottom$cohort[1L]` 为 `r fmt(retrieval_bottom$estimate[1L])`（`r retrieval_bottom$sample_count[1L]` 位 query）。方向相反说明总体均值掩盖了队列差异；还应检查各队列的 reference 癌种支持量、平台与来源组成，以及预设表达锚点是否同向变化，不能仅凭极端点推断癌种生物学。
+解读：纵轴每一行是一个外部 query cohort，红点为该队列的 Top-`r params$display_k` 同癌种比例差，蓝点为 MRR 差；横轴零线左侧表示 d1 较低，右侧表示 d1 较高。普通队列点没有误差线，不能当成逐队列显著性结论。只有至少 `r params$min_cohort_n` 位 query 的队列画在图中；底部 Overall 行却使用**所有可估计队列**等权计算，误差线为其 cohort bootstrap 区间。两条彩色虚线分别标出两项总体均值，不是某个队列的阈值。当前 Top-k 总体差为 `r fmt(retrieval_cohort_mean_delta)`；图中最正向的 `r retrieval_top$cohort[1L]` 为 `r fmt(retrieval_top$estimate[1L])`（`r retrieval_top$sample_count[1L]` 位 query），最负向的 `r retrieval_bottom$cohort[1L]` 为 `r fmt(retrieval_bottom$estimate[1L])`（`r retrieval_bottom$sample_count[1L]` 位 query）。方向相反说明总体均值掩盖了队列差异；还应检查各队列的 reference 癌种支持量、平台与来源组成，以及预设 gene signature 是否同向变化，不能仅凭极端点推断癌种生物学。
 
 ```{r retrieval-top-table}
 # Purpose: Expose the strongest external retrieval gains and losses with sample counts.
@@ -1921,13 +1921,13 @@ knitr::include_graphics(fig9_jpg)
 - **控制模块重叠：** 在相同 module 数、tissue 组成和固定 query 下，记录每对 bank 的共享模块比例，比较重叠程度相近的 bank；也可建立保留该重叠结构的随机基线。只有控制共享比例后稳定性仍随证据增加而提高，才更支持多 cohort 证据整合本身带来的稳健性。
 - **检验新增 cohort 与实际决策：** 在独立队列训练此前未进入冻结 bank 的 module，以相同模块预算比较扩充前后的近邻一致性及预先指定的外部生物终点；再用跨中心或重复检测样本检验最终分型的一致性与任务表现。若这些独立检验同向改善，且生物终点和分类性能没有下降，才可进一步讨论临床场景所需的可重复性。
 
-## 技术来源与癌种锚点的联合评估
+## 技术来源与癌种标签的联合评估
 
 ### 为什么要同时看技术来源与癌种
 
 **我们希望相似样本因为生物状态相近而成为邻居，但检测方式也可能让它们看起来相似。** 例如，某个平台的测量偏差会给不同患者留下共同痕迹。如果模型主要按这些痕迹找邻居，就可能学到一个“技术捷径”：在熟悉的平台上表现不错，换个平台便不稳定。本节分别检查检测类型（`assay_type`）、检测平台（`platform_id`）和数据来源（`source_system`），观察 d1 相对 Direct 是否改变了这种聚集。
 
-可以把任务想成**给宠物照片找相似照片**：猫和狗对应不同癌种，相机对应检测平台，相册对应 cohort。理想情况下，一张猫照片找到其他相册中的猫，是因为动物本身相似；如果总找到同款相机拍摄的照片，就要检查模型是否被相机色调吸引。可是，“同相机照片少了”也可能只是因为猫照片少了、狗照片多了。因此，技术来源与癌种需要一起看：前者检查邻居是否按测量来源聚集，后者作为保护性参照，检查已知的生物标签关系保留多少。癌种只是生物信息的一部分，还需结合后续独立生物锚点判断。
+可以把任务想成**给宠物照片找相似照片**：猫和狗对应不同癌种，相机对应检测平台，相册对应 cohort。理想情况下，一张猫照片找到其他相册中的猫，是因为动物本身相似；如果总找到同款相机拍摄的照片，就要检查模型是否被相机色调吸引。可是，“同相机照片少了”也可能只是因为猫照片少了、狗照片多了。因此，技术来源与癌种需要一起看：前者检查邻居是否按测量来源聚集，后者作为保护性参照，检查已知的生物标签关系保留多少。癌种只是生物信息的一部分，还需结合后续 gene signature 评估与独立生物学终点判断。
 
 ### 先分清：从哪里找邻居，从哪里算背景
 
@@ -2042,7 +2042,7 @@ $$
 | 两侧观察方向 | 当前可以描述什么 | 还要核验什么 |
 |---|---|---|
 | 技术比例下降，癌种检索未见明显下降 | 技术标签聚集减弱，癌种标签关系相对保留 | 癌种内比较是否仍同向；若要声称“保留”，须预设可接受损失界值并做非劣效或等价性分析 |
-| 技术比例与癌种检索都下降 | 两种标签关系一起减弱，存在组成变化或信息损失的解释 | 固定癌种后的技术聚集，以及独立生物锚点是否保留或改善 |
+| 技术比例与癌种检索都下降 | 两种标签关系一起减弱，存在组成变化或信息损失的解释 | 固定癌种后的技术聚集、gene signature 分数接近度，以及独立生物学终点上的表现 |
 | 技术比例上升 | 同技术邻居占比增加 | 是测量来源捷径加强，还是邻居生物组成改变 |
 
 ### 从一个患者到多个队列：均值和区间怎样来
@@ -2221,9 +2221,9 @@ render_dt(technical_inference_table, pageLength = 3L)
 
 首先，本节检验跨队列检索中仍可能存在的技术捷径。排除同 cohort 邻居后，样本仍可能因为检测类型、平台或来源系统相同而聚集。上表给出了三个预设技术字段的配对差及区间；其中 `r technical_top_signal$technical_factor` 的同技术近邻比例队列等权差为 `r fmt(100 * technical_top_signal$estimate, 1L)` 个百分点，95% 区间为 [`r fmt(100 * technical_top_signal$ci_low, 1L)`, `r fmt(100 * technical_top_signal$ci_high, 1L)`] 个百分点，Holm 校正 P 值为 `r fmt_p(technical_top_signal$p_value_adj)`，涉及 `r technical_top_signal$n_cohort` 个有效 cohort。这为“表示变换改变了邻居与技术标签的关系”提供了实证依据；它衡量标签聚集的变化，不能直接换算成测量误差或批次效应消除的程度。
 
-其次，联合报告癌种锚点，可以同时审视这种改变的潜在代价。本次 Top-`r params$display_k` 同癌种比例的队列等权差为 `r fmt(100 * retrieval_cohort_mean_delta, 1L)` 个百分点，95% 区间为 [`r fmt(100 * retrieval_inference$ci_low[retrieval_inference$endpoint == "top_k_label_rate"], 1L)`, `r fmt(100 * retrieval_inference$ci_high[retrieval_inference$endpoint == "top_k_label_rate"], 1L)`] 个百分点；外部线性 readout 的 accuracy 差为 `r fmt(100 * readout_inference_delta, 1L)` 个百分点，95% 区间为 [`r fmt(100 * readout_cohort_row$ci_low, 1L)`, `r fmt(100 * readout_cohort_row$ci_high, 1L)`] 个百分点。两项癌种终点的点估计均为负，区间均跨零：当前证据不足以确认总体下降，也不足以证明癌种信息已经保留。把这些结果与技术侧一起呈现，才能避免仅凭技术聚集减少就宣布表示更好。
+其次，联合报告癌种标签，可以同时审视这种改变的潜在代价。本次 Top-`r params$display_k` 同癌种比例的队列等权差为 `r fmt(100 * retrieval_cohort_mean_delta, 1L)` 个百分点，95% 区间为 [`r fmt(100 * retrieval_inference$ci_low[retrieval_inference$endpoint == "top_k_label_rate"], 1L)`, `r fmt(100 * retrieval_inference$ci_high[retrieval_inference$endpoint == "top_k_label_rate"], 1L)`] 个百分点；外部线性 readout 的 accuracy 差为 `r fmt(100 * readout_inference_delta, 1L)` 个百分点，95% 区间为 [`r fmt(100 * readout_cohort_row$ci_low, 1L)`, `r fmt(100 * readout_cohort_row$ci_high, 1L)`] 个百分点。两项癌种终点的点估计均为负，区间均跨零：当前证据不足以确认总体下降，也不足以证明癌种信息已经保留。把这些结果与技术侧一起呈现，才能避免仅凭技术聚集减少就宣布表示更好。
 
-最后，本节明确了后续生物学证据必须解决的歧义。实际检索池包含所有癌种，共同技术背景又会在两臂差值中抵消，因此同技术比例下降仍可能来自邻居癌种组成改变。对于泛癌分类，跨癌种近邻可以有研究价值，但其价值需要独立通路、微环境或其他预设生物终点支持。癌种内跨队列检索用于核验技术聚集是否仍减弱，独立生物锚点用于检验新邻居关系是否有意义；若要进一步声称有用信息保留，还需预设可接受损失界值并在独立队列中检验。
+最后，本节明确了后续生物学证据必须解决的歧义。实际检索池包含所有癌种；两臂使用同一 query 的技术标签作为参照，但选中的邻居及其癌种、技术来源组成可能不同，因此同技术比例下降仍可能来自邻居癌种组成改变。对于泛癌分类，跨癌种近邻可以有研究价值，但其价值需要预设生物终点支持。癌种内跨队列检索用于核验技术聚集是否仍减弱，gene signature 评估检查当前表达分数的邻居接近度；这些分数与模型输入同源，且可能携带 batch effect，不能替代独立生物学终点。若要进一步声称有用信息保留，还需预设可接受损失界值并在独立队列中检验。
 
 因此，本节适合作为**表示有效性与信息损失的诊断证据**。与当前结果相符的论文表述是：“d1 降低了跨队列近邻中的技术来源标签聚集；癌种恢复指标的点估计同时下降，提示需要进一步区分技术关联减弱与生物信息损失。”如果论文正文主张 CCS 能形成可迁移的生物表示，可保留一个精简联合面板，把完整队列分布、推断表和指标定义放入补充材料；如果论文主要强调分类性能，本节可作为补充诊断。当前纳入理由是让表示改变的证据与代价可被审查，尚不足以作为“成功去噪且保留生物信息”或“发现更好的跨癌种生物状态”的完成证据。
 
@@ -2847,7 +2847,7 @@ render_dt(statistical_inference$decoder$baseline_comparisons, pageLength = 3L)
 
 一个容易误判的情形是：某癌种恰好主要来自某种检测来源。若表示弱化了该癌种的区分，同来源邻居也可能随之减少，即使模型没有把技术噪声与生物信号分开。当前技术侧下降与癌种侧负向点估计因此需要并列报告，它们没有组成新的联合检验，也不能据此确定因果关系。可检验的判断是：固定癌种、补齐技术标签并保持同一候选池后，技术聚集是否仍减少，同时目标生物差异是否仍保留。
 
-生物锚点报告测量的是邻居的连续表达接近度，结构报告测量的是跨队列的高低状态距离排序。两者能检查重排的不同代价：局部表达接近度下降而粗状态地图接近原水平，在逻辑上可以同时发生。但这只与“保留较粗状态、弱化精细排序”的假说相容，目前没有直接分解信息尺度，也没有证明重排后出现了更有用的新亚型。
+gene signature 报告测量的是邻居的连续表达接近度，结构报告测量的是跨队列的高低状态距离排序。两者能检查重排的不同代价：局部表达接近度下降而粗状态地图接近原水平，在逻辑上可以同时发生。但这只与“保留较粗状态、弱化精细排序”的假说相容，目前没有直接分解信息尺度，也没有证明重排后出现了更有用的新亚型。
 
 ### 更多 cohort modules 为什么不等于更多有效信息
 
@@ -2865,7 +2865,7 @@ Breadth 增加组织背景，depth 在固定的 `r length(depth_tissues)` 种组
 
 ### 下一轮怎样判断重编码是否值得
 
-目前较有依据的表述是：多队列概率重编码改变了原始几何和近邻组成，技术标签聚集减少，同时旧癌种恢复存在不确定的负向变化；其独立下游价值仍需验证。reference d1 含 in-sample 生成路径，query d1 来自冻结外部预测，两侧来源不对称，所以本报告维持 `r manifest$evidence_level` 等级。学习曲线只减少下游 readout 使用的 reference cohorts，没有从零重训 cohort bank，不能据此宣称整个 CCS 框架只需很少训练数据。本次修复了 query 重复标准化、资格范围传递和非配对组成等历史路径，旧 readout、learning curve 与 anchor 数值不应继续引用。
+目前较有依据的表述是：多队列概率重编码改变了原始几何和近邻组成，技术标签聚集减少，同时旧癌种恢复存在不确定的负向变化；其独立下游价值仍需验证。reference d1 含 in-sample 生成路径，query d1 来自冻结外部预测，两侧来源不对称，所以本报告维持 `r manifest$evidence_level` 等级。学习曲线只减少下游 readout 使用的 reference cohorts，没有从零重训 cohort bank，不能据此宣称整个 CCS 框架只需很少训练数据。本次修复了 query 重复标准化、资格范围传递和非配对组成等历史路径，旧 readout、learning curve 与 gene signature 数值不应继续引用。
 
 下一轮应先固定一种与输入测量不同的生物或临床目标，例如独立测量的微环境状态或治疗反应，并将整组未见 cohort 留作验证。在两臂使用同一有效患者、同一调参规则的前提下，预先规定有意义的收益或可接受损失，报告队列等权效应、区间及癌种内结果；跨队列迁移稳定且重要的癌种内差异仍可辨认，才支持这种重编码用于该任务。
 
@@ -2877,7 +2877,7 @@ Breadth 增加组织背景，depth 在固定的 `r length(depth_tissues)` 种组
 |---|---|
 | 表示来源 | Direct 采用冻结 GSClassifier 特征；d1 使用 CCS 中已计算的概率矩阵 |
 | 预处理 | reference 与 query 以同一种原始表示进入 readout；query 不重复变换 |
-| 分析总体 | 癌种可估计 `r manifest$query_cohort_count` 队列；全部候选 `r manifest$external_candidate_cohort_count` 队列；anchor 有效范围逐项报告 |
+| 分析总体 | 癌种可估计 `r manifest$query_cohort_count` 队列；全部候选 `r manifest$external_candidate_cohort_count` 队列；gene signature 有效范围逐项报告 |
 | 数字来源 | 正文数值动态来自当前 RDS/CSV；本模块及准备阶段内容指纹在渲染前逐项核验 |
 | 统计边界 | 小设计重复、全量训练学习曲线伪重复、临床效用与非劣效判断均单独说明 |
 

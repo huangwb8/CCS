@@ -1,4 +1,4 @@
-# ablation-03：表示性能、生物学锚点与结构可复现性
+# ablation-03：表示性能、gene signature 评估与结构可复现性
 
 ablation-03 是独立的可复现分析项目。`_targets.R` 是唯一的分析编排入口，负责依赖图、缓存、恢复、运行状态和 `crew` 并行调度。六个编号 R 文件保留为科学计算实现，由 targets 节点在同一 R 进程中消费；它们不再拥有 stage lock、stage receipt、SUCCESS 或手工 cache hit/miss 协议。
 
@@ -10,9 +10,9 @@ formal 分析与轻量验收使用相同的 targets 图、CCS 版本、参数、
 |---|---|---|
 | `01.01.00` | 输入对象、表达数据和元数据准备 | `01-data` |
 | `01.02.00` | Direct/d1 表示输入与样本契约 | `01-representations` |
-| `01.03.00` | 生物锚点与结构分析输入 | `01-biology` |
+| `01.03.00` | gene signature 与结构分析输入 | `01-biology` |
 | `02.01.00` | 几何、检索、readout、learning curve、scaling、decoder | `ablation-experiment` |
-| `02.02.00` | 生物锚点效用与队列级推断 | `ablation-biology` |
+| `02.02.00` | gene signature 效用与队列级推断 | `ablation-biology` |
 | `02.03.00` | 双向结构复现与 matched-bank 敏感性 | `ablation-structural-reproducibility` |
 | `02.04.00` | decoder、局部 query、共享节点及固定训练设计的补充推断 | `statistical-inference` |
 
@@ -23,19 +23,19 @@ runner 生成正式报告。
 报告共用 `templates/` 下的 Liquid Glass 样式与交互模板；模板文件纳入四个报告的
 targets 文件依赖。图表代码输出到 HTML 并默认折叠，可点击各代码块的 Code 按钮展开，
 或用报告顶部的 Code → Show All Code 一次展开全部代码；setup 初始化代码不输出。
-生物锚点报告附带配对效应、cohort 异质性、基因覆盖与队列内区间四张 PDF，并在
+gene signature 报告附带配对效应、cohort 异质性、基因覆盖与队列内区间四张 PDF，并在
 `reports/tables/` 导出队列级配对差值，供核对图中每个格子的样本数与方向。
 报告“数据概览”从正式样本契约、表达缓存及 top-15 邻居名单动态列出 reference/query
-的评分、检索和推断角色，展示来源与检测类型、全部队列及逐锚点有效 query 数；
+的评分、检索和推断角色，展示来源与检测类型、全部队列及逐 gene signature 有效 query 数；
 区分共享外部候选与癌种 readout 合格子集、严格诊断和低覆盖探索的资格。
 同源汇总保存为 `02.02.00. cohort-sources.csv`、`02.02.00. cohort-usage.csv` 和
 `02.02.00. query-usage.csv`，仅含队列元数据与计数；实际选中的 reference 数按不同
 样本计数，不等同于邻居对次数，报告输入由 `biology_report_sources` 跟踪。
 配对效应图采用紧凑森林图与独立统计列，逐行显示差值及 95% CI、有效 cohort 数、
-配对 query 人数和 BH 校正 P 值；统计列不参与效应横轴缩放，锚点顺序沿用冻结配置。
-数据概览与生物锚点报告的五张正式锚点图共用 `scripts/helpers/anchor_plot_labels.R`，
+配对 query 人数和 BH 校正 P 值；统计列不参与效应横轴缩放，gene signature 顺序沿用冻结配置。
+数据概览与 gene signature 报告的五张正式 gene signature 图共用 `scripts/helpers/anchor_plot_labels.R`，
 英文图统一显示 Proliferation、Immune TME、Stromal TME、IFNγ、IL6–JAK–STAT3；内部键为 proliferation、immune_tme、stromal_tme、ifn、il6。
-队列内区间图直接消费 `statistical_inference$biology_local`，按锚点分为五列，展示各
+队列内区间图直接消费 `statistical_inference$biology_local`，按 gene signature 分为五列，展示各
 cohort 配对均值与点式 95% query bootstrap 区间，并导出同源 CSV；区间图与明细表
 位于“队列间效应分布”的热图之后，连续核对同一格子的均值与不确定性。该区间未作同时
 覆盖校正，不替代 cohort 间主效应区间，也不提供单格显著性结论。
@@ -55,16 +55,16 @@ decoder 的 cohort 等权区间与原合并 query 逐特征分数分列；结构
 
 ## 正式运行
 
-高覆盖生物锚点验证作为补充分析接入同一 DAG，不替换原 43-cohort 基线或低覆盖诊断。
+高覆盖 gene signature 验证作为补充分析接入同一 DAG，不替换原 43-cohort 基线或低覆盖诊断。
 设计冻结在 `config/biology-high-coverage.yml`，分析函数放在本分析的
 `R/biology_high_coverage.R`，I/O 由 `targets/biology_high_coverage.R` 负责；直接复用
 已安装 CCS 的检索、reference-only 读取器和 cohort 配对推断，不修改公共包 API 或版本。
 `biology_high_coverage_inventory` 只提取测量信息，frontier/contracts 不依赖效应或读取器结果。
 配置另放 `config/`，保持已有 `raw/` 只读。
 
-每个锚点在 60/70/80/90% 档独立搜索可兼容队列，冻结原签名共同基因及背景。
+每个 gene signature 在 60/70/80/90% 档独立搜索可兼容队列，冻结原 gene signature 共同基因及背景。
 确定性搜索用基因可用频率排序生成全体、单队列及两队列交集种子，依次最大化 query
-队列数、已知来源组数、query 数、共同签名数和 reference 队列数；这是有界搜索，
+队列数、已知来源组数、query 数、共同 gene signature 数和 reference 队列数；这是有界搜索，
 不宣称找到全局最优集合。主档优先选满足至少 8 个 query 队列、3 个来源组的最高覆盖档，
 否则按预设 5 队列及 3 队列边界报告有限验证或敏感性证据。所有档完整保留。
 每个 query 队列至少 20 人，同癌种 candidate pool 至少两个 reference 队列、15 个完整样本。
@@ -75,10 +75,10 @@ decoder 的 cohort 等权区间与原合并 query 逐特征分数分列；结构
 `high-coverage-*.pdf` 图，包括测量 frontier、主效应、覆盖率稳定性、效用／读取器机制及
 队列异质性。主效应与覆盖率效果图仅展示效应及区间均可估计的结果，省略无结果的行、
 分面和人数标签；报告正文说明省略原因，完整状态与资格仍保留在聚合表中。
-队列异质性图共享队列纵轴，仅在左侧显示名称，各锚点按相同队列顺序对齐。
-报告将高覆盖补充验证作为“连续表达锚点 readout”的子节，置于原广队列结果之后。
-五个选定锚点固定构成主检验族，缺失锚点仍计入 BH 的五项分母；coverage
-档的其它比较按完整五项族校正。完整表以 `BH_family` 逐行标明口径：主比较行沿用各锚点选定档位组成的五项主族，其余行使用对应覆盖档、评分及候选池的五项族；同一覆盖档显示的 q 值可能属于不同族。95% cohort bootstrap 条件于固定 bank、合同及 atlas；没有独立
+队列异质性图共享队列纵轴，仅在左侧显示名称，各 gene signature 按相同队列顺序对齐。
+报告将高覆盖补充验证作为“gene signature 分数的邻居接近度”的子节，置于原广队列结果之后。
+五个选定 gene signature 固定构成主检验族，缺失 gene signature 仍计入 BH 的五项分母；coverage
+档的其它比较按完整五项族校正。完整表以 `BH_family` 逐行标明口径：主比较行沿用各 gene signature 选定档位组成的五项主族，其余行使用对应覆盖档、评分及候选池的五项族；同一覆盖档显示的 q 值可能属于不同族。95% cohort bootstrap 条件于固定 bank、合同及 atlas；没有独立
 冻结的非劣效界值，不据 CI 跨零宣称无损。距离及技术限制使用配对患者差中差，留一及
 C_core 只作预设敏感性估计。
 
@@ -95,20 +95,20 @@ run root，并通过 `TAR_CONFIG` 使用隔离 YAML，不切换正式 `tar_watch
 & "C:/R/R-4.3.1/bin/Rscript.exe" --vanilla test/ablation-03/scripts/tests/biology-high-coverage-targets.R
 ```
 
-连续生物锚点根因诊断由 `config/biology-diagnostics.yml` 冻结设计，计算层为
+连续 gene signature 根因诊断由 `config/biology-diagnostics.yml` 冻结设计，计算层为
 `R/ablation_biology.R`，同一 `_targets.R` 的 `biology_diagnostic_*` targets 调用
 已安装 CCS。新结果写入 cache root 的 `biology-diagnostics/`，保留旧基线并以
 1e-10 容差核对原 cohort 格子的效应和人数；冻结基因清单为独立 file target。
-诊断节点直接依赖科学代码及共享标准化函数的身份；表示输入、表达锚点缓存和
+诊断节点直接依赖科学代码及共享标准化函数的身份；表示输入、gene signature 缓存和
 基线文件均以 file target 跟踪实际内容，避免审计结果相同时截断必要重算。
 
 当前恢复共同原尺度／样本内秩评分与全癌种／同癌种候选池四格，配套 reference
 cohort 五折连续读取器及两个单因素 d1 距离对照，主评分为秩。严格秩背景至少
 5,000 基因，原尺度无背景门槛。直接输入不重叠、技术来源和对称留一
 为严格补充。低覆盖探索产品独立保存，使用固定残余清单和有效 reference 标尺，
-要求样本签名完整、秩背景完整及两臂 top-15 完整。多基因仅发布满足人数门槛的
+要求样本 gene signature 完整、秩背景完整及两臂 top-15 完整。多基因仅发布满足人数门槛的
 cohort 条件区间，不发布 p/q；基质单基因只描述，不训练低覆盖读取器。
-签名保留原 50% 且不少于 8 个基因；同癌种候选池至少两个 reference cohort
+gene signature 保留原 50% 且不少于 8 个基因；同癌种候选池至少两个 reference cohort
 和 15 个样本。Annoy 严格
 ID 召回门禁为总体 0.95／每 cohort 0.90，不达标升级预算或精确检索；检测到
 边界等距时按精确距离和 ID 决定名单。未知平台不作为真实平台。
@@ -145,7 +145,7 @@ biology_report target 更新 HTML，沿用原诊断产品与门槛。导出
 该验收还分别验证科学代码身份和表示输入文件内容的失效传播，恢复后保留
 原始字节；可用第二个参数指定已有隔离 run root，让 targets 增量恢复。
 
-当前五锚点的共同覆盖、实际人群及效应由最新生物报告动态展示；严格测量门槛不降低。合并炎症锚点及其旧效应不再作为当前方案或结果。
+当前五项 gene signature 的共同覆盖、实际人群及效应由最新生物报告动态展示；严格测量门槛不降低。合并炎症 gene signature 及其旧效应不再作为当前方案或结果。
 
 必须使用 Windows R 4.3.1、项目 renv 和与仓库 `DESCRIPTION` 版本一致的已安装 CCS 包。
 正式输入快照来自已有的 01-data/inputs.rds，位于同一 cache root 但不会被数据准备阶段覆盖；切勿重新将 01-data/inputs.rds 作为输入。
@@ -242,6 +242,6 @@ targets store、科学产物和 observability 均位于显式 cache root；不�
 
 ## IFNγ 与 IL6 拆分修订
 
-2026-10-06 按负责人要求，IFNγ 与 IL6-JAK-STAT3 分别使用原签名评分，不再以基因并集作为当前锚点。五项定义冻结于 `config/biological-anchors.yml`；旧合并配置已移除，其余 raw 输入保持只读。广队列效用、高覆盖效用与读取器采用各自固定五项 BH 校正族，低覆盖探索不发布 p/q。修订发生于查看原合并结果之后，不视为原始预注册。不保留旧合并分析归档；当前数据概览、生物与结构报告通过同一 targets DAG 重算。
+2026-10-06 按负责人要求，IFNγ 与 IL6-JAK-STAT3 分别使用原 gene signature 评分，不再以基因并集作为当前 gene signature。五项定义冻结于 `config/biological-anchors.yml`；旧合并配置已移除，其余 raw 输入保持只读。广队列效用、高覆盖效用与读取器采用各自固定五项 BH 校正族，低覆盖探索不发布 p/q。修订发生于查看原合并结果之后，不视为原始预注册。不保留旧合并分析归档；当前数据概览、生物与结构报告通过同一 targets DAG 重算。
 
-五锚点正式重算与结果核验已完成；高覆盖共 80 格，原表示分析的 18 个科学文件与其余 raw 输入哈希不变，CCS 保持 0.8.4。具体效应、95% CI、固定五项 BH 校正及不可估计原因见最新生物报告和拆分重分析计划。
+五项 gene signature 正式重算与结果核验已完成；高覆盖共 80 格，原表示分析的 18 个科学文件与其余 raw 输入哈希不变，CCS 保持 0.8.4。具体效应、95% CI、固定五项 BH 校正及不可估计原因见最新生物报告和拆分重分析计划。
