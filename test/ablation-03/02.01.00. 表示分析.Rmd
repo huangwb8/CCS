@@ -1004,8 +1004,7 @@ p1 <- ggplot2::ggplot(
   ) +
   ggplot2::labs(
     x = NULL,
-    y = "Agreement",
-    caption = "Points: frozen estimates; cohort bootstrap 95% CI is reported in the table."
+    y = "Agreement"
   ) +
   theme_nature_readable(
     base_size = fig1$base_size,
@@ -1014,8 +1013,7 @@ p1 <- ggplot2::ggplot(
   )
 
 # Readability check: three short labels fit without rotation; values are printed
-# above bars, and the inference note is moved to the caption so it
-# does not cover the data bars in PDF/JPG rendering.
+# above bars. Inference details remain in the report text and table.
 fig1_jpg <- .ae_save_plot(
   p1, "02.01.00. native-geometry", figure_dir, preview_dir, fig1,
   params$plot_preview_dpi
@@ -1182,18 +1180,12 @@ p2 <- ggplot2::ggplot(
   ggplot2::labs(
     x = "Cohort-d1 minus Direct-GSClassifier",
     y = "External query cohort",
-    color = "Metric",
-    caption = "Overall row: cohort-equal mean and bootstrap 95% CI; dashed lines: cohort-equal means."
+    color = "Metric"
   ) +
   theme_nature_readable(
     base_size = fig2$base_size,
     x_text_angle = 0,
     legend_position = fig2$legend_position
-  ) +
-  ggplot2::theme(
-    plot.caption = ggplot2::element_text(
-      hjust = 0, lineheight = 0.95, margin = ggplot2::margin(t = 6)
-    )
   )
 
 # Readability check: cohort labels use a tall canvas, the zero line makes gain/loss
@@ -1325,8 +1317,7 @@ p3 <- ggplot2::ggplot(
   ) +
   ggplot2::labs(
     x = "Cohort accuracy: Cohort-d1 minus Direct-GSClassifier",
-    y = "External query cohort",
-    caption = "Overall row: query-cohort mean and bootstrap 95% CI."
+    y = "External query cohort"
   ) +
   theme_nature_readable(
     base_size = fig3$base_size,
@@ -1466,8 +1457,7 @@ p4 <- ggplot2::ggplot(
     x = "Fraction of reference cohorts",
     y = "External balanced accuracy",
     color = "Representation",
-    fill = "Representation",
-    caption = "Bands: 95% CI across unique training-cohort designs; no CI at 100% (one unique design)."
+    fill = "Representation"
   ) +
   theme_nature_readable(
     base_size = fig4$base_size,
@@ -1578,8 +1568,7 @@ p10 <- ggplot2::ggplot(
   ) +
   ggplot2::labs(
     x = "Endpoint score difference (d1 - Direct)",
-    y = NULL,
-    caption = "Intervals use external cohorts; the 100% learning design has no design-level CI."
+    y = NULL
   ) +
   ggplot2::coord_cartesian(clip = "off") +
   theme_nature_readable(
@@ -1595,9 +1584,6 @@ p10 <- ggplot2::ggplot(
       size = 10, color = "#263746", margin = ggplot2::margin(r = 11)
     ),
     axis.title.x = ggplot2::element_text(size = 10, face = "plain"),
-    plot.caption = ggplot2::element_text(
-      size = 9, color = "#687784", hjust = 0
-    ),
     plot.margin = ggplot2::margin(12, fig10$value_margin_pt, 10, 12)
   )
 
@@ -1766,12 +1752,7 @@ p8 <- ggplot2::ggplot(
     x = "Added tissues or cohort-depth level",
     y = "Estimate",
     color = "Bank design",
-    fill = "Bank design",
-    caption = paste0(
-      "Depth tissues: ", paste(depth_tissues, collapse = ", "), ".\n",
-      "1-8 modules/tissue = 7-56 total; bands: exploratory 95% CI ",
-      "across bank-design repeats."
-    )
+    fill = "Bank design"
   ) +
   theme_nature_readable(
     base_size = fig8$base_size,
@@ -1861,8 +1842,7 @@ p9 <- ggplot2::ggplot(
   ) +
   ggplot2::labs(
     x = "Matched frozen cohort modules (linear scale)",
-    y = "Breadth-heavy minus depth-heavy",
-    caption = "Bands: exploratory 95% CI across matched bank-design repeats."
+    y = "Breadth-heavy minus depth-heavy"
   ) +
   theme_nature_readable(
     base_size = fig9$base_size,
@@ -2157,8 +2137,7 @@ p5 <- ggplot2::ggplot(
   ggplot2::labs(
     x = "Technical factor",
     y = "Delta in same-technology neighbor rate",
-    color = "Technical factor",
-    caption = "Black diamonds and bars: cohort-equal means and bootstrap 95% CI."
+    color = "Technical factor"
   ) +
   theme_nature_readable(
     base_size = fig5$base_size,

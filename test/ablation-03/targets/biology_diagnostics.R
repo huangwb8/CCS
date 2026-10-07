@@ -53,6 +53,10 @@
   result <- .ablation03_bio_function("audit")(atlas, cache, prepared,
     data$input$object@Repeat$geneSet, signatures, config,
     preprocessing = data$input$expression_preprocessing)
+  # The installed package's legacy status label embeds the original threshold.
+  if (startsWith(result$rank_status, "background_below_")) {
+    result$rank_status <- paste0("background_below_", config$min_background_genes, "_genes")
+  }
   rm(atlas)
   invisible(gc())
   result$baseline_check <- check

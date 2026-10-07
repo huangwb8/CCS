@@ -92,7 +92,7 @@
     summary$summary$comparison <- id
     if (!length(c$genes) || !nrow(c$metadata)) summary$summary$reason <- "no_high_coverage_measurement_contract" else
       if (spec$definition == "common_rank" && length(c$background) < config$min_background_genes)
-        summary$summary$reason <- "background_below_5000_genes" else
+        summary$summary$reason <- paste0("background_below_", config$min_background_genes, "_genes") else
           if (!nrow(p$query_metadata)) summary$summary$reason <- "no_complete_score_supported_queries"
     result$inference[[pool]] <- summary$summary
     result$cohort[[pool]] <- summary$cohort

@@ -2,6 +2,8 @@
 
 ## 实施约定
 
+2026-10-07 修订：负责人在查看增殖选定合同的 4,848 个背景基因后，明确授权将共同秩背景门槛由 5,000 降为 3,000。当前执行以[门槛修订计划](2026-10-07-ablation03-background-threshold-3000.md)及配置为准；下文 5,000 门槛与禁止自行降低的规则记录原设计，不阻止此次明确授权的修订。
+
 按负责人本轮要求，本计划作为增量分析实施：广队列基线及低覆盖机制诊断作为不同证据层保留，全部按当前五锚点重新计算，高覆盖结果独立保存并在报告中并列解释。测量合同、覆盖率档和推断规则先于新效应冻结；不按结果调整签名或选队列。
 
 新增设计使用 `test/ablation-03/config/biology-high-coverage.yml`，避免改写只读原始输入。分析专用函数位于 `test/ablation-03/R/biology_high_coverage.R`，由既有 `_targets.R` 发现，I/O 在 `targets/biology_high_coverage.R`；计算复用已安装 CCS，不改公共包源码或版本。正式结果只写入现有 cache root 的 `biology-high-coverage/`。

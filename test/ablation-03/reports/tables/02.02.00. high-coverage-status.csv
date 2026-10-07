@@ -1,6 +1,6 @@
 "id","branch","score_definition","status","reason"
 "proliferation-90","readout","common_raw","estimable","supported"
-"proliferation-90","readout","common_rank","not_estimable","no_complete_score_supported_queries"
+"proliferation-90","readout","common_rank","estimable","supported"
 "immune_tme-70","readout","common_raw","estimable","supported"
 "immune_tme-70","readout","common_rank","estimable","supported"
 "stromal_tme-90","readout","common_raw","estimable","supported"

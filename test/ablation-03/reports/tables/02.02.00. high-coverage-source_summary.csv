@@ -1,4 +1,7 @@
 "id","anchor","source_system","cohort_count","query_count","cohort_equal_mean","negative_cohorts","positive_cohorts","known_source","scope"
+"proliferation-90","proliferation","cBioPortal",1,140,-0.0160754493368952,1,0,TRUE,"descriptive_source_direction_not_independent_source_inference"
+"proliferation-90","proliferation","GEO",1,72,-0.027377929253266,1,0,TRUE,"descriptive_source_direction_not_independent_source_inference"
+"proliferation-90","proliferation","UCSC Xena",12,4999,-0.0129280071471421,9,3,TRUE,"descriptive_source_direction_not_independent_source_inference"
 "immune_tme-70","immune_tme","cBioPortal",1,140,-0.0150735958688104,1,0,TRUE,"descriptive_source_direction_not_independent_source_inference"
 "immune_tme-70","immune_tme","GEO",1,72,-0.00422638268646881,1,0,TRUE,"descriptive_source_direction_not_independent_source_inference"
 "immune_tme-70","immune_tme","UCSC Xena",12,4999,-0.00368254880832926,6,6,TRUE,"descriptive_source_direction_not_independent_source_inference"

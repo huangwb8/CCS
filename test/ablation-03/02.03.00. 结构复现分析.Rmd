@@ -640,8 +640,7 @@ p14 <- ggplot2::ggplot(
   ggplot2::labs(
     x = NULL,
     y = "Mean similarity difference (d1 - Direct)",
-    color = "Matched module bank",
-    caption = "Points: 22-module matched-bank repeats; diamonds: complete banks."
+    color = "Matched module bank"
   ) +
   theme_nature_readable(
     base_size = fig14$base_size,

@@ -4,7 +4,7 @@ seed: 20261004
 k: 15
 min_signature_fraction: 0.5
 min_signature_genes: 8
-min_background_genes: 5000
+min_background_genes: 3000
 min_reference_cohorts: 2
 min_query_per_cohort: 20
 min_inference_cohorts: 3

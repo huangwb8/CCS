@@ -250,7 +250,7 @@ hc_text <- function(x) {
     row <- x[i, ]
     label <- unname(anchor_labels[row$anchor])
     if (row$status != "estimable") {
-      reason <- if (row$reason == "background_below_5000_genes") {
+      reason <- if (grepl("^background_below_[0-9]+_genes$", row$reason)) {
         paste0("共同秩背景不足 ", fmt_n(high_coverage$config$min_background_genes), " 个基因")
       } else row$reason
       return(paste0(label, "：不可估计（", reason, "）"))
@@ -582,9 +582,7 @@ p_coverage <- ggplot2::ggplot(coverage_plot,
   ggplot2::labs(
     x = plot_label("Signature gene coverage", "签名基因覆盖率"), y = NULL,
     color = plot_label("Analysis set", "分析集合"),
-    shape = plot_label("Coverage state", "覆盖状态"),
-    caption = plot_label("Dots: cohorts; black diamonds: medians.",
-      "圆点：队列；黑色菱形：中位数。")
+    shape = plot_label("Coverage state", "覆盖状态")
   ) +
   theme_nature_readable(base_size = fig_coverage$base_size,
     legend_position = "bottom")
@@ -594,7 +592,7 @@ coverage_jpg <- .ae_save_plot(p_coverage,
 knitr::include_graphics(coverage_jpg)
 ```
 
-解读：横轴每个点是一项 cohort–gene signature 的输入基因覆盖率，1 表示该队列表达矩阵包含该 gene signature 的全部基因行名。当前 `r external_cohort_count` 个外部 cohort 与 `r length(anchor_order)` 个 gene signature 组成的审计中，有 `r partial_external_count` 个组合覆盖不足 100%；实际缺失分数的 query–邻居对为 `r missing_pair_count` 个。部分覆盖意味着不同队列的分数可能由不同基因子集计算，若该队列效应很大，应先检查缺了哪些基因、哪些基因有有效 reference 标尺，以及最终配对 query 是否减少。基因齐全只说明预设基因在输入中存在，不保证每个基因都实际进入评分，也不能证明这些 gene signature 独立于 CCS 输入或已验证生物效用。
+解读：横轴每个点是一项 cohort–gene signature 的输入基因覆盖率，黑色菱形为队列中位数，1 表示该队列表达矩阵包含该 gene signature 的全部基因行名。当前 `r external_cohort_count` 个外部 cohort 与 `r length(anchor_order)` 个 gene signature 组成的审计中，有 `r partial_external_count` 个组合覆盖不足 100%；实际缺失分数的 query–邻居对为 `r missing_pair_count` 个。部分覆盖意味着不同队列的分数可能由不同基因子集计算，若该队列效应很大，应先检查缺了哪些基因、哪些基因有有效 reference 标尺，以及最终配对 query 是否减少。基因齐全只说明预设基因在输入中存在，不保证每个基因都实际进入评分，也不能证明这些 gene signature 独立于 CCS 输入或已验证生物效用。
 
 ```{r biology-anchor-coverage, echo=TRUE}
 biology_coverage_widget <- htmltools::tagList()
@@ -932,11 +930,23 @@ render_dt(local_biology, pageLength = 20L)
 
 本节在原大队列分析上增加测量条件更一致的验证。每个 gene signature 独立选择队列与原 gene signature 的共同基因；前文的原广覆盖结果与后文的低覆盖诊断均完整保留。队列选择只读取基因可测性、有限值、样本数、已确认的癌种与冻结外部 query 来源，不读取两臂效用或预测误差。以下结果属于观察原基线后冻结的后续验证，区间条件于既有 bank、测量合同及 reference/query 队列，不包含重训 bank 的不确定性。
 
+**2026-10-07 测量门槛修订：** 原共同秩背景门槛为 5,000 个基因，增殖选定合同的 4,848 个基因未达到该要求。负责人查看该测量结果后，明确要求将高覆盖验证与全队列诊断的背景门槛统一调整为 `r high_coverage$config$min_background_genes` 个基因，并通过正式 targets 重算。本次使用的是修订后的测量资格，不能称为最初预设的门槛；signature、覆盖档位、队列选择、样本完整性要求、检索规则及固定五项 BH 族沿用既有设计。实际评分仍使用各合同完整的共同背景交集，不把背景截断为最低门槛数量，也不按新效应的有利方向选择档位。
+
 #### 覆盖率与队列广度
 
 预设覆盖率为 `r paste(fmt_pct(high_coverage$config$coverage_tiers, 0), collapse = "、")`。各档合同要求至少 `r high_coverage$config$min_signature_genes` 个原 gene signature 基因、每队列至少 `r high_coverage$config$min_query_per_cohort` 个完整 query、同癌种至少 `r high_coverage$config$min_reference_cohorts` 个 reference 队列及完整 top-`r high_coverage$config$k`。主设计选择达到 `r high_coverage$config$primary_min_query_cohorts` 个 query 队列和 `r high_coverage$config$primary_min_source_groups` 个已知来源组的最高档；支持较少时依预定规则降为有限外部验证或敏感性证据，保留全部覆盖率档。
 
-搜索以基因可用频率的固定排序产生全体、单队列及两队列交集种子，再纳入所有可兼容队列，按队列数、来源数、query 数、共同基因数、reference 队列数依次选择。它是确定性的有界搜索，未证明获得全局最大队列集合。每份合同保存队列、样本、唯一共同原 gene signature、共同秩背景及哈希；每个样本须完整测到冻结 gene signature，秩分数还须完整测到背景。未知来源不计作独立来源组。
+搜索以基因可用频率的固定排序产生全体、单队列及两队列交集种子，再纳入所有可兼容队列，按队列数、来源数、query 数、共同基因数、reference 队列数依次选择。它是确定性的有界搜索，未证明获得全局最大队列集合。每份合同保存队列、样本、唯一共同原 gene signature、共同秩背景及哈希；每个样本须完整测到冻结 gene signature，秩分数还须完整测到背景。未知来源不计入来源组。
+
+下图衡量的是提高 gene signature 覆盖要求后，还能保留多少测量支持与验证广度。每列对应一个 gene signature，横轴 **Required signature coverage (%)** 是共同可用的原 signature 基因占原基因集的最低比例；例如要求 80% 覆盖，指保留至少 80% 的原 signature 基因，并非测到了全转录组的 80%。实际共同 signature 的基因数与覆盖率见下方表格的 `common_genes` 和 `coverage`。
+
+图中三行纵轴的计数对象不同，含义及虚线门槛如下：
+
+| 图中标签 | 计数对象与计算方式 | 为什么需要它 | 虚线门槛 |
+|---|---|---|---|
+| **Query cohorts（查询队列数）** | 当前 signature 和覆盖档位下，纳入冻结测量合同的外部 query 队列数，按 `cohort_key` 去重；每个队列至少有 `r high_coverage$config$min_query_per_cohort` 个满足完整 signature 测量等条件的 query，且有足够的同癌种 reference 支持。统计的是队列数，不是患者数，也不包括 reference 队列。 | 衡量验证涉及多少个 query 队列，避免把单个大队列的人数当成跨队列证据。 | `r high_coverage$config$primary_min_query_cohorts` 个 query 队列，作为主设计的队列广度要求。 |
+| **Source groups（来源组数）** | 上述入选 query 队列中已知 `source_system` 的不同取值数，例如 GEO、cBioPortal、UCSC Xena。同一来源下的多个队列只计一个来源组，未知来源不计入；这里不统计 reference 来源，也不是癌种数或测序平台数。 | 衡量 query 覆盖多少种数据库来源；多个队列若都来自 UCSC Xena，仍只贡献一个来源组。数据库来源不同本身不保证队列或患者彼此独立。 | `r high_coverage$config$primary_min_source_groups` 个已知来源组，作为主设计的来源广度要求。 |
+| **Common background genes（共同背景基因数）** | 当前合同中所有入选 query 与 reference 队列表达矩阵的基因集合交集大小，包含共同 signature 基因及其它共同基因；它不是 signature 自身的基因数。 | 为样本内百分位秩提供相同的排名背景：先在这套共同基因中对表达值排名，再取 signature 基因的平均百分位秩。背景固定使评分定义可比，但不等于校正了 batch effect。 | `r high_coverage$config$min_background_genes` 个共同背景基因，作为秩主评分的背景规模要求。 |
 
 ```{r high-coverage-frontier, echo=TRUE, fig.height=7, fig.width=11}
 frontier <- high_coverage$frontier
@@ -969,11 +979,15 @@ knitr::include_graphics(jpg)
 render_dt(frontier, pageLength = 16)
 ```
 
-图中只显示测量支持，未使用 Direct/d1 差值选择档位。选定合同共涉及 `r sum(frontier$selected)` 个 gene signature，其中 `r sum(frontier$selected & frontier$breadth_eligible)` 个达到预设队列和来源广度。最高覆盖未必提供最多队列；共同背景另需达到 `r high_coverage$config$min_background_genes` 个基因才能发布秩主结果。基因明细和队列资格分别导出为 high-coverage-gene_lists.csv 和 high-coverage-eligibility.csv，可核对相同 gene signature 的测量定义及实际分母。
+图中只显示测量支持，未使用 Direct/d1 差值选择档位。选定合同共涉及 `r sum(frontier$selected)` 个 gene signature，其中 `r sum(frontier$selected & frontier$breadth_eligible)` 个达到预设队列和来源广度。每个覆盖档位会重新选择兼容的队列组合，因此最高覆盖未必提供最多队列；当入选队列减少或组合改变时，共同背景交集也可能增大，三行曲线不必同向变化。虚线表示当前冻结的资格要求，超过它不代表 d1 的生物学效用更好。
+
+这些计数描述的是冻结测量合同，效应分析还会进一步检查每个样本是否在全部共同背景基因上都有有限表达值，以及评分和候选池是否满足要求，所以最终有效 query 与队列数可能少于图中合同人数。共同背景达到 `r high_coverage$config$min_background_genes` 个基因只是发布秩主结果的必要条件之一。基因明细和队列资格分别导出为 high-coverage-gene_lists.csv 和 high-coverage-eligibility.csv，可核对相同 gene signature 的测量定义及实际分母。
 
 #### 秩评分与同癌种主比较
 
 在冻结高覆盖 gene signature 上使用样本内百分位秩均值，再用完整 reference 样本定标。候选 reference 样本先通过相同 gene signature 与背景资格，再分别检索两臂；同癌种至少两个独立 reference 队列，绝不先找邻居再删除缺分数者。每个 query 先计算配对效用差，再在队列内平均、队列间等权。主比较五项 gene signature 构成固定 BH 校正族，技术下限为 `r high_coverage$config$min_inference_cohorts` 个队列及 `r high_coverage$config$min_valid_bootstrap` 次有效 cohort bootstrap。
+
+本节问的是：限定同一种癌症后，d1 找到的患者邻居在这些 gene signature 的表达状态上，是否比 Direct 找到的邻居更接近当前患者？接近度为前 `r high_coverage$config$k` 个邻居的 $\exp(-|s_q-s_j|)$ 均值，其中分数由样本内秩构造并经 reference 定标。图中 d1−Direct 为正支持 d1 的平均邻居接近度更高，为负支持 Direct；该差值是 0–1 接近度尺度上的绝对差，不能解释为生物信息损失的百分比。同癌种限制减少了癌种组成差异，但秩评分本身不保证消除了平台或来源影响。
 
 ```{r high-coverage-primary, echo=TRUE, fig.height=4, fig.width=9}
 hc_primary <- high_coverage$primary
@@ -997,6 +1011,10 @@ render_dt(high_coverage$primary, pageLength = 4)
 ```
 
 当前选定合同的秩同癌种结果为：`r hc_text(hc_primary)`。表中 selected 表示按测量支持预选的档位，并不自动表示论文级主证据；实际有效队列和来源支持仍须核对。本次没有冻结具有独立生物学依据的非劣效界值，因此区间跨零只表示差异估计的不确定性，不能证明等价或无损。
+
+按修订后的背景门槛，五项选定主比较中 `r sum(high_coverage$primary$status == "estimable")` 项可估计；其中 `r sum(high_coverage$primary$status == "estimable" & high_coverage$primary$estimate > 0 & high_coverage$primary$q_value < .05, na.rm = TRUE)` 项在固定五项 BH 校正后支持 d1 接近度更高，`r sum(high_coverage$primary$status == "estimable" & high_coverage$primary$estimate < 0 & high_coverage$primary$q_value < .05, na.rm = TRUE)` 项支持其更低。95% CI 是未作同时覆盖校正的 cohort bootstrap 区间，q 值来自双侧配对符号翻转检验及五项 BH 校正；区间完全位于零的一侧与 q < 0.05 不能当成同一判据。增殖的当前状态为：`r hc_text(high_coverage$primary[high_coverage$primary$anchor == "proliferation", , drop = FALSE])`。这些结果对应当前签名、背景和检索任务，不能单独证明全部生物信息的保留或损失。
+
+主检验族始终包括五项 gene signature。增殖纳入可估计项时，其 p 值参与 BH 排序，因此其余 signature 的 q 值也须重新计算；即使原效应、区间和原始 p 值不变，q 值仍可能变化，不能把这种校正排序变化解释成表达接近度改善。
 
 图中仅展示效应及 95% CI 均可估计的 gene signature。`r if (any(high_coverage$primary$status != "estimable")) paste0("本次省略：", hc_text(high_coverage$primary[high_coverage$primary$status != "estimable", , drop = FALSE]), "。") else "本次所有预设锚点均满足绘图条件。"` 完整状态与资格保留在表中，省略不代表零效应。
 
@@ -1271,17 +1289,14 @@ if (nrow(overlap)) {
     ggplot2::scale_x_continuous(limits = c(0, 1), breaks = seq(0, 1, .2),
       expand = ggplot2::expansion(mult = c(.01, .01))) +
     ggplot2::labs(x = plot_label("Direct-d1 neighbor Jaccard (cohort mean)",
-      "Direct 与 d1 邻居 Jaccard（队列均值）"), y = NULL,
-      caption = plot_label("Dots: cohorts; diamond: median; line: interquartile range. Right: median [Q1, Q3].",
-        "小点：队列；菱形：中位数；短横线：四分位范围。右侧：中位数 [Q1, Q3]。")) +
+      "Direct 与 d1 邻居 Jaccard（队列均值）"), y = NULL) +
     theme_nature_readable(base_size = 10, legend_position = "none") +
     ggplot2::theme(panel.border = ggplot2::element_blank(),
       axis.line.y = ggplot2::element_blank(), axis.ticks.y = ggplot2::element_blank(),
       panel.grid.major.x = ggplot2::element_line(colour = "grey92", linewidth = .3),
       strip.background = ggplot2::element_blank(),
       strip.text.y = ggplot2::element_text(angle = 0),
-      panel.spacing.y = grid::unit(.65, "lines"),
-      plot.caption = ggplot2::element_text(size = 9, colour = "grey35", hjust = 0))
+      panel.spacing.y = grid::unit(.65, "lines"))
   jpg <- .ae_save_plot(p_overlap, "02.02.00. diagnostic-neighbor-overlap",
     figure_dir, preview_dir, list(width_in = 9, height_in = 3.8), params$plot_preview_dpi)
   knitr::include_graphics(jpg)

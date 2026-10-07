@@ -158,6 +158,47 @@ main <- function() {
   low_bg <- inventory
   low_bg$cohorts <- lapply(low_bg$cohorts, function(x) { x$genes <- rownames(x$raw); x })
   stopifnot(!any(.hc_frontier(low_bg, gate_config)$frontier$rank_eligible))
+  # Verify the configured boundary with the same signature and sample contract.
+  contract <- frozen$contracts[[frozen$frontier$id[frozen$frontier$selected][1L]]]
+  boundary_inventory <- inventory
+  boundary_inventory$metadata <- contract$metadata
+  boundary_inventory$cohorts <- inventory$cohorts[unique(contract$metadata$cohort_key)]
+  boundary_inventory$anchors <- stats::setNames(list(contract$genes), contract$anchor)
+  boundary_config <- gate_config
+  boundary_config$primary_anchors <- contract$anchor
+  boundary_config$coverage_tiers <- 1
+  atlas <- readRDS(atlas_path)
+  for (size in frozen$config$min_background_genes + c(-1L, 0L)) {
+    background <- c(contract$genes, setdiff(contract$background, contract$genes))[seq_len(size)]
+    trial <- boundary_inventory
+    trial$cohorts <- lapply(trial$cohorts, function(x) { x$genes <- sort(background); x })
+    boundary <- .hc_frontier(trial, boundary_config)
+    expected <- size >= frozen$config$min_background_genes
+    stopifnot(boundary$frontier$background_genes == size,
+      identical(boundary$frontier$rank_eligible, expected))
+    scored <- .hc_score_contract(atlas, boundary$contracts[[1L]], boundary_config)
+    complete <- stats::setNames(rep(FALSE, nrow(contract$metadata)), contract$metadata$sample_id)
+    if (expected) for (key in unique(contract$metadata$cohort_key)) {
+      parts <- strsplit(key, "/", fixed = TRUE)[[1L]]
+      ids <- contract$metadata$sample_id[contract$metadata$cohort_key == key]
+      values <- atlas[[parts[1L]]][[paste(parts[-1L], collapse = "/")]]$expr[background, ids, drop = FALSE]
+      complete[ids] <- colSums(!is.finite(values)) == 0L
+    }
+    stopifnot(identical(scored$complete_background, complete),
+      identical(as.logical(is.finite(scored$scores$values$common_rank[, 1L])), unname(complete)))
+    if (!expected) {
+      path <- .ablation03_hc_save(boundary, "boundary-contracts.rds", list(cache_root = file.path(run_root, "cache")))
+      score_path <- .ablation03_hc_save(stats::setNames(list(scored), names(boundary$contracts)),
+        "boundary-scores.rds", list(cache_root = file.path(run_root, "cache")))
+      spec <- list(id = names(boundary$contracts)[1L], definition = "common_rank",
+        tier_ids = names(boundary$contracts))
+      result_path <- .ablation03_hc_retrieval(targets::tar_read(biology_diagnostic_representation_file, store = store),
+        path, score_path, spec, list(cache_root = file.path(run_root, "cache")))
+      stopifnot(all(readRDS(result_path)$inference$reason ==
+        paste0("background_below_", frozen$config$min_background_genes, "_genes")))
+    }
+  }
+  rm(atlas)
   one_source <- inventory
   one_source$metadata$source_system <- "single-source"
   stopifnot(!any(.hc_frontier(one_source, gate_config)$frontier$breadth_eligible))
