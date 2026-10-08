@@ -544,7 +544,7 @@ $$
 
 下面依次核查 gene signature 基因覆盖、各臂 utility、配对效应及队列分布：先确认“尺子用到了哪些基因”，再判断“邻居改变了多少，以及变化是否跨队列一致”。
 
-### gene signature 基因覆盖
+### gene signature 基因覆盖 {#signature-gene-coverage}
 
 在比较邻居之前，先核对每个队列的表达输入包含多少预设 gene signature 基因。对 gene signature $a$ 和 cohort $c$，覆盖率 $h_{a,c}=|G_a\cap G_c|/|G_a|$，其中 $G_a$ 是预设基因集，$G_c$ 是该队列表达矩阵的基因行名集合；100% 表示预设基因都在输入中，部分覆盖表示其中一些基因不存在。好比用同一张菜谱比较各家菜品：先看每家拿到了多少原料，才能解释味道差异。**输入中存在的基因仍可能因 reference 标准差无效或样本表达缺失而不进入评分**，所以覆盖率不是最终评分基因的完整性，更不能直接当作效用或独立验证。
 
@@ -934,9 +934,11 @@ render_dt(local_biology, pageLength = 20L)
 
 ## 高覆盖 gene signature 验证 {#high-coverage-validation}
 
+本章承接[第 4.5 节的基因覆盖检查](#signature-gene-coverage)，将覆盖审计推进到测量条件更一致的验证。第 4.5 节逐队列统计预设 signature 基因在表达输入中的覆盖率，用于判断广队列基线使用的“尺子”是否完整；各队列覆盖率较高，也未必缺失同一批基因，因此不能据此认定它们测量的是同一套 signature。本章据此为每项 signature 选择高覆盖、测量兼容的队列，固定入选 query 与 reference 队列共同可测的 signature 基因和秩评分背景，重新评分并比较 d1 与 Direct 的邻居接近度及信息读取表现。前者说明原始测量条件，后者检验在更一致的测量条件下结果是否仍然成立，构成递进验证。两部分的有效人群与评分定义有所不同，因此效应变化不能全部归因于基因缺失。
+
 全队列共同交集要求全部 `r nrow(diagnostic_audit$audit)` 个契约队列使用同一套 signature 基因，只有 `r sum(diagnostic_primary_coverage$estimable)`／`r nrow(diagnostic_primary_coverage)` 项通过预设测量门槛。因此，本节在每项 signature 内筛选高覆盖、测量兼容的队列，再固定共同基因与评分背景；五项秩同癌种主比较已有 `r sum(high_coverage$primary$status == "estimable")`／`r nrow(high_coverage$primary)` 项可估计，各涉及 `r paste(range(high_coverage$primary$cohort_count), collapse = "–")` 个有效 query 队列。前面的低资格数属于全队列交集合同，不能解释成筛选后的验证失败；详细审计保存在[全队列共同测量附录](#appendix-common-measurement)。
 
-高覆盖验证在每个 gene signature 内独立选择测量条件兼容的队列，并固定这些队列共同具备的 signature 基因。队列选择依据基因可测性、有限值、样本数、已确认的癌种与外部 query 来源。区间条件于冻结 bank、测量合同及 reference/query 队列，不包含 bank 重训的不确定性。广队列基线、高覆盖验证与低覆盖探索分别报告各自的评分定义和有效人群。
+队列选择依据基因可测性、有限值、样本数、已确认的癌种与外部 query 来源。区间条件于冻结 bank、测量合同及 reference/query 队列，不包含 bank 重训的不确定性。广队列基线、高覆盖验证与低覆盖探索分别报告各自的评分定义和有效人群。
 
 高覆盖秩评分的背景门槛为 `r high_coverage$config$min_background_genes` 个基因。评分使用各测量合同完整的共同背景交集。
 
