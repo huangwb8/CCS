@@ -310,6 +310,8 @@ result <- ablation(
 
 生物报告在“gene signature 分数的邻居接近度”中依次呈现广队列基线与高覆盖验证。效果图展示可估计结果，完整状态与检验族见配套表格；队列异质性图共享纵轴，队列名称只显示一次。报告以当前配置、方法和结果为主，变更过程由 Git 历史与 CHANGELOG 记录。
 
+生物 anchor 分析的核心结论是：d1 确实改变了邻居的生物表达关系，但平均匹配代价较小。广队列五项接近度平均下降约 0.04–0.06，高覆盖共同秩、同癌种验证的点估计约为 −0.0163 至 0.0085。对于以跨队列表征为目标的 CCS，接受少量局部匹配精度损失以获得共同表示空间，是可以接受的方法取舍。该判断依据接近度的效应量，队列异质性仍需单独评估；它不等同于分类准确率损失、正式非劣效结论或临床收益验证。
+
 ablation-03 高覆盖验证为每项 gene signature 独立固定共同基因、可测队列和 reference 支持，与广队列基线及低覆盖诊断分别报告。高覆盖验证与全队列诊断的共同秩背景门槛为 3,000 个基因，评分使用完整的共同背景交集。该分支由同一 `_targets.R` 中的 `biology_high_coverage_*` targets 执行，分析专用函数位于 `test/ablation-03/R/`，设计在 `config/biology-high-coverage.yml`，结果独立写入 `biology-high-coverage/`。它不修改公共 `ablation()` API 或重训 bank。全部预设覆盖率与 raw/rank × all/same-cancer 对照保留，队列选择不读取两臂效应；连续读取器用于区分信息可恢复性和近邻几何。支持不足保持不可估计，没有预先冻结的非劣效界值时不将 CI 跨零解释为等价。
 
 1. 先看 `endpoint_eligibility` 和 `evidence_level`；candidate query 不等于可用于 cancer-labelled endpoint 的 estimable query。
