@@ -12,6 +12,8 @@ params:
   plot_preview_dpi: 200
   sensitivity_plot_width: 12
   sensitivity_plot_base_size: 10
+  diagnostic_plot_width: 12
+  diagnostic_plot_base_size: 10
   inference_bootstrap: 2000
   inference_seed: 20260829
 output:
@@ -1450,6 +1452,46 @@ knitr::include_graphics(jpg)
 
 解读：虚线为达到冻结门槛的 100%，标注是“实际共同基因数／最低所需基因数”，不是完整 gene signature 保留比例。gene signature 最低数量取比例门槛与绝对数量门槛中的较大值；秩背景单独要求至少 `r diagnostic$config$min_background_genes` 个共同基因。柱未到线表示该测量前提不足，不是效应为零，也不是广队列负差已归因于测量。
 
+下图先概括同癌种候选池的支持：左边按队列数、右边按患者数计数，两种分母分别展示；有检索资格表示已知癌种及 reference 候选支持满足门槛，尚未检查完整 gene signature 的测量资格。
+
+```{r diagnostic-candidate-support-figure, echo=TRUE}
+diag_candidate <- diagnostic_tables$qualification
+diag_candidate$group <- ifelse(diag_candidate$eligible,
+  "Eligible candidate pool", "Insufficient reference cohorts")
+diag_candidate_summary <- stats::aggregate(query_count ~ group,
+  diag_candidate, sum)
+diag_candidate_summary$cohort_count <- vapply(diag_candidate_summary$group,
+  function(group) sum(diag_candidate$group == group), integer(1))
+diag_candidate_plot <- rbind(
+  data.frame(group = diag_candidate_summary$group,
+    count = diag_candidate_summary$cohort_count, unit = "Query cohorts"),
+  data.frame(group = diag_candidate_summary$group,
+    count = diag_candidate_summary$query_count, unit = "Query patients"))
+diag_candidate_plot$group <- factor(diag_candidate_plot$group,
+  levels = c("Insufficient reference cohorts", "Eligible candidate pool"))
+diag_candidate_plot$unit <- factor(diag_candidate_plot$unit,
+  levels = c("Query cohorts", "Query patients"))
+p_diag_candidate <- ggplot2::ggplot(diag_candidate_plot,
+  ggplot2::aes(x = count, y = group, fill = group)) +
+  ggplot2::geom_col(width = .5) +
+  ggplot2::geom_text(ggplot2::aes(label = fmt_n(count)), hjust = -.15, size = 3.5) +
+  ggplot2::facet_wrap(~ unit, scales = "free_x", ncol = 2) +
+  ggplot2::scale_x_continuous(breaks = scales::breaks_pretty(n = 3),
+    labels = scales::label_comma(), expand = ggplot2::expansion(mult = c(0, .25))) +
+  ggplot2::scale_y_discrete(labels = c("Eligible candidate pool" = "Eligible candidate\npool",
+    "Insufficient reference cohorts" = "Fewer than two\nreference cohorts")) +
+  ggplot2::scale_fill_manual(values = c("Eligible candidate pool" = nature_colors[["navy"]],
+    "Insufficient reference cohorts" = "grey75"), guide = "none") +
+  ggplot2::labs(x = "Count", y = NULL) +
+  theme_nature_readable(base_size = params$diagnostic_plot_base_size,
+    legend_position = "none")
+diag_candidate_jpg <- hc_save_plot(p_diag_candidate, "02.02.00. diagnostic-candidate-support",
+  width = 10, height = 3.5)
+knitr::include_graphics(diag_candidate_jpg)
+```
+
+解读：当前有 `r sum(diag_candidate$eligible)`／`r nrow(diag_candidate)` 个 query 队列具备同癌种检索资格，对应 `r fmt_n(sum(diag_candidate$query_count[diag_candidate$eligible]))`／`r fmt_n(sum(diag_candidate$query_count))` 名患者；其余队列缺少至少两个 reference 队列。队列比例与患者比例不同，不能互相替代。即便候选池合格，严格评分仍可能因共同基因不足而无法计算；因此不能把这些人数当作后面完整 gene signature 效应的有效人数。
+
 ```{r diagnostic-qualification, echo=TRUE}
 render_dt(diagnostic_tables$qualification, pageLength = 10)
 ```
@@ -1470,6 +1512,50 @@ render_dt(diagnostic_audit$coverage, pageLength = 12)
 ### 相同患者上的评分与癌种组成对照
 
 原尺度／秩评分各使用全癌种和同癌种候选池，两臂保持基线距离和 k=15。严格分析仅在测量有支持时于四格共同患者上比较 d1−Direct utility，计算评分切换的配对差中差。横线来自完整 cohort 配对重采样的 95% 区间；至少三个 cohort、两千次 bootstrap 中至少一千九百次有效才发布区间。
+
+严格评分的部分效应图在没有可估计结果时不会生成。下方支持矩阵完整列出评分、候选池、配对切换与补充比较：颜色表示能否估计，格内数字是实际参与推断的队列与患者数。对输入不重叠补充，列名指对应的原始 signature，基因集合按该补充合同确定。
+
+```{r diagnostic-comparison-support-figure, echo=TRUE}
+diag_comparison_labels <- c(
+  `grid:common_raw:all:baseline:none` = "Raw score / all cancers",
+  `grid:common_raw:same_cancer:baseline:none` = "Raw score / within cancer",
+  `grid:common_rank:all:baseline:none` = "Rank score / all cancers",
+  `grid:common_rank:same_cancer:baseline:none` = "Rank score / within cancer",
+  `change:raw_pool` = "Raw score: all -> within cancer",
+  `change:rank_pool` = "Rank score: all -> within cancer",
+  `change:all_score` = "All cancers: raw -> rank",
+  `change:same_score` = "Within cancer: raw -> rank",
+  `coverage:common_raw` = "Raw score / broader availability",
+  `coverage:common_rank` = "Rank score / broader availability",
+  `supplement:common_raw:direct_input_disjoint` = "Input-disjoint / raw score",
+  `supplement:common_rank:direct_input_disjoint` = "Input-disjoint / rank score")
+diag_support <- diagnostic$inference
+diag_support$anchor_family <- factor(sub("_disjoint$", "", diag_support$anchor),
+  levels = names(anchor_labels))
+diag_support$comparison <- factor(diag_support$comparison,
+  levels = rev(names(diag_comparison_labels)))
+diag_support$availability <- ifelse(diag_support$status == "estimable" &
+  is.finite(diag_support$estimate), "Estimable", "Unavailable")
+diag_support$label <- paste0(diag_support$cohort_count, " cohorts\n",
+  fmt_n(diag_support$query_count), " queries")
+p_diag_support <- ggplot2::ggplot(diag_support,
+  ggplot2::aes(x = anchor_family, y = comparison, fill = availability)) +
+  ggplot2::geom_tile(color = "white", linewidth = 1, width = .96, height = .93) +
+  ggplot2::geom_text(ggplot2::aes(label = label), size = 3.1, lineheight = 1.1) +
+  ggplot2::scale_x_discrete(labels = anchor_labels, position = "top", expand = c(0, 0)) +
+  ggplot2::scale_y_discrete(labels = diag_comparison_labels, expand = c(0, 0)) +
+  ggplot2::scale_fill_manual(values = c("Estimable" = "#E3EEF4", "Unavailable" = "#EEEEEE")) +
+  ggplot2::labs(x = NULL, y = NULL, fill = NULL) +
+  theme_nature_readable(base_size = params$diagnostic_plot_base_size,
+    legend_position = "bottom") +
+  ggplot2::theme(axis.ticks = ggplot2::element_blank(),
+    panel.border = ggplot2::element_blank())
+diag_support_jpg <- hc_save_plot(p_diag_support, "02.02.00. diagnostic-comparison-support",
+  width = params$diagnostic_plot_width, height = 8)
+knitr::include_graphics(diag_support_jpg)
+```
+
+解读：当前矩阵中 `r sum(diag_support$availability == "Estimable")`／`r nrow(diag_support)` 项有可估计效应；格内的零表示没有患者或队列进入该项严格推断，不能读成 d1−Direct 等于零。结合前面的共同基因门槛，可以看到候选池资格并没有解决完整 signature 的测量不足；这里也没有可用于判断评分切换是否改善的严格效应。低覆盖残余代理在后文单独绘图，其支持与结论不能填入本矩阵。
 
 ```{r diagnostic-grid-figure, echo=TRUE, fig.height=5.5, fig.width=10}
 if (nrow(diagnostic_grid) && any(is.finite(diagnostic_grid$estimate))) {
@@ -1529,11 +1615,49 @@ if (nrow(diagnostic_prediction) && any(is.finite(diagnostic_prediction$estimate)
 
 仅为有可估计效应的比较绘图；没有有效效应时不输出空白效果图。读取器–gene signature 组合的未触发运行与支持不足，请以分支状态表区分。
 
+读取器状态图把“无法估计”和“没有运行”分开：每格对应一种评分、一项 signature 和一种读取器。它补充上方只在有效效应存在时显示的 MAE 图，避免把没有画出的读取器结果误认为表现相同。
+
+```{r diagnostic-readout-status-figure, echo=TRUE}
+diag_readout_status <- diagnostic$branch_status[diagnostic$branch_status$domain == "readout", ]
+diag_readout_parts <- strsplit(diag_readout_status$experiment, ":", fixed = TRUE)
+diag_readout_status$score <- vapply(diag_readout_parts, `[`, character(1), 1L)
+diag_readout_status$anchor <- factor(vapply(diag_readout_parts, `[`, character(1), 2L),
+  levels = rev(names(anchor_labels)))
+diag_readout_status$reader <- factor(vapply(diag_readout_parts, `[`, character(1), 3L),
+  levels = c("ridge", "xgboost"), labels = c("Ridge", "XGBoost"))
+diag_readout_status$score <- factor(diag_readout_status$score,
+  levels = c("common_raw", "common_rank"), labels = c("Raw score", "Rank score"))
+diag_readout_status$state <- factor(diag_readout_status$status,
+  levels = c("estimable", "not_estimable", "not_run"),
+  labels = c("Estimable", "Unavailable", "Not run"))
+p_diag_readout_status <- ggplot2::ggplot(diag_readout_status,
+  ggplot2::aes(x = reader, y = anchor, fill = state)) +
+  ggplot2::geom_tile(color = "white", linewidth = 1, width = .96, height = .9) +
+  ggplot2::geom_text(ggplot2::aes(label = state), size = 3.4) +
+  ggplot2::facet_wrap(~ score, ncol = 2) +
+  ggplot2::scale_y_discrete(labels = anchor_labels, expand = c(0, 0)) +
+  ggplot2::scale_x_discrete(expand = c(0, 0)) +
+  ggplot2::scale_fill_manual(values = c("Estimable" = "#E3EEF4",
+    "Unavailable" = "#EEEEEE", "Not run" = "#FFF0D4"), guide = "none") +
+  ggplot2::labs(x = NULL, y = NULL) +
+  theme_nature_readable(base_size = params$diagnostic_plot_base_size,
+    legend_position = "none") +
+  ggplot2::theme(axis.ticks = ggplot2::element_blank(),
+    panel.border = ggplot2::element_blank())
+diag_readout_status_jpg <- hc_save_plot(p_diag_readout_status,
+  "02.02.00. diagnostic-readout-status", width = 10, height = 4.3)
+knitr::include_graphics(diag_readout_status_jpg)
+```
+
+解读：当前 Ridge 的 `r sum(diag_readout_status$reader == "Ridge" & diag_readout_status$status == "not_estimable")` 项组合不可估计，状态原因包含目标或 reference 分折不可用；XGBoost 的 `r sum(diag_readout_status$reader == "XGBoost" & diag_readout_status$status == "not_run")` 项未运行，原因字段同时涵盖 reference CV 未触发或目标不可用。结合本次严格目标的测量不足，这些状态没有提供线性或非线性预测优劣的证据。它们也不能证明信息丢失，或证明使用更复杂读取器仍无法恢复信息；具体原因保留在下表。
+
 ```{r diagnostic-branch-status, echo=TRUE}
 render_dt(diagnostic$branch_status, pageLength = 10)
 ```
 
 距离对照只分别改变一个规则：取消逐列标准差除法，或改为 tissue 等权、tissue 内 module 等权、module 内列数平衡。Direct 始终使用基线距离，d1 不组合搜索最佳方案。若连续目标可读出而距离改变改善邻居，则更支持距离权重限制；若读取器仍较差，只能说明当前方法和外部范围内较难恢复，不能证明信息永久丢失。模块相关、饱和率与平方距离贡献用于诊断冗余和域迁移。
+
+这张图检验 **d1 与 Direct 是否在同一个患者周围找到相近的一群邻居**。它提供局部关系重排的证据，应与 gene signature 接近度和连续信息读取结果一起判断这次重排的价值。
 
 ```{r diagnostic-neighbor-overlap, echo=TRUE, fig.height=4, fig.width=10}
 overlap <- diagnostic$neighbor_summary
@@ -1556,6 +1680,11 @@ if (nrow(overlap)) {
       q3 = unname(stats::quantile(values, .75)))
   })
   overlap_groups <- cbind(overlap_groups, do.call(rbind, overlap_summaries))
+  overlap_summary_text <- function(pool, restriction) {
+    x <- overlap_groups[overlap_groups$pool == pool &
+      overlap_groups$restriction == restriction, ]
+    paste0(fmt(x$median), " [", fmt(x$q1), ", ", fmt(x$q3), "]")
+  }
   overlap_groups$row_label <- paste0(unname(restriction_labels[overlap_groups$restriction]),
     plot_label("  (n = ", "  （n = "), overlap_groups$cohort_count,
     plot_label(" cohorts)", " 个队列）"))
@@ -1583,8 +1712,8 @@ if (nrow(overlap)) {
       guide = "none") +
     ggplot2::scale_x_continuous(limits = c(0, 1), breaks = seq(0, 1, .2),
       expand = ggplot2::expansion(mult = c(.01, .01))) +
-    ggplot2::labs(x = plot_label("Direct-d1 neighbor Jaccard (cohort mean)",
-      "Direct 与 d1 邻居 Jaccard（队列均值）"), y = NULL) +
+    ggplot2::labs(x = plot_label("Neighbor-set overlap: d1 vs Direct (cohort mean Jaccard)",
+      "邻居名单重叠度：d1 与 Direct（队列平均 Jaccard）"), y = NULL) +
     theme_nature_readable(base_size = 10, legend_position = "none") +
     ggplot2::theme(panel.border = ggplot2::element_blank(),
       axis.line.y = ggplot2::element_blank(), axis.ticks.y = ggplot2::element_blank(),
@@ -1598,7 +1727,17 @@ if (nrow(overlap)) {
 }
 ```
 
-解读：每个小点为一个 cohort 内两臂共同 query 的平均邻居 Jaccard；0 表示名单不重叠，1 表示一致。菱形标示队列中位数，短横线覆盖第 25 至第 75 百分位，右侧列出中位数 [Q1, Q3]；这些是队列间的描述性分布，不是置信区间。上下两组共用 [0,1] 横轴，仅为实际有结果的条件分配行高；行标签中的 n 是有效队列数。全癌种仅包含不限制技术来源的实验，同检测类型／同来源限制只在同癌种中设置；同平台层缺少支持，不补零。全癌种、同癌种与技术限制的可用 cohort／患者不同，这些点不能直接相减作为受控改善；测量不合格时，名单重排也不能说明生物效用提高。完整人数见 neighbor_summary 表。
+图中每个小点是一个队列内共同 query 的平均 Jaccard，菱形及短横线是队列中位数与四分位范围，右侧数字为中位数 [Q1, Q3]；这些是描述性分布，不是置信区间。Jaccard 是两份名单交集人数除以并集人数，0 表示完全不重叠、1 表示完全一致。**这里统一按 d1 与 Direct 的顺序标注，但指标是对称的，不是 d1−Direct 差值，也没有正负方向。**
+
+**当前最直接的结论是：d1 明显重排了患者周围的邻居，而不只是给几乎相同的邻居换一种表示。** 全癌种下，`r overlap_groups$cohort_count[overlap_groups$pool == "all" & overlap_groups$restriction == "none"]` 个队列的平均 Jaccard 中位数为 `r overlap_summary_text("all", "none")`，多数队列的重叠度集中在较低范围。理解其量级时，可以设想两份各含 `r diagnostic$config$k` 人的名单只共享 `r diagnostic$config$k %/% 3L` 人，此时 Jaccard 为 `r fmt((diagnostic$config$k %/% 3L) / (2L * diagnostic$config$k - diagnostic$config$k %/% 3L))`。这是帮助理解尺度的例子，不能把队列平均 Jaccard 直接反算成平均共享人数，也不能把 Jaccard 当作“保留了多少比例的生物信息”。
+
+**这种重排在同癌种内部仍然存在。** 在具备同癌种候选池的 `r overlap_groups$cohort_count[overlap_groups$pool == "same_cancer" & overlap_groups$restriction == "none"]` 个队列中，中位数为 `r overlap_summary_text("same_cancer", "none")`。因此，至少在这批合格队列里，要求邻居癌种相同仍不足以让两种表示选出相近名单，不能仅用跨癌种邻居混合解释全部差异。d1 的概率表征与 Direct 的原始输入距离，确实在同癌种患者之间形成了不同的局部关系；本图尚不能识别这些关系变化来自哪一种具体生物或技术因素。
+
+同检测类型与同来源的中位数分别为 `r overlap_summary_text("same_cancer", "assay_type")`、`r overlap_summary_text("same_cancer", "source_system")`，但有效队列分别缩小到 `r overlap_groups$cohort_count[overlap_groups$pool == "same_cancer" & overlap_groups$restriction == "assay_type"]` 和 `r overlap_groups$cohort_count[overlap_groups$pool == "same_cancer" & overlap_groups$restriction == "source_system"]` 个。**更高的重叠度只能描述这些受限条件下的名单一致性，不能直接视为技术因素已被纠正。** 各行使用的队列、患者及候选池大小不同；候选选择减少本身就可能提高两份名单的重合机会。因此不能将行间中位数相减作为技术限制的因果效果，同平台无合格配对也不能补成零重叠。
+
+**对研究者而言，关键问题应从“d1 是否复制了 Direct 的邻居”转向“重排后的邻居是否更适合目标任务”。** Direct 是比较基线，并非邻居正确性的金标准。低重叠既可能伴随局部表达细节的损失，也可能反映 d1 更重视模型可识别的状态，或减弱了某些技术邻近关系；本图无法在这些解释间作出选择。应把 Jaccard 用作定位关系改变的诊断量，再看同一人群中 gene signature 接近度、连续读取误差及独立病理或临床目标是否改善。邻居不同而目标仍可读出，与邻居不同且目标更难读出，是两种需要分别处理的结果。
+
+后续验证可以优先检查低重叠且生物效用较差的队列，同时保留低重叠但目标表现良好的队列作为对照。比较技术限制前后时，应固定两种条件都合格的患者，配对评估名单重叠与目标效用，并核对候选池大小；必要时用同样大小候选池的随机名单重叠作参照。这样才能区分“选择空间变小后自然更容易重合”和“相似性判断发生了有价值的改变”。当前严格测量支持不足，这些属于下一步可验证的问题；高覆盖与残余代理结果须按各自合同解读，不能直接替代本图全部队列的生物评价。完整队列与患者数见 neighbor_summary 表。
 
 ### 哪些模型模块在决定患者相似性
 
@@ -1740,6 +1879,41 @@ if (nrow(concentration_summary)) {
 
 这些补充计算回答“现有残余基因代理对评分、候选池和距离是否敏感”。原尺度使用有限 reference 值拟合每个固定基因的标尺，至少两个有效值且标准差为正；任一残余基因不可定标则整个代理不可定标。样本必须具备全部残余 gene signature 值；秩评分还要求全部固定背景有限，不按样本缩减背景。最后按有效 reference 代理分数再次定标。query 不参与标尺，没有填补缺失或按样本更换基因。有效人数与标尺分别保存在 low_coverage_availability、low_coverage_scales、low_coverage_gene_scales。
 
+可评分人数图显示冻结残余代理在 reference 与 query 中各损失了多少可评分样本，按原尺度和秩评分分别展示。条长是缺失比例，标注为“不可评分数／总数”；这一层尚未施加完整邻居与跨队列推断门槛。
+
+```{r diagnostic-residual-availability-figure, echo=TRUE}
+diag_residual_availability <- stats::aggregate(cbind(sample_count, valid_count, missing_count) ~
+  role + score_definition + anchor, exploratory$availability, sum)
+diag_residual_availability$anchor <- factor(diag_residual_availability$anchor,
+  levels = rev(names(anchor_labels)))
+diag_residual_availability$role <- factor(diag_residual_availability$role,
+  levels = c("reference", "query"), labels = c("Reference", "Query"))
+diag_residual_availability$score <- factor(diag_residual_availability$score_definition,
+  levels = c("common_raw", "common_rank"), labels = c("Raw residual proxy", "Rank residual proxy"))
+diag_residual_availability$missing_fraction <- with(diag_residual_availability,
+  missing_count / sample_count)
+diag_residual_availability$label <- paste0(fmt_n(diag_residual_availability$missing_count),
+  " / ", fmt_n(diag_residual_availability$sample_count))
+diag_availability_xlim <- max(diag_residual_availability$missing_fraction) * 1.8
+diag_availability_xlim <- max(.01, diag_availability_xlim)
+p_diag_residual_availability <- ggplot2::ggplot(diag_residual_availability,
+  ggplot2::aes(x = missing_fraction, y = anchor)) +
+  ggplot2::geom_col(width = .5, fill = nature_colors[["navy"]]) +
+  ggplot2::geom_text(ggplot2::aes(label = label), hjust = -.12, size = 3.2) +
+  ggplot2::facet_grid(role ~ score) +
+  ggplot2::scale_y_discrete(labels = anchor_labels) +
+  ggplot2::scale_x_continuous(limits = c(0, diag_availability_xlim),
+    breaks = scales::breaks_pretty(n = 3), labels = scales::label_percent(accuracy = .1)) +
+  ggplot2::labs(x = "Unscorable fraction of samples (labels: missing / total)", y = NULL) +
+  theme_nature_readable(base_size = params$diagnostic_plot_base_size,
+    legend_position = "none")
+diag_residual_availability_jpg <- hc_save_plot(p_diag_residual_availability,
+  "02.02.00. diagnostic-residual-availability", width = params$diagnostic_plot_width, height = 5.8)
+knitr::include_graphics(diag_residual_availability_jpg)
+```
+
+解读：原尺度残余代理的缺失较少，但不同 signature 仍有差异；秩代理各项的缺失数相同，因为它们都要求同一冻结背景完整。条短只表示当前残余代理能在较多样本上计算，并不表示完整 signature 覆盖充分。该图按样本汇总，属于人数描述；后面的效应区间仍按 cohort 计算，且使用各对比共同患者。基质在这里可评分也不能恢复其完整 signature 身份，单基因代理仍仅作描述。
+
 ```{r diagnostic-low-coverage-availability, echo=TRUE}
 render_dt(exploratory$availability, pageLength = 8)
 render_dt(exploratory$scales, pageLength = 8)
@@ -1815,6 +1989,77 @@ render_dt(exploratory$inference, n = nrow(exploratory$inference), pageLength = 1
 本补充不发布 p/q，不训练低覆盖读取器。多基因 95% 条件区间只在至少二十个有效 query/cohort、三个 cohort 和足够有效 bootstrap 时给出；基质单基因一律仅描述。区间不包含残余基因选择、跨平台偏差或 bank 重训，也不能证明秩评分消除了技术影响。低覆盖结果可指示后续验证方向。严格诊断当前有 `r sum(diagnostic$inference$status == "estimable")` 项可估计比较，资格和效应见前文完整表；这些条件比较不能确证广队列负差的根因。
 
 ### 检索准确性与证据边界
+
+检索核验图将总体平均严格 ID 召回与最差队列的平均召回分开；两个面板各有对应的冻结门槛。点的颜色区分 Direct 与 d1；同距替换允许的召回仍保留在原表，图中使用要求 ID 一致的严格召回。
+
+```{r diagnostic-retrieval-validation-figure, echo=TRUE}
+diag_retrieval <- diagnostic$retrieval_validation
+diag_retrieval_keys <- c("arm", "pool", "distance", "restriction")
+diag_retrieval$condition <- paste(diag_retrieval$pool, diag_retrieval$distance,
+  diag_retrieval$restriction, sep = ":")
+diag_retrieval_conditions <- c(
+  `all:baseline:none` = "All cancers / baseline",
+  `same_cancer:baseline:none` = "Within cancer / baseline",
+  `all:module_unscaled:none` = "All cancers / no column SD scaling",
+  `same_cancer:module_unscaled:none` = "Within cancer / no column SD scaling",
+  `all:tissue_balanced:none` = "All cancers / tissue-balanced",
+  `same_cancer:tissue_balanced:none` = "Within cancer / tissue-balanced",
+  `same_cancer:baseline:assay_type` = "Within cancer / same assay",
+  `same_cancer:baseline:source_system` = "Within cancer / same source")
+diag_retrieval_groups <- unique(diag_retrieval[, c("arm", "condition")])
+diag_retrieval_summary <- do.call(rbind, lapply(seq_len(nrow(diag_retrieval_groups)), function(i) {
+  key <- diag_retrieval_groups[i, ]
+  part <- diag_retrieval[diag_retrieval$arm == key$arm &
+    diag_retrieval$condition == key$condition, ]
+  cohort_means <- tapply(part$strict_recall, part$cohort, mean)
+  data.frame(arm = key$arm, condition = key$condition,
+    validation_queries = nrow(part), cohort_count = length(cohort_means),
+    overall_mean = mean(part$strict_recall), lowest_cohort_mean = min(cohort_means))
+}))
+diag_retrieval_plot <- rbind(
+  transform(diag_retrieval_summary, value = overall_mean, statistic = "Overall validation mean"),
+  transform(diag_retrieval_summary, value = lowest_cohort_mean, statistic = "Lowest cohort mean"))
+diag_retrieval_plot$condition <- factor(diag_retrieval_plot$condition,
+  levels = rev(names(diag_retrieval_conditions)))
+diag_retrieval_plot$arm <- factor(diag_retrieval_plot$arm, levels = c("Direct", "d1"))
+diag_retrieval_plot$statistic <- factor(diag_retrieval_plot$statistic,
+  levels = c("Overall validation mean", "Lowest cohort mean"))
+diag_retrieval_thresholds <- data.frame(statistic = levels(diag_retrieval_plot$statistic),
+  threshold = c(diagnostic$config$retrieval$min_mean_recall,
+    diagnostic$config$retrieval$min_cohort_recall))
+diag_retrieval_thresholds$statistic <- factor(diag_retrieval_thresholds$statistic,
+  levels = levels(diag_retrieval_plot$statistic))
+diag_retrieval_row_labels <- vapply(names(diag_retrieval_conditions), function(condition) {
+  part <- diag_retrieval_summary[diag_retrieval_summary$condition == condition, ]
+  paste0(diag_retrieval_conditions[[condition]], "\n",
+    paste(unique(part$cohort_count), collapse = "–"), " cohorts / ",
+    paste(fmt_n(unique(part$validation_queries)), collapse = "–"), " checks per arm")
+}, character(1))
+diag_retrieval_strip_labels <- stats::setNames(paste0(diag_retrieval_thresholds$statistic,
+  "\nThreshold: ", diag_retrieval_thresholds$threshold), diag_retrieval_thresholds$statistic)
+p_diag_retrieval <- ggplot2::ggplot(diag_retrieval_plot,
+  ggplot2::aes(x = value, y = condition, color = arm, shape = arm)) +
+  ggplot2::geom_vline(data = diag_retrieval_thresholds,
+    ggplot2::aes(xintercept = threshold), linetype = 2, color = "grey55") +
+  ggplot2::geom_point(position = ggplot2::position_dodge(width = .4), size = 2.8) +
+  ggplot2::facet_wrap(~ statistic, ncol = 2,
+    labeller = ggplot2::as_labeller(diag_retrieval_strip_labels)) +
+  ggplot2::scale_y_discrete(labels = diag_retrieval_row_labels) +
+  ggplot2::scale_x_continuous(limits = c(.88, 1.01), breaks = c(.9, .95, 1),
+    labels = scales::label_number(accuracy = .01)) +
+  ggplot2::scale_color_manual(values = c("Direct" = nature_colors[["navy"]],
+    "d1" = nature_colors[["green"]])) +
+  ggplot2::scale_shape_manual(values = c("Direct" = 16, "d1" = 17)) +
+  ggplot2::labs(x = "Strict ID recall against exact neighbors", y = NULL,
+    color = NULL, shape = NULL) +
+  theme_nature_readable(base_size = params$diagnostic_plot_base_size,
+    legend_position = "bottom")
+diag_retrieval_jpg <- hc_save_plot(p_diag_retrieval,
+  "02.02.00. diagnostic-retrieval-validation", width = params$diagnostic_plot_width, height = 7)
+knitr::include_graphics(diag_retrieval_jpg)
+```
+
+解读：本次各已核验条件的总体平均严格召回均高于总体门槛，最低队列均值也达到队列门槛；这支持近似检索在已检查范围内与精确名单足够一致。图中总体均值按核验 query 汇总，右图先在队列内平均再取最小值；两者不是生物效应，也没有置信区间。实际门禁还按各癌种及限制条件形成的候选组执行，不能用图中跨组平均值替代；本次 `r sum(!diagnostic$retrieval_validation$gate_pass)` 条核验记录未通过 Annoy 门禁。同平台没有可核验的合格 query，因此不画召回为零的点。取消列标准差缩放或组织等权仅在 d1 中改变距离，相应行只有 d1 点。
 
 ```{r diagnostic-retrieval-accuracy, echo=TRUE}
 validation_summary <- if (nrow(diagnostic$retrieval_validation)) {
