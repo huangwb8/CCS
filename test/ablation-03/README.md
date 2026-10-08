@@ -19,6 +19,9 @@ formal 分析与轻量验收使用相同的 targets 图、CCS 版本、参数、
 R Markdown 文件只消费已完成 target 产物，用于报告渲染，不参与科学计算调度。
 `02.03.00. 生物状态关系的跨队列一致性.Rmd` 评价预设 gene signature 高低状态间的质心距离排序，
 不验证新亚型的发现或复现。对应 HTML 使用同名文件；计算脚本、内部字段和缓存目录沿用既有技术标识。
+Figure 11 用等比例 Direct–d1 配对散点图和差值直方图展示总体水平与队列对变化；
+对角线上方表示 d1 更一致，差值柱以零为界区分下降与非下降。图中列出已有的平均差、
+队列节点 bootstrap 区间和 d1 不低于 Direct 的队列对比例，图注说明共享队列依赖与区间含义。
 表示报告另消费 `references/` 中 Figure S3 的历史 cohort Gain 汇总与来源记录，用于解释 d3 坐标重建 importance 与原始 d1 方差份额的区别。该输入不含患者级矩阵、不重拟合历史模型，纳入 `representation_report_sources` 文件依赖；当前方差份额仍来自正式 `representation_analysis` 产物。
 四份 HTML 均由正式依赖图中的 file target 直出；不得在 `tar_make()` 之外用独立
 runner 生成正式报告。

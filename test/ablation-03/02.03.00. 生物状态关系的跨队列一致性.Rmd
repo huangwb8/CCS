@@ -225,22 +225,6 @@ structural_worst <- structural_pairs[
   ,
   drop = FALSE
 ]
-structural_paired_long <- rbind(
-  data.frame(
-    pair_id = seq_len(nrow(structural_pairs)),
-    representation = "Direct-GSClassifier",
-    similarity = structural_pairs$direct_similarity
-  ),
-  data.frame(
-    pair_id = seq_len(nrow(structural_pairs)),
-    representation = "Cohort-d1",
-    similarity = structural_pairs$d1_similarity
-  )
-)
-structural_paired_long$representation <- factor(
-  structural_paired_long$representation,
-  levels = c("Direct-GSClassifier", "Cohort-d1")
-)
 structural_cohorts <- rownames(structural_matrices[["Direct-GSClassifier"]])
 structural_labels <- sub("/TCGATARGET-", "/TCGA-", structural_cohorts)
 structural_labels <- gsub("/", " / ", structural_labels, fixed = TRUE)
@@ -451,82 +435,145 @@ render_dt(
 ### Figure 11：总体水平接近，队列对变化不一
 
 ```{r figure-structural-paired, interp_check=TRUE}
-# ==== Figure 11: Cross-cohort structural similarity (user-adjustable parameters) ====
+# ==== Figure 11: Paired agreement and its change (user-adjustable parameters) ====
 fig11 <- list(
-  # Canvas size (inches). Increase width for longer representation labels;
-  # increase height if the similarity distribution looks compressed.
-  width_in = 5.8,
-  height_in = 4.8,
-  # Base font size (pt). Values around 10-12 remain readable in print.
+  # Two panels separate the agreement level from the paired change.
+  width_in = 11,
+  height_in = 5.8,
   base_size = 11,
-  # Thin translucent lines retain paired comparisons without forming a dark wall.
-  pair_line_width = 0.35,
-  pair_alpha = 0.20,
-  # Point size/alpha balance individual visibility against overplotting.
-  point_size = 1.8,
-  point_alpha = 0.62,
-  # Median diamonds are larger so the central shift remains visible.
-  median_size = 3.2,
-  # Preserve the full correlation range so negative similarities remain visible.
-  y_limits = c(-1, 1),
-  legend_position = "none"
+  point_size = 1.6,
+  point_alpha = 0.65,
+  reference_line_width = 0.55,
+  # A zero-aligned bin boundary keeps decreases separate from non-decreases.
+  delta_bin_width = 0.025,
+  label_size = 3.3,
+  legend_position = "bottom"
 )
-structural_medians <- stats::aggregate(
-  similarity ~ representation,
-  data = structural_paired_long,
-  FUN = stats::median
+fig11_limits <- c(
+  floor(min(0, structural_pairs$direct_similarity,
+    structural_pairs$d1_similarity) / 0.1) * 0.1,
+  1
 )
-p11 <- ggplot2::ggplot(
-  structural_paired_long,
+fig11_delta_limit <- max(
+  abs(structural_pairs$delta_d1_minus_direct), fig11$delta_bin_width
+)
+fig11_extremes <- rbind(structural_best, structural_worst)
+fig11_extremes$delta_label <- sprintf(
+  "%+.3f", fig11_extremes$delta_d1_minus_direct
+)
+p11_agreement <- ggplot2::ggplot(
+  structural_pairs,
   ggplot2::aes(
-    x = .data$representation,
-    y = .data$similarity,
-    group = .data$pair_id
+    x = .data$direct_similarity,
+    y = .data$d1_similarity
   )
 ) +
-  ggplot2::geom_line(
-    linewidth = fig11$pair_line_width,
-    alpha = fig11$pair_alpha,
-    color = "grey55"
+  ggplot2::geom_abline(
+    slope = 1, intercept = 0, linetype = "dashed",
+    linewidth = fig11$reference_line_width, color = "grey45"
   ) +
   ggplot2::geom_point(
-    ggplot2::aes(color = .data$representation),
+    ggplot2::aes(color = .data$delta_d1_minus_direct),
     size = fig11$point_size,
     alpha = fig11$point_alpha
   ) +
   ggplot2::geom_point(
-    data = structural_medians,
-    ggplot2::aes(
-      x = .data$representation,
-      y = .data$similarity
-    ),
-    inherit.aes = FALSE,
-    shape = 23,
-    size = fig11$median_size,
-    fill = "white",
-    color = "black"
+    data = fig11_extremes, shape = 1,
+    size = fig11$point_size + 1.5, color = "black"
   ) +
-  ggplot2::scale_color_manual(values = c(
-    `Direct-GSClassifier` = nature_colors[["blue"]],
-    `Cohort-d1` = nature_colors[["orange"]]
-  )) +
-  ggplot2::scale_y_continuous(
-    limits = fig11$y_limits,
-    breaks = seq(fig11$y_limits[1L], fig11$y_limits[2L], 0.25)
+  ggplot2::geom_text(
+    data = fig11_extremes,
+    ggplot2::aes(label = .data$delta_label),
+    nudge_x = 0.02, hjust = 0, size = fig11$label_size
+  ) +
+  ggplot2::scale_color_gradient2(
+    low = nature_colors[["blue"]], mid = "grey80",
+    high = nature_colors[["orange"]], midpoint = 0,
+    limits = c(-fig11_delta_limit, fig11_delta_limit),
+    name = "Change in agreement (d1 - Direct)"
+  ) +
+  ggplot2::coord_fixed(
+    xlim = fig11_limits, ylim = fig11_limits
   ) +
   ggplot2::labs(
-    x = NULL,
-    y = "State-distance rank agreement\n(Spearman)"
+    x = "Direct-GSClassifier agreement (Spearman)",
+    y = "Cohort-d1 agreement (Spearman)",
+    subtitle = paste0(
+      nrow(structural_pairs), " cohort pairs; d1 >= Direct: ",
+      fmt_pct(structural_all$fraction_d1_ge_direct)
+    )
   ) +
   theme_nature_readable(
     base_size = fig11$base_size,
     x_text_angle = 0,
     legend_position = fig11$legend_position
-  )
+  ) +
+  ggplot2::guides(color = ggplot2::guide_colorbar(
+    title.position = "top", barwidth = grid::unit(5.5, "cm"),
+    barheight = grid::unit(0.3, "cm")
+  ))
 
-# Readability check: low-alpha lines prevent cohort pairs from obscuring one
-# another, median diamonds expose the central shift, and the full correlation
-# range retains negative estimates without clipping values.
+fig11_breaks <- seq.int(
+  floor(min(structural_pairs$delta_d1_minus_direct) /
+    fig11$delta_bin_width),
+  ceiling(max(structural_pairs$delta_d1_minus_direct) /
+    fig11$delta_bin_width) + 1
+) * fig11$delta_bin_width
+# Integer multiples give an exact zero boundary; cut() uses no histogram fuzz.
+fig11_bin_ids <- cut(
+  structural_pairs$delta_d1_minus_direct,
+  breaks = fig11_breaks, right = FALSE, include.lowest = TRUE,
+  labels = FALSE
+)
+fig11_bins <- data.frame(
+  lower = head(fig11_breaks, -1L),
+  upper = tail(fig11_breaks, -1L),
+  count = tabulate(fig11_bin_ids, nbins = length(fig11_breaks) - 1L),
+  direction = ifelse(head(fig11_breaks, -1L) < 0,
+    "Decrease", "Non-decrease")
+)
+p11_change <- ggplot2::ggplot(fig11_bins) +
+  ggplot2::geom_rect(
+    ggplot2::aes(
+      xmin = .data$lower, xmax = .data$upper, ymin = 0,
+      ymax = .data$count, fill = .data$direction
+    ),
+    color = "white", linewidth = 0.2
+  ) +
+  ggplot2::geom_vline(
+    xintercept = 0, color = "grey40",
+    linewidth = fig11$reference_line_width
+  ) +
+  ggplot2::geom_vline(
+    xintercept = structural_all$mean_delta,
+    color = "black", linetype = "dashed",
+    linewidth = fig11$reference_line_width
+  ) +
+  ggplot2::scale_fill_manual(
+    values = c(Decrease = nature_colors[["blue"]],
+      `Non-decrease` = nature_colors[["orange"]]),
+    guide = "none"
+  ) +
+  ggplot2::scale_y_continuous(expand = ggplot2::expansion(mult = c(0, 0.05))) +
+  ggplot2::labs(
+    x = "Change in agreement (d1 - Direct)",
+    y = "Number of cohort pairs",
+    subtitle = paste0(
+      "Mean change: ", fmt(structural_all$mean_delta, 4L),
+      "\n95% cohort-node bootstrap CI: [",
+      fmt(structural_all$mean_delta_ci_low, 4L), ", ",
+      fmt(structural_all$mean_delta_ci_high, 4L), "]"
+    )
+  ) +
+  theme_nature_readable(
+    base_size = fig11$base_size, x_text_angle = 0,
+    legend_position = "none"
+  )
+p11 <- patchwork::wrap_plots(p11_agreement, p11_change, nrow = 1) +
+  patchwork::plot_annotation(tag_levels = "A")
+
+# Both agreement axes share one scale; all pairs remain visible. The histogram
+# preserves every pair and displays existing inference without new resampling.
 fig11_jpg <- .ae_save_plot(
   p11, "02.03.00. structural-reproducibility-paired", figure_dir,
   preview_dir, fig11, params$plot_preview_dpi
@@ -534,7 +581,9 @@ fig11_jpg <- .ae_save_plot(
 knitr::include_graphics(fig11_jpg)
 ```
 
-横轴为两种表示，纵轴为队列对的状态距离排序相关。**每个点代表一个队列对，每条线连接该队列对在两种表示中的结果**；线向上表示 d1 更一致，向下表示一致性下降。空心菱形显示各表示的中位数。下文的总体主效应采用配对差的均值，因此需另行计算，菱形高度及其差值均不能替代均值或置信区间。
+**A 图先看点在对角线的哪一侧。** 横轴为 Direct 的状态距离排序一致性，纵轴为同一队列对在 d1 中的一致性，每个点代表一个队列对。虚线为两者相等的位置；上方表示 d1 更一致，下方表示更不一致。两轴使用相同尺度并覆盖全部观测值，颜色从蓝经灰到橙表示差值由负到正，灰色点接近零差值。黑圈和数值标出最大增幅与最大降幅，具体队列名称见下文。
+
+**B 图看变化幅度与分布。** 横轴是配对差 $\Delta=S^{(d1)}-S^{(Direct)}$，纵轴是各差值区间的队列对数。蓝色柱表示下降，橙色柱表示差值非负，包含恰好为零的比较；零处实线为改善与下降的分界，黑色虚线为平均配对差。图上给出的 95% 区间来自已有的队列节点 bootstrap，描述平均差的不确定性，并非覆盖 95% 队列对的差值范围。队列对共享队列，柱中的比较不能当作相互独立的实验。
 
 **两种表示的总体水平接近，但各队列对的变化方向并不一致。** 正向均值分别为 `r fmt(structural_all$mean_direct_similarity)` 与 `r fmt(structural_all$mean_d1_similarity)`，d1 不低于 Direct 的队列对占 `r fmt_pct(structural_all$fraction_d1_ge_direct)`。该比例以队列对为分母，包含差值为零的情形，不能换算为“受益患者比例”。最大增幅出现在 `r structural_best$cohort_a` 与 `r structural_best$cohort_b`，为 `r fmt(structural_best$delta_d1_minus_direct)`；最大降幅出现在 `r structural_worst$cohort_a` 与 `r structural_worst$cohort_b`，为 `r fmt(structural_worst$delta_d1_minus_direct)`。相反方向的变化可以相互抵消，所以平均差接近零仍可能伴随具体状态关系的改变。
 
