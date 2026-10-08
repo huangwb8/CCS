@@ -6,6 +6,8 @@
 
 ## [Unreleased]
 
+- 将 ablation-03 Figure 11 从密集配对连线改为等比例 Direct–d1 散点图与配对差值直方图，以对角线和零线区分变化方向，标注极端差值、平均差、已有的队列节点 bootstrap 区间及非下降比例；同步图注与 README，通过正式 `structural_report` target 更新 PDF 和 HTML，沿用科学结果与包版本。
+
 - 按 nsfc-humanization 润色 ablation-03“生物状态关系的跨队列一致性”报告：将工程措辞和模板式解读改为连贯的研究叙述，简化重复边界说明；保留 R 代码块、公式、动态数值、比较范围及统计条件，通过正式 `structural_report` target 同步 HTML。
 
 - 在 `AGENTS.md` 中明确：每次报告新写或修订完成后，交付前使用 `nsfc-humanization` 去除 AI 味；适用于本项目所有报告，保留事实、数字、公式、代码与科学结论，并遵循正式 targets 报告流程。确认 `CLAUDE.md` 通过引用继承该规则。
