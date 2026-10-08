@@ -1800,7 +1800,7 @@ render_dt(scaling_inference_table, pageLength = nrow(scaling_inference_table))
 ```{r figure-cohort-evidence-matched, interp_check=TRUE}
 # ==== Figure 9: Matched-size breadth versus depth (user-adjustable parameters) ====
 fig9 <- list(
-  width_in = 8.2,
+  width_in = 9.2,
   height_in = 5.2,
   base_size = 11,
   line_size = 0.85,
@@ -1846,7 +1846,7 @@ p9 <- ggplot2::ggplot(
   ) +
   theme_nature_readable(
     base_size = fig9$base_size,
-    x_text_angle = 0,
+    x_text_angle = 45,
     legend_position = fig9$legend_position
   )
 

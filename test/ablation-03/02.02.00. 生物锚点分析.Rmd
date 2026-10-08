@@ -10,6 +10,8 @@ params:
   plot_language: "en"
   plot_run_dir: ~
   plot_preview_dpi: 200
+  sensitivity_plot_width: 12
+  sensitivity_plot_base_size: 10
   inference_bootstrap: 2000
   inference_seed: 20260829
 output:
@@ -1118,9 +1120,11 @@ if (nrow(hc_cohort)) {
     ggplot2::geom_point(size = 1.7) +
     ggplot2::facet_grid(. ~ anchor, labeller = ggplot2::labeller(
       anchor = ggplot2::as_labeller(anchor_labels))) +
+    ggplot2::scale_x_continuous(breaks = scales::breaks_pretty(n = 3),
+      labels = scales::label_number(accuracy = .01)) +
     ggplot2::labs(x = "Cohort mean utility: d1 minus Direct", y = NULL) + theme_nature_readable(base_size = 10)
   hc_height <- max(5, .35 * nlevels(hc_cohort$cohort) + 1.5)
-  jpg <- hc_save_plot(p_hc_cohort, "02.02.00. high-coverage-cohorts", width = 9, height = hc_height)
+  jpg <- hc_save_plot(p_hc_cohort, "02.02.00. high-coverage-cohorts", width = 11.5, height = hc_height)
   knitr::include_graphics(jpg)
 }
 ```
@@ -1147,6 +1151,41 @@ render_dt(hc_direction, pageLength = 5)
 
 留一分析每次删除一个 query 队列，或删除来自同一数据库来源的全部 query 队列，再对剩余队列均值等权汇总并重算区间。它检查当前平均差对队列组合的依赖，没有重新训练 bank、重估评分合同或重新检索剩余患者的邻居。表中的 `unit` 区分 cohort 与 source，`omitted` 是被删除的对象；应同时看 `estimate`、区间及剩余 `cohort_count`。
 
+下图逐项画出删除一个队列后的平均差及条件区间。蓝色虚线是该 signature 的主比较点估计，灰色虚线是零；沿同一列看，各次删除后的结果是否仍处于零线同一侧、是否偏离主比较。纵轴列出被删除的队列，空白位置表示该 signature 没有对应的留一结果。
+
+```{r high-coverage-leave-one-cohorts-figure, echo=TRUE}
+hc_loo <- high_coverage$leave_one[high_coverage$leave_one$unit == "cohort" &
+  is.finite(high_coverage$leave_one$estimate), ]
+hc_loo$anchor <- factor(hc_loo$anchor, levels = names(anchor_labels))
+hc_loo$omitted <- factor(hc_loo$omitted, levels = rev(sort(unique(hc_loo$omitted))))
+hc_loo$with_interval <- is.finite(hc_loo$ci_low) & is.finite(hc_loo$ci_high)
+hc_loo_baseline <- high_coverage$primary
+hc_loo_baseline$anchor <- factor(hc_loo_baseline$anchor, levels = names(anchor_labels))
+p_hc_loo <- ggplot2::ggplot(hc_loo, ggplot2::aes(x = estimate, y = omitted)) +
+  ggplot2::geom_vline(xintercept = 0, linetype = 2, color = "grey65") +
+  ggplot2::geom_vline(data = hc_loo_baseline,
+    ggplot2::aes(xintercept = estimate), linetype = 2, color = nature_colors[["navy"]]) +
+  ggplot2::geom_errorbar(data = hc_loo[hc_loo$with_interval, ],
+    ggplot2::aes(xmin = ci_low, xmax = ci_high), orientation = "y", width = .12,
+    color = nature_colors[["navy"]], linewidth = .4) +
+  ggplot2::geom_point(ggplot2::aes(shape = with_interval),
+    color = nature_colors[["navy"]], size = 2) +
+  ggplot2::scale_shape_manual(values = c(`TRUE` = 16, `FALSE` = 1),
+    breaks = c(TRUE, FALSE), labels = c("With interval", "Point only")) +
+  ggplot2::facet_grid(. ~ anchor,
+    labeller = ggplot2::labeller(anchor = ggplot2::as_labeller(anchor_labels))) +
+  ggplot2::scale_x_continuous(breaks = scales::breaks_pretty(n = 3),
+    labels = scales::label_number(accuracy = .01)) +
+  ggplot2::labs(x = "Mean neighbor utility after omission: d1 minus Direct",
+    y = "Omitted query cohort", shape = NULL) +
+  theme_nature_readable(base_size = params$sensitivity_plot_base_size,
+    legend_position = "bottom")
+hc_loo_jpg <- hc_save_plot(p_hc_loo, "02.02.00. high-coverage-leave-one-cohorts",
+  width = params$sensitivity_plot_width,
+  height = max(5, .32 * nlevels(hc_loo$omitted) + 1.8))
+knitr::include_graphics(hc_loo_jpg)
+```
+
 ```{r high-coverage-leave-one-table, echo=TRUE}
 render_dt(high_coverage$leave_one, pageLength = 8)
 ```
@@ -1154,6 +1193,50 @@ render_dt(high_coverage$leave_one, pageLength = 8)
 逐一删除队列后，基质的 `r sum(high_coverage$leave_one$anchor == "stromal_tme" & high_coverage$leave_one$unit == "cohort")` 次结果均为负，点估计范围为 `r paste(fmt(range(high_coverage$leave_one$estimate[high_coverage$leave_one$anchor == "stromal_tme" & high_coverage$leave_one$unit == "cohort"])), collapse = " 至 ")`，各次 95% 区间均低于零。增殖也始终为负，范围为 `r paste(fmt(range(high_coverage$leave_one$estimate[high_coverage$leave_one$anchor == "proliferation" & high_coverage$leave_one$unit == "cohort"])), collapse = " 至 ")`，但多数区间跨零。免疫的平均点估计保持负向、IL6 保持正向，区间均跨零；IFNγ 在部分删除条件下会改变符号。**方向保持与区间支持是两件事：基质的负向模式最稳定，其余 signature 的证据强度不能仅按符号判断。** 留一结果彼此高度重叠，也不构成多次独立验证；本表不附 p/q，不能把点式区间当作多重校正后的发现。
 
 来源汇总表用于解释上述结果的组成。`cohort_equal_mean` 是该来源内部的队列等权平均差，不是来源等权的总体效应；数据库来源也不等于测序平台、患者独立性或技术批次。
+
+来源图把两个问题上下对照：上排显示每个来源内部的队列等权均值，下排显示删除该来源后的剩余队列均值及可用区间。实心点表示有区间，空心点仅表示描述性均值；上排没有来源层推断区间，下排删除 UCSC Xena 后也只有描述性点。两排都沿用同一横轴，便于看出 IFNγ 的来源方向差异及来源删除后的变化。
+
+```{r high-coverage-source-sensitivity-figure, echo=TRUE}
+hc_source_means <- high_coverage$source_summary
+hc_source_loo <- high_coverage$leave_one[high_coverage$leave_one$unit == "source", ]
+hc_source_plot <- rbind(
+  data.frame(anchor = hc_source_means$anchor, source = hc_source_means$source_system,
+    estimate = hc_source_means$cohort_equal_mean, ci_low = NA_real_, ci_high = NA_real_,
+    cohort_count = hc_source_means$cohort_count, scope = "Within-source mean"),
+  data.frame(anchor = hc_source_loo$anchor, source = hc_source_loo$omitted,
+    estimate = hc_source_loo$estimate, ci_low = hc_source_loo$ci_low,
+    ci_high = hc_source_loo$ci_high, cohort_count = hc_source_loo$cohort_count,
+    scope = "After omitting source"))
+hc_source_plot <- hc_source_plot[is.finite(hc_source_plot$estimate), ]
+hc_source_plot$anchor <- factor(hc_source_plot$anchor, levels = names(anchor_labels))
+hc_source_plot$source <- factor(hc_source_plot$source,
+  levels = rev(sort(unique(hc_source_plot$source))))
+hc_source_plot$scope <- factor(hc_source_plot$scope,
+  levels = c("Within-source mean", "After omitting source"))
+hc_source_plot$with_interval <- is.finite(hc_source_plot$ci_low) &
+  is.finite(hc_source_plot$ci_high)
+p_hc_source <- ggplot2::ggplot(hc_source_plot,
+  ggplot2::aes(x = estimate, y = source)) +
+  ggplot2::geom_vline(xintercept = 0, linetype = 2, color = "grey65") +
+  ggplot2::geom_errorbar(data = hc_source_plot[hc_source_plot$with_interval, ],
+    ggplot2::aes(xmin = ci_low, xmax = ci_high), orientation = "y", width = .12,
+    color = nature_colors[["navy"]], linewidth = .45) +
+  ggplot2::geom_point(ggplot2::aes(shape = with_interval),
+    color = nature_colors[["navy"]], size = 2.4) +
+  ggplot2::scale_shape_manual(values = c(`TRUE` = 16, `FALSE` = 1),
+    breaks = c(TRUE, FALSE), labels = c("With interval", "Descriptive only")) +
+  ggplot2::facet_grid(scope ~ anchor,
+    labeller = ggplot2::labeller(anchor = ggplot2::as_labeller(anchor_labels))) +
+  ggplot2::scale_x_continuous(breaks = scales::breaks_pretty(n = 3),
+    labels = scales::label_number(accuracy = .01)) +
+  ggplot2::labs(x = "Cohort-equal neighbor utility: d1 minus Direct",
+    y = "Query source system", shape = NULL) +
+  theme_nature_readable(base_size = params$sensitivity_plot_base_size,
+    legend_position = "bottom")
+hc_source_jpg <- hc_save_plot(p_hc_source, "02.02.00. high-coverage-source-sensitivity",
+  width = params$sensitivity_plot_width, height = 5.2)
+knitr::include_graphics(hc_source_jpg)
+```
 
 ```{r high-coverage-source-summary-table, echo=TRUE}
 render_dt(high_coverage$source_summary, pageLength = 8)
@@ -1166,6 +1249,42 @@ render_dt(high_coverage$source_summary, pageLength = 8)
 ##### 共同队列：各 signature 的验证人群不同是否改变结论
 
 五项 signature 冻结测量合同的队列交集有 `r length(high_coverage$core_contract_cohorts)` 个；进一步要求五个秩同癌种比较都通过实际评分与人数门槛，得到 C_core 的 `r length(high_coverage$core_cohorts)` 个共同队列。此处保持各 signature 原有基因、评分与测量合同，只在相同队列集合上重新汇总。患者仍按各 signature 的完整值资格配对，因此 C_core 的定义保证共同队列，不能仅凭人数相同认定五项使用了完全相同的患者 ID。
+
+森林图把原主比较与 C_core 汇总并排放到每个 signature 的同一行。两组点的左右位置表示平均差，水平线为各自 95% 条件区间；颜色区分验证队列集合。它直观检查固定共同队列后方向和量级是否改变，两个区间的重叠程度不能代替两种人群结果之差的配对检验。
+
+```{r high-coverage-common-cohorts-figure, echo=TRUE}
+hc_core_columns <- c("anchor", "estimate", "ci_low", "ci_high", "cohort_count", "query_count")
+hc_core_plot <- rbind(
+  transform(high_coverage$primary[, hc_core_columns], population = "Primary cohorts"),
+  transform(high_coverage$core[, hc_core_columns], population = "Common cohorts"))
+hc_core_plot <- hc_core_plot[is.finite(hc_core_plot$estimate), ]
+hc_core_plot$anchor <- factor(hc_core_plot$anchor, levels = rev(names(anchor_labels)))
+hc_core_plot$population <- factor(hc_core_plot$population,
+  levels = c("Primary cohorts", "Common cohorts"))
+hc_core_plot$with_interval <- is.finite(hc_core_plot$ci_low) & is.finite(hc_core_plot$ci_high)
+hc_core_dodge <- ggplot2::position_dodge(width = .5)
+p_hc_core <- ggplot2::ggplot(hc_core_plot,
+  ggplot2::aes(x = anchor, y = estimate, color = population, shape = population)) +
+  ggplot2::geom_hline(yintercept = 0, linetype = 2, color = "grey65") +
+  ggplot2::geom_errorbar(data = hc_core_plot[hc_core_plot$with_interval, ],
+    ggplot2::aes(ymin = ci_low, ymax = ci_high), position = hc_core_dodge,
+    width = .12, linewidth = .55) +
+  ggplot2::geom_point(position = hc_core_dodge, size = 2.8) +
+  ggplot2::scale_x_discrete(labels = anchor_labels) +
+  ggplot2::scale_y_continuous(breaks = scales::breaks_pretty(n = 4),
+    labels = scales::label_number(accuracy = .01)) +
+  ggplot2::scale_color_manual(values = c("Primary cohorts" = nature_colors[["navy"]],
+    "Common cohorts" = nature_colors[["green"]])) +
+  ggplot2::scale_shape_manual(values = c("Primary cohorts" = 16, "Common cohorts" = 17)) +
+  ggplot2::coord_flip() +
+  ggplot2::labs(x = NULL, y = "Cohort-equal neighbor utility: d1 minus Direct",
+    color = NULL, shape = NULL) +
+  theme_nature_readable(base_size = params$sensitivity_plot_base_size,
+    legend_position = "bottom")
+hc_core_jpg <- hc_save_plot(p_hc_core, "02.02.00. high-coverage-common-cohorts",
+  width = 9, height = 4.4)
+knitr::include_graphics(hc_core_jpg)
+```
 
 ```{r high-coverage-common-cohort-table, echo=TRUE}
 render_dt(high_coverage$core, pageLength = 5)
@@ -1181,6 +1300,44 @@ render_dt(high_coverage$core, pageLength = 5)
 
 `module_unscaled` 取消 d1 概率列的标准差缩放、保留模块权重；`tissue_balanced` 按组织调整模块权重，二者只改变 d1 的距离规则，Direct 沿用基线。`assay_type`、`source_system` 与 `platform_id` 则让两臂都在同癌种基础上，进一步要求 reference 邻居与 query 的已知检测类型、数据库来源或平台标签相同。技术限制会缩小候选池与有效患者集合，必须在各自共同患者上解读，不能把表中差中差直接加到全人群主效应上。
 
+差中差图按修改规则分面：点在零线右侧表示相对接近度向有利于 d1 的方向移动，左侧表示向不利方向移动。实心点带区间，空心点仅描述队列不足的结果；相同来源条件下的免疫和基质属于后者。平台条件没有合格配对，效应图不补零或画点，其资格在后面的支持图中完整保留。
+
+```{r high-coverage-retrieval-sensitivity-figure, echo=TRUE}
+hc_change_labels <- c(module_unscaled = "No column SD scaling",
+  tissue_balanced = "Tissue-balanced distance", assay_type = "Same assay type",
+  source_system = "Same source system", platform_id = "Same platform")
+hc_sensitivity_plot <- high_coverage$sensitivity[
+  is.finite(high_coverage$sensitivity$estimate), ]
+hc_sensitivity_plot$anchor <- factor(hc_sensitivity_plot$anchor,
+  levels = rev(names(anchor_labels)))
+hc_sensitivity_plot$change <- factor(hc_sensitivity_plot$change,
+  levels = names(hc_change_labels))
+hc_sensitivity_plot$with_interval <- is.finite(hc_sensitivity_plot$ci_low) &
+  is.finite(hc_sensitivity_plot$ci_high)
+p_hc_sensitivity <- ggplot2::ggplot(hc_sensitivity_plot,
+  ggplot2::aes(x = estimate, y = anchor)) +
+  ggplot2::geom_vline(xintercept = 0, linetype = 2, color = "grey65") +
+  ggplot2::geom_errorbar(data = hc_sensitivity_plot[hc_sensitivity_plot$with_interval, ],
+    ggplot2::aes(xmin = ci_low, xmax = ci_high), orientation = "y", width = .12,
+    color = nature_colors[["navy"]], linewidth = .55) +
+  ggplot2::geom_point(ggplot2::aes(shape = with_interval),
+    color = nature_colors[["navy"]], size = 2.5) +
+  ggplot2::scale_shape_manual(values = c(`TRUE` = 16, `FALSE` = 1),
+    breaks = c(TRUE, FALSE), labels = c("With interval", "Point only")) +
+  ggplot2::scale_y_discrete(labels = anchor_labels) +
+  ggplot2::scale_x_continuous(breaks = scales::breaks_pretty(n = 3),
+    labels = scales::label_number(accuracy = .01)) +
+  ggplot2::facet_wrap(~ change, ncol = 2,
+    labeller = ggplot2::as_labeller(hc_change_labels)) +
+  ggplot2::labs(x = "Change in utility difference: modified minus baseline",
+    y = NULL, shape = NULL) +
+  theme_nature_readable(base_size = params$sensitivity_plot_base_size,
+    legend_position = "bottom")
+hc_sensitivity_jpg <- hc_save_plot(p_hc_sensitivity,
+  "02.02.00. high-coverage-retrieval-sensitivity", width = 10, height = 5.6)
+knitr::include_graphics(hc_sensitivity_jpg)
+```
+
 ```{r high-coverage-retrieval-sensitivity-table, echo=TRUE}
 render_dt(high_coverage$sensitivity, pageLength = 10)
 ```
@@ -1190,6 +1347,46 @@ render_dt(high_coverage$sensitivity, pageLength = 10)
 要求相同检测类型后，增殖的差中差为 `r hc_text(high_coverage$sensitivity[high_coverage$sensitivity$anchor == "proliferation" & high_coverage$sensitivity$change == "assay_type", ])`，相对差进一步向负方向移动，未显示缓解；其余 signature 的该项区间跨零。要求相同来源的比较只覆盖两至三个有效队列，免疫和基质仅保留描述性点估计；平台限制下五项均无合格配对患者。这里的支持不足是数据边界，不能写成“控制技术因素后无差异”，也不能证明平台或来源导致了原有负差。
 
 下方状态表按 signature 和修改规则列出人数与资格：`paired_queries` 是进入差中差匹配的患者数，`query_count` 与 `cohort_count` 是汇总结果实际使用的患者与队列数；若人数不同，说明部分匹配患者所在队列未通过汇总资格。`fewer_than_three_cohorts` 表示跨队列区间支持不足，`no_eligible_matched_queries` 表示没有合格配对患者。保留点估计而没有区间的行只能作描述，完全没有配对的行不能补零。
+
+支持图用颜色区分“有区间”“仅点估计”“没有配对患者”，每格列出实际参与汇总的队列数与患者数。它显示技术限制如何缩小验证范围：同来源通常只剩两至三个队列，同平台五项均为零配对；这些数字是支持数量，不是零效应。
+
+```{r high-coverage-sensitivity-support-figure, echo=TRUE}
+hc_support_plot <- high_coverage$sensitivity
+hc_support_plot$anchor <- factor(hc_support_plot$anchor, levels = rev(names(anchor_labels)))
+hc_support_plot$change <- factor(hc_support_plot$change, levels = names(hc_change_labels))
+hc_support_plot$support <- ifelse(is.finite(hc_support_plot$ci_low) &
+  is.finite(hc_support_plot$ci_high), "With interval",
+  ifelse(is.finite(hc_support_plot$estimate), "Point only", "No matched patients"))
+hc_support_plot$support <- factor(hc_support_plot$support,
+  levels = c("With interval", "Point only", "No matched patients"))
+hc_support_plot$label <- paste0(hc_support_plot$cohort_count, " cohorts
+",
+  format(hc_support_plot$query_count, big.mark = ",", trim = TRUE), " patients")
+hc_support_axis_labels <- c(module_unscaled = "No column SD
+scaling",
+  tissue_balanced = "Tissue-balanced
+distance", assay_type = "Same assay
+type",
+  source_system = "Same source
+system", platform_id = "Same
+platform")
+p_hc_support <- ggplot2::ggplot(hc_support_plot,
+  ggplot2::aes(x = change, y = anchor, fill = support)) +
+  ggplot2::geom_tile(color = "white", linewidth = 1, width = .96, height = .9) +
+  ggplot2::geom_text(ggplot2::aes(label = label), size = 3.2, lineheight = 1.15) +
+  ggplot2::scale_x_discrete(labels = hc_support_axis_labels, expand = c(0, 0)) +
+  ggplot2::scale_y_discrete(labels = anchor_labels, expand = c(0, 0)) +
+  ggplot2::scale_fill_manual(values = c("With interval" = "#E3EEF4",
+    "Point only" = "#FFF0D4", "No matched patients" = "#EEEEEE"), drop = FALSE) +
+  ggplot2::labs(x = NULL, y = NULL, fill = NULL) +
+  theme_nature_readable(base_size = params$sensitivity_plot_base_size,
+    legend_position = "bottom") +
+  ggplot2::theme(axis.ticks = ggplot2::element_blank(),
+    panel.border = ggplot2::element_blank())
+hc_support_jpg <- hc_save_plot(p_hc_support, "02.02.00. high-coverage-sensitivity-support",
+  width = 10, height = 4.6)
+knitr::include_graphics(hc_support_jpg)
+```
 
 ```{r high-coverage-sensitivity-status-table, echo=TRUE}
 hc_sensitivity_status <- high_coverage$sensitivity[, c("anchor", "change",
