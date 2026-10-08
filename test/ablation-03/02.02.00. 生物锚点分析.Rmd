@@ -59,7 +59,7 @@ fmt_pct <- function(x, digits = 1L) paste0(fmt(100 * x, digits), "%")
 fmt_p <- function(x) ifelse(is.finite(x), format.pval(x, digits = 3, eps = 1e-3), "NA")
 fmt_ci <- function(x) paste0("[", fmt(x$ci_low), ", ", fmt(x$ci_high), "]")
 analysis_name <- basename(.ablation03_path())
-structure_report_name <- "02.03.00. 结构复现分析"
+structure_report_name <- "02.03.00. 生物状态关系的跨队列一致性"
 biology_input_script_name <- "01.03.00. 生物输入准备.R"
 biology_script_name <- "02.02.00. 生物锚点分析.R"
 biology_functions_name <- "02.02.00. 生物锚点分析_functions.R"
@@ -930,7 +930,7 @@ render_dt(local_biology, pageLength = 20L)
 | 补充材料的可复核性 | gene signature 定义、覆盖表、有效 query 数、逐队列差值和推断方法 | 极端格子用于提出机制问题，后续在未见队列确认 |
 | 个性化分类的效用论证 | 明确当前表示的局部表达限制及适用任务 | 用病理、蛋白或治疗结局等不同来源目标开展独立验证，不能用当前同源 gene signature 替代 |
 
-结构报告检查高低表达状态之间的较大尺度关系，与本页的患者近邻连续距离互补；粗状态结构接近不能抵消局部负差。若论文的核心用途是寻找表达状态尽量相近的患者，本页直接对应这一任务；若核心用途是跨队列分层，则应结合结构复现与独立目标评价。正文宜保留主要效应图和这一任务边界，覆盖明细与队列热图可放补充材料；两处都应交代共同表达来源和权重口径。
+状态关系报告检查高低表达状态之间的较大尺度关系，与本页的患者近邻连续距离互补；粗状态关系接近不能抵消局部负差。若论文的核心用途是寻找表达状态尽量相近的患者，本页直接对应这一任务；若核心用途是跨队列分层，则应结合状态关系的跨队列一致性与独立目标评价。正文宜保留主要效应图和这一任务边界，覆盖明细与队列热图可放补充材料；两处都应交代共同表达来源和权重口径。
 
 ## 高覆盖 gene signature 验证 {#high-coverage-validation}
 

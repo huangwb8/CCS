@@ -1,4 +1,4 @@
-# ablation-03：表示性能、gene signature 评估与结构可复现性
+# ablation-03：表示性能、gene signature 评估与生物状态关系的跨队列一致性
 
 ablation-03 是独立的可复现分析项目。`_targets.R` 是唯一的分析编排入口，负责依赖图、缓存、恢复、运行状态和 `crew` 并行调度。六个编号 R 文件保留为科学计算实现，由 targets 节点在同一 R 进程中消费；它们不再拥有 stage lock、stage receipt、SUCCESS 或手工 cache hit/miss 协议。
 
@@ -13,10 +13,12 @@ formal 分析与轻量验收使用相同的 targets 图、CCS 版本、参数、
 | `01.03.00` | gene signature 与结构分析输入 | `01-biology` |
 | `02.01.00` | 几何、检索、readout、learning curve、scaling、decoder | `ablation-experiment` |
 | `02.02.00` | gene signature 效用与队列级推断 | `ablation-biology` |
-| `02.03.00` | 双向结构复现与 matched-bank 敏感性 | `ablation-structural-reproducibility` |
+| `02.03.00` | 生物状态关系的双向跨队列一致性与 matched-bank 敏感性 | `ablation-structural-reproducibility` |
 | `02.04.00` | decoder、局部 query、共享节点及固定训练设计的补充推断 | `statistical-inference` |
 
 R Markdown 文件只消费已完成 target 产物，用于报告渲染，不参与科学计算调度。
+`02.03.00. 生物状态关系的跨队列一致性.Rmd` 评价预设 gene signature 高低状态间的质心距离排序，
+不验证新亚型的发现或复现。对应 HTML 使用同名文件；计算脚本、内部字段和缓存目录沿用既有技术标识。
 表示报告另消费 `references/` 中 Figure S3 的历史 cohort Gain 汇总与来源记录，用于解释 d3 坐标重建 importance 与原始 d1 方差份额的区别。该输入不含患者级矩阵、不重拟合历史模型，纳入 `representation_report_sources` 文件依赖；当前方差份额仍来自正式 `representation_analysis` 产物。
 四份 HTML 均由正式依赖图中的 file target 直出；不得在 `tar_make()` 之外用独立
 runner 生成正式报告。

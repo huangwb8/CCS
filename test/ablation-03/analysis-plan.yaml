@@ -58,7 +58,7 @@ units:
     completion: "表示输入可重读，样本契约、参数与代码身份一致"
   - id: "01.03.00"
     name: "生物输入准备"
-    purpose: "准备连续生物锚点与结构复现所需的表达缓存"
+    purpose: "准备连续生物锚点与状态关系跨队列一致性分析所需的表达缓存"
     depends_on: ["01.01.00", "01.02.00"]
     inputs:
       - "<cache-root>/01-data/inputs.rds"
@@ -132,24 +132,24 @@ units:
       - "reports/tables/02.02.00. anchor-within-cohort-inference.csv"
     completion: "生物锚点结果、队列级配对差、推断、来源凭据、四张 PDF 与 HTML 均有效"
   - id: "02.03.00"
-    name: "结构复现分析"
-    purpose: "评估双向结构复现与 matched-bank 设计敏感性"
+    name: "生物状态关系的跨队列一致性"
+    purpose: "评估生物状态间距离排序的双向跨队列一致性与 matched-bank 设计敏感性"
     depends_on: ["01.02.00", "01.03.00", "02.01.00"]
     inputs:
       - "<cache-root>/01-representations/representation-inputs.rds"
       - "<cache-root>/01-biology/expression-anchor-cache.rds"
       - "<cache-root>/ablation-experiment/ablation-result.rds"
-    code: ["02.03.00. 结构复现分析.R", "02.03.00. 结构复现分析_functions.R", "02.03.00. 结构复现分析.Rmd"]
+    code: ["02.03.00. 结构复现分析.R", "02.03.00. 结构复现分析_functions.R", "02.03.00. 生物状态关系的跨队列一致性.Rmd"]
     products: ["<cache-root>/ablation-structural-reproducibility/ablation03-structural-reproducibility.rds"]
     cache: true
     reports:
-      - "02.03.00. 结构复现分析.html"
+      - "02.03.00. 生物状态关系的跨队列一致性.html"
       - "reports/figures/02.03.00. structural-reproducibility-paired.pdf"
       - "reports/figures/02.03.00. structural-similarity-direct.pdf"
       - "reports/figures/02.03.00. structural-similarity-d1.pdf"
       - "reports/figures/02.03.00. structural-matched-bank-sensitivity.pdf"
       - "reports/tables/02.03.00. directional-summary.csv"
-    completion: "双向结构结果、审计表、来源凭据与 HTML 均有效"
+    completion: "双向状态关系一致性结果、审计表、来源凭据与 HTML 均有效"
   - id: "02.04.00"
     name: "统计推断补充"
     purpose: "补充 decoder、局部 query、结构节点、100% 学习曲线及设计敏感性"
@@ -169,5 +169,5 @@ units:
     reports:
       - "02.01.00. 表示分析.html"
       - "02.02.00. 生物锚点分析.html"
-      - "02.03.00. 结构复现分析.html"
+      - "02.03.00. 生物状态关系的跨队列一致性.html"
     completion: "正式 targets metadata、估计量与抽样单位、有效重复数、原学习分数对照和报告数字均通过"

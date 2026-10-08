@@ -60,7 +60,7 @@ data_report_html_name <- "01.04.00. 数据概览.html"
 representation_input_script_name <- "01.02.00. 表示输入准备.R"
 representation_functions_name <- "02.01.00. 表示分析_functions.R"
 biology_report_name <- "02.02.00. 生物锚点分析"
-structure_report_name <- "02.03.00. 结构复现分析"
+structure_report_name <- "02.03.00. 生物状态关系的跨队列一致性"
 required_results <- c(
   data_profile_path,
   file.path(
@@ -912,7 +912,7 @@ render_dt(overview_table, pageLength = 12)
 
 癌种 readout、retrieval、technical excess 的主要效应均以外部 query cohort 为单位，先算每队列的 d1−Direct 差，再对队列等权平均。区间采用 `r params$inference_bootstrap` 次 cohort bootstrap 的百分位区间。双侧 sign-flip 检验在队列数不超过 `r 18L` 时枚举全部符号组合，P 值直接取尾部比例；更多队列时使用 Monte Carlo，并按“尾部次数加一／模拟次数加一”校正。该检验依赖零假设下差值符号可交换的假设，不能替代随机实验。癌种指标和技术字段在各自检验族内使用 Holm 校正，具体采用的方法见表中 `p_method`。
 
-学习曲线和 bank scaling 的重复单位是训练或模块设计，固定了当前 query 人群；它们的区间描述设计敏感性。生物学与结构结果分别见同目录的 `r biology_report_name`、`r structure_report_name` 报告。
+学习曲线和 bank scaling 的重复单位是训练或模块设计，固定了当前 query 人群；它们的区间描述设计敏感性。gene signature 评估与状态关系一致性结果分别见同目录的 `r biology_report_name`、`r structure_report_name` 报告。
 
 ## d1 与癌种标签的判读边界
 

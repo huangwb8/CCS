@@ -423,7 +423,7 @@ list(
   ),
   targets::tar_target(
     structural_report_sources,
-    c("02.03.00. 结构复现分析.Rmd",
+    c("02.03.00. 生物状态关系的跨队列一致性.Rmd",
       "00.Environment.R",
       "02.01.00. 表示分析_functions.R",
       "02.03.00. 结构复现分析_functions.R",
@@ -440,7 +440,7 @@ list(
     {
       structural_report_sources
       .ablation03_render_report(
-        "02.03.00. 结构复现分析.Rmd",
+        "02.03.00. 生物状态关系的跨队列一致性.Rmd",
         dependency = list(structural_analysis, statistical_inference),
         cache_root = runtime_config$cache_root
       )
