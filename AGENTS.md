@@ -46,6 +46,12 @@ A Computational Framework for Personalized Pan-cancer Genomic Classification.
 - 文档更新应保持一致性
 - 测试覆盖应符合项目标准
 
+### 报告去 AI 味
+
+- 每次完成报告的新写或修订后，交付前必须使用 `nsfc-humanization` skill 润色，检查词语、句法、段落和章节，减少套话、模板感、生硬措辞和重复表达。
+- Skill 指令位于 `C:/Users/Administrator/.codex/skills/nsfc-humanization/SKILL.md`。按项目负责人明确要求，本规则适用于本项目所有报告，包括非 NSFC 报告；按报告自身用途组织内容，不套用标书章节结构。
+- 润色只调整表达，保留事实、数字、公式、引用、代码、专业术语和科学结论。完成后复核这些内容及 Markdown/LaTeX/R Markdown 结构；涉及正式分析报告时，仍须通过既有 `targets` 入口更新最终产物。
+
 ## 项目目录约定
 
 - `R/`：R 包核心代码与导出 API
