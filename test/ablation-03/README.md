@@ -63,7 +63,7 @@ decoder 的 cohort 等权区间与原合并 query 逐特征分数分列；结构
 
 ## 正式运行
 
-高覆盖 gene signature 验证作为补充分析接入同一 DAG，不替换原 43-cohort 基线或低覆盖诊断。
+高覆盖 gene signature 验证接入同一 DAG；正文以广队列基线、高覆盖验证及必要机制线索为主线，原 43-cohort 基线与各诊断产品继续保留。
 设计冻结在 `config/biology-high-coverage.yml`，分析函数放在本分析的
 `R/biology_high_coverage.R`，I/O 由 `targets/biology_high_coverage.R` 负责；直接复用
 已安装 CCS 的检索、reference-only 读取器和 cohort 配对推断，不修改公共包 API 或版本。
@@ -87,7 +87,7 @@ decoder 的 cohort 等权区间与原合并 query 逐特征分数分列；结构
 配对的条件不在效应图中补零，其队列／患者数与资格完整显示在支持图。主效应与覆盖率效果图仅展示效应及区间均可估计的结果，省略无结果的行、
 分面和人数标签；报告正文说明省略原因，完整状态与资格仍保留在聚合表中。
 队列异质性图共享队列纵轴，仅在左侧显示名称，各 gene signature 按相同队列顺序对齐。
-报告将高覆盖补充验证作为“gene signature 分数的邻居接近度”的子节，置于广队列结果之后。
+报告将“高覆盖 gene signature 验证”作为独立章节，紧接广队列基线；正文用一段说明全队列交集资格不足为何转向高覆盖队列，明确两种测量合同的区别。邻居重排与模块距离贡献留在正文“患者相似性重排的机制线索”中。
 五个选定 gene signature 固定构成主检验族，缺失 gene signature 仍计入 BH 的五项分母；coverage
 档的其它比较按完整五项族校正。完整表以 `BH_family` 逐行标明口径：主比较行沿用各 gene signature 选定档位组成的五项主族，其余行使用对应覆盖档、评分及候选池的五项族；同一覆盖档显示的 q 值可能属于不同族。95% cohort bootstrap 条件于固定 bank、合同及 atlas；没有独立
 冻结的非劣效界值，不据 CI 跨零宣称无损。距离及技术限制使用配对患者差中差，留一及
@@ -131,7 +131,9 @@ d1−Direct，正值较差；utility 差正值较好。XGBoost 只由预设 refe
 规则触发，两臂同时运行，不使用外部 query 调参。输入不重叠审计采用完整
 冻结 geneSet 的保守并集，不能据此宣称独立临床验证。
 
-生物报告在严格效应可估计时输出评分候选池与读取器两张 PDF；低覆盖探索有有效
+全队列共同测量资格、不可估计比较、读取器状态与检索核验完整保存在“附录：全队列共同测量审计”；固定残余基因的图表与解读另放“附录：固定残余基因的低覆盖探索”。这些状态属于全队列交集合同，不作为高覆盖验证失败的证据。全部原 R chunk、图表、科学参数与 targets 依赖继续保留，调整只涉及报告位置与解释。
+
+生物报告在全队列共同交集效应可估计时输出评分候选池与读取器两张 PDF；低覆盖探索有有效
 点估计时另输出 diagnostic-low-coverage-score-pool.pdf，并将全部预定评分／候选池与距离
 切换差中差分别绘制为 diagnostic-low-coverage-score-pool-changes.pdf 和
 diagnostic-low-coverage-distance-changes.pdf，保留实际人数、条件区间与单基因仅点估计。
