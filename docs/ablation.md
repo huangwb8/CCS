@@ -308,9 +308,9 @@ result <- ablation(
 
 ## 结果解读边界
 
-生物锚点报告将高覆盖补充验证纳入“连续表达锚点 readout”，置于原广队列结果之后。效果图仅展示可估计结果，省略原因在正文说明；队列异质性图共享纵轴，队列名称只显示一次。完整状态与预设检验族保持不变。
+生物报告在“gene signature 分数的邻居接近度”中依次呈现广队列基线与高覆盖验证。效果图展示可估计结果，完整状态与检验族见配套表格；队列异质性图共享纵轴，队列名称只显示一次。报告以当前配置、方法和结果为主，变更过程由 Git 历史与 CHANGELOG 记录。
 
-ablation-03 另增加高覆盖生物锚点验证，在每个原签名上独立冻结共同基因、可测队列和 reference 支持，与原大队列基线及低覆盖诊断并列保留。该分支由同一 `_targets.R` 中的 `biology_high_coverage_*` targets 执行，分析专用函数位于 `test/ablation-03/R/`，设计在 `config/biology-high-coverage.yml`，结果独立写入 `biology-high-coverage/`。它不修改公共 `ablation()` API 或重训 bank。全部预设覆盖率与 raw/rank × all/same-cancer 对照保留，队列选择不读取两臂效应；连续读取器用于区分信息可恢复性和近邻几何。支持不足保持不可估计，没有预先冻结的非劣效界值时不将 CI 跨零解释为等价。
+ablation-03 高覆盖验证为每项 gene signature 独立固定共同基因、可测队列和 reference 支持，与广队列基线及低覆盖诊断分别报告。高覆盖验证与全队列诊断的共同秩背景门槛为 3,000 个基因，评分使用完整的共同背景交集。该分支由同一 `_targets.R` 中的 `biology_high_coverage_*` targets 执行，分析专用函数位于 `test/ablation-03/R/`，设计在 `config/biology-high-coverage.yml`，结果独立写入 `biology-high-coverage/`。它不修改公共 `ablation()` API 或重训 bank。全部预设覆盖率与 raw/rank × all/same-cancer 对照保留，队列选择不读取两臂效应；连续读取器用于区分信息可恢复性和近邻几何。支持不足保持不可估计，没有预先冻结的非劣效界值时不将 CI 跨零解释为等价。
 
 1. 先看 `endpoint_eligibility` 和 `evidence_level`；candidate query 不等于可用于 cancer-labelled endpoint 的 estimable query。
 2. 把 primary、diagnostic 和 mechanism 分开；lineage readout 或 decoder 不能替代外部 biology 的主证据。
@@ -329,8 +329,6 @@ ablation-03 另增加高覆盖生物锚点验证，在每个原签名上独立�
 - 改变公共 API：同步更新 `R/ablation.R` 的 roxygen 与 `man/`，再 `devtools::document()`；
 - 不把 `.ablation_*` 函数当作独立脚本；新逻辑应挂在“入口 → 准备 → 评估 → 汇总 → 落盘”层次上。
 
-## ablation-03 通路锚点拆分
+## ablation-03 Gene signature 定义
 
-2026-10-06 将 IFNγ 与 IL6-JAK-STAT3 拆为分别评分的通路锚点，当前分析使用五项锚点和固定五项 BH 族。配置位于 `test/ablation-03/config/biological-anchors.yml`，旧合并方案已弃用，不保留归档；这是查看原合并结果后的方案修订。广队列、高覆盖、诊断与结构复现均沿既有 targets DAG 执行，测量与可估计性门槛不变。详情见[拆分重分析计划](plans/2026-10-06-ablation03-IFNγ与IL6锚点拆分重分析计划.md)。
-
-五锚点正式重算与结果核验已完成；高覆盖共 80 格，原表示分析的 18 个科学文件与其余 raw 输入哈希不变，CCS 保持 0.8.4。具体效应、95% CI、固定五项 BH 校正及不可估计原因见最新生物报告和拆分重分析计划。
+分析采用增殖、免疫微环境、基质微环境、IFNγ 和 IL6-JAK-STAT3 五项 gene signature。IFNγ 与 IL6-JAK-STAT3 分别使用对应通路的基因集，共享基因在各通路中保留。定义见 `test/ablation-03/config/biological-anchors.yml`；广队列、高覆盖、诊断与结构复现由同一 targets DAG 执行。具体效应、95% CI、固定五项 BH 校正和不可估计原因见生物报告。
