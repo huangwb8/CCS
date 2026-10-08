@@ -333,4 +333,4 @@ ablation-03 高覆盖验证为每项 gene signature 独立固定共同基因、�
 
 ## ablation-03 Gene signature 定义
 
-分析采用增殖、免疫微环境、基质微环境、IFNγ 和 IL6-JAK-STAT3 五项 gene signature。IFNγ 与 IL6-JAK-STAT3 分别使用对应通路的基因集，共享基因在各通路中保留。定义见 `test/ablation-03/config/biological-anchors.yml`；广队列、高覆盖、诊断与结构复现由同一 targets DAG 执行。具体效应、95% CI、固定五项 BH 校正和不可估计原因见生物报告。
+分析采用增殖、免疫微环境、基质微环境、IFNγ 和 IL6-JAK-STAT3 五项 gene signature。IFNγ 与 IL6-JAK-STAT3 分别使用对应通路的基因集，共享基因在各通路中保留。定义见 `test/ablation-03/config/biological-anchors.yml`；广队列、高覆盖、诊断与生物状态关系的跨队列一致性分析由同一 targets DAG 执行。具体效应、95% CI、固定五项 BH 校正和不可估计原因见生物报告。
