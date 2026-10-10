@@ -22,6 +22,9 @@ R Markdown 文件只消费已完成 target 产物，用于报告渲染，不参�
 Figure 11 用等比例 Direct–d1 配对散点图和差值直方图展示总体水平与队列对变化；
 对角线上方表示 d1 更一致，差值柱以零为界区分下降与非下降。图中列出已有的平均差、
 队列节点 bootstrap 区间和 d1 不低于 Direct 的队列对比例，图注说明共享队列依赖与区间含义。
+“总体区间与同癌种分组比较”小节另用两面板图展示正向全体／同标签分组的平均配对差及已有 95% 队列节点区间，
+并以共享队列 A 的两条比较解释重采样单位。结果图沿用正式结构摘要，示意图不含实验数据，现有图号不变。
+图中 `Same cancer-type group` 按项目 `cancer_type` 标签判断，不代表严格相同病理癌种；正文列出分组、队列名单、比较数和权重占比，并说明均值按队列对等权。
 表示报告另消费 `references/` 中 Figure S3 的历史 cohort Gain 汇总与来源记录，用于解释 d3 坐标重建 importance 与原始 d1 方差份额的区别。该输入不含患者级矩阵、不重拟合历史模型，纳入 `representation_report_sources` 文件依赖；当前方差份额仍来自正式 `representation_analysis` 产物。
 四份 HTML 均由正式依赖图中的 file target 直出；不得在 `tar_make()` 之外用独立
 runner 生成正式报告。

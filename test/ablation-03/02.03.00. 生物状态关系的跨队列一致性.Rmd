@@ -151,8 +151,31 @@ structural_same_cancer_summary <- if (
     " 仅作描述"
   )
 } else {
-  "没有形成可比较的同癌种队列对"
+  "没有形成可比较的同癌种分组队列对"
 }
+structural_same_group_pairs <- structural_pairs[
+  structural_pairs$same_cancer_type, , drop = FALSE
+]
+structural_same_group_composition <- do.call(rbind, lapply(
+  split(structural_same_group_pairs, structural_same_group_pairs$cancer_type_a),
+  function(part) {
+    cohorts <- sort(unique(c(part$cohort_a, part$cohort_b)))
+    data.frame(
+      cancer_type_group = part$cancer_type_a[1L],
+      cohort_count = length(cohorts),
+      cohort_pair_count = nrow(part),
+      pair_weight_share = nrow(part) / nrow(structural_same_group_pairs),
+      cohorts = paste(cohorts, collapse = "; "),
+      stringsAsFactors = FALSE
+    )
+  }
+))
+structural_same_group_composition <- structural_same_group_composition[
+  order(-structural_same_group_composition$cohort_pair_count,
+    structural_same_group_composition$cancer_type_group),
+  , drop = FALSE
+]
+structural_same_group_largest <- structural_same_group_composition[1L, , drop = FALSE]
 structural_forward_all <- structural_directional_summary[
   structural_directional_summary$direction ==
     "reference_bank_to_external_targets" &
@@ -391,7 +414,7 @@ $$
 
 $\mathcal P$ 为该方向、该比较范围的有效队列对集合。$\Delta>0$ 表示 d1 的跨队列排序更一致，$\Delta<0$ 表示更不一致；差值的理论范围为 $[-2,2]$，单位是相关系数差。教学示例中，Direct 为 0.8、d1 为 0.7，差就是 −0.1，不能写成“丢失了 10% 的生物信息”。
 
-总体均值对**每个有效队列对等权**，不按患者数或共有距离数加权，也不合并所有队列的距离后再计算相关。较大队列因此不会直接获得更多权重，但参与比较较多的队列会影响更多条边。这与先求各队列的平均差、再对队列等权平均有所不同，在比较关系稀疏的同癌种子网中尤其如此。
+总体均值对**每个有效队列对等权**，不按患者数或共有距离数加权，也不合并所有队列的距离后再计算相关。较大队列因此不会直接获得更多权重，但参与比较较多的队列会影响更多条边。这与先求各队列的平均差、再对队列等权平均有所不同，在比较关系稀疏的同癌种分组子网中尤其如此。
 
 ### 双向投影与有效比较范围
 
@@ -696,7 +719,133 @@ knitr::include_graphics(fig13_jpg)
 
 d1 的相关范围为 `r fmt(min(structural_pairs$d1_similarity))` 至 `r fmt(max(structural_pairs$d1_similarity))`。同一格变得更红，表示两个队列的距离排序在 d1 中更一致，但尚无法确定哪些状态对的距离发生了变化，也不能据此判断某个通路被增强。一行或一列有多处变化时，可核查该共享队列的测量基因、癌种和患者构成。这些格子依赖同一队列，不能作为多次独立支持。极端格子可帮助诊断异质性，机制判断仍需独立验证。
 
-### 总体区间与同癌种比较：为什么按队列节点重采样
+### 总体区间与同癌种分组比较：为什么按队列节点重采样
+
+图中的 **Same cancer-type group 指队列对两端具有相同的项目 `cancer_type` 分组标签**，汇总多个分组内的比较，并非一个特定癌种，也不要求病理诊断完全相同。例如，当前 `CRC` 合并了 TCGA-COAD 与 TCGA-READ，`STAD` 分组包含 TCGA-ESCA 与 TCGA-STAD；`Blood` 和 `Pediatric` 也是较宽的分组。因此，下文称其为“同癌种分组”，具体队列名单列于组成表。
+
+正向全体 `r structural_all$cohort_count` 个队列形成 `r structural_all$cohort_pair_count` 对比较，包括跨分组的队列对。限制到相同标签后，仅有 `r nrow(structural_same_group_composition)` 个分组、`r structural_same_cancer$cohort_count` 个队列和 `r structural_same_cancer_pair_count` 对比较；其余 `r structural_all$cohort_count - structural_same_cancer$cohort_count` 个队列所在分组没有第二个可比较队列。这里的队列数是实际参与同分组比较的节点数，不是癌种数，也不是患者数。
+
+```{r figure-structural-node-summary, interp_check=TRUE}
+# Paired mean changes use the primary structural summary, not the supplementary
+# inference table, whose bootstrap seed and interval endpoints differ.
+fig_node_summary <- list(
+  width_in = 10.5,
+  height_in = 4.1,
+  base_size = 11,
+  point_size = 3,
+  interval_line_width = 0.7,
+  node_size = 11,
+  node_label_size = 3.8,
+  edge_label_size = 3.3
+)
+structural_interval_data <- structural_summary[
+  match(c("all_cohort_pairs", "same_cancer_type"), structural_summary$scope),
+  , drop = FALSE
+]
+structural_interval_data$scope_label <- factor(
+  paste0(
+    c("All cohort pairs", "Same cancer-type group"), "\n",
+    structural_interval_data$cohort_count, " cohorts; ",
+    structural_interval_data$cohort_pair_count, " pairs"
+  ),
+  levels = rev(paste0(
+    c("All cohort pairs", "Same cancer-type group"), "\n",
+    structural_interval_data$cohort_count, " cohorts; ",
+    structural_interval_data$cohort_pair_count, " pairs"
+  ))
+)
+# Keep descriptive points even if a subgroup has no estimable interval.
+structural_interval_ci <- structural_interval_data[
+  structural_interval_data$inference_status == "estimable" &
+    is.finite(structural_interval_data$mean_delta_ci_low) &
+    is.finite(structural_interval_data$mean_delta_ci_high),
+  , drop = FALSE
+]
+p_node_interval <- ggplot2::ggplot(
+  structural_interval_data,
+  ggplot2::aes(x = .data$mean_delta, y = .data$scope_label)
+) +
+  ggplot2::geom_vline(xintercept = 0, linetype = "dashed", color = "grey50") +
+  ggplot2::geom_errorbar(
+    data = structural_interval_ci,
+    ggplot2::aes(
+      xmin = .data$mean_delta_ci_low, xmax = .data$mean_delta_ci_high
+    ),
+    orientation = "y", width = 0.12,
+    linewidth = fig_node_summary$interval_line_width,
+    color = nature_colors[["navy"]]
+  ) +
+  ggplot2::geom_point(
+    size = fig_node_summary$point_size, color = nature_colors[["navy"]],
+    na.rm = TRUE
+  ) +
+  ggplot2::scale_x_continuous(
+    expand = ggplot2::expansion(mult = c(0.12, 0.12))
+  ) +
+  ggplot2::scale_y_discrete(drop = FALSE, expand = ggplot2::expansion(add = 0.7)) +
+  ggplot2::labs(x = "Mean change in agreement (d1 - Direct)", y = NULL) +
+  theme_nature_readable(base_size = fig_node_summary$base_size,
+    legend_position = "none") +
+  ggplot2::theme(panel.border = ggplot2::element_blank(),
+    axis.line.y = ggplot2::element_blank(), axis.ticks.y = ggplot2::element_blank())
+
+# Illustrative cohorts A, B and C are not measurements from the experiment.
+structural_node_demo <- data.frame(
+  cohort = c("A", "B", "C"), x = c(0.15, 0.85, 0.85), y = c(0.5, 0.8, 0.2)
+)
+structural_edge_demo <- data.frame(
+  x = c(0.15, 0.15), y = c(0.5, 0.5),
+  xend = c(0.85, 0.85), yend = c(0.8, 0.2),
+  label = c("A-B comparison", "A-C comparison"),
+  label_x = c(0.5, 0.5), label_y = c(0.73, 0.27)
+)
+p_node_dependence <- ggplot2::ggplot() +
+  ggplot2::geom_segment(
+    data = structural_edge_demo,
+    ggplot2::aes(x = .data$x, y = .data$y,
+      xend = .data$xend, yend = .data$yend),
+    linewidth = 0.8, color = "grey55"
+  ) +
+  ggplot2::geom_label(
+    data = structural_edge_demo,
+    ggplot2::aes(x = .data$label_x, y = .data$label_y, label = .data$label),
+    size = fig_node_summary$edge_label_size, label.size = NA,
+    fill = "white"
+  ) +
+  ggplot2::geom_point(
+    data = structural_node_demo,
+    ggplot2::aes(x = .data$x, y = .data$y, fill = .data$cohort == "A"),
+    shape = 21, size = fig_node_summary$node_size, stroke = 0.6,
+    color = nature_colors[["navy"]]
+  ) +
+  ggplot2::scale_fill_manual(
+    values = c("TRUE" = nature_colors[["orange"]], "FALSE" = "white"),
+    guide = "none"
+  ) +
+  ggplot2::geom_text(
+    data = structural_node_demo,
+    ggplot2::aes(x = .data$x, y = .data$y, label = .data$cohort),
+    size = fig_node_summary$node_label_size, fontface = "bold"
+  ) +
+  ggplot2::annotate("text", x = 0.5, y = 0.02,
+    label = "Shared cohort A", size = fig_node_summary$node_label_size) +
+  ggplot2::coord_fixed(xlim = c(0, 1), ylim = c(-0.08, 1), expand = FALSE) +
+  ggplot2::theme_void(base_size = fig_node_summary$base_size,
+    base_family = getOption("bensz.base_family", "sans")) +
+  ggplot2::theme(plot.margin = ggplot2::margin(10, 10, 10, 10))
+p_node_summary <- patchwork::wrap_plots(
+  p_node_interval, p_node_dependence, nrow = 1, widths = c(1.6, 1)
+) + patchwork::plot_annotation(tag_levels = "A")
+fig_node_summary_jpg <- .ae_save_plot(
+  p_node_summary, "02.03.00. structural-node-summary", figure_dir,
+  preview_dir, fig_node_summary, params$plot_preview_dpi
+)
+knitr::include_graphics(fig_node_summary_jpg)
+```
+
+**A 图比较正向全体队列对与同癌种分组子集的平均变化。** 点为平均 d1−Direct，横线为正式结构摘要中的 95% 队列节点 bootstrap 区间，虚线表示零差。两行共用横轴，左侧标出实际队列数和队列对数；没有可估计区间时只保留可用的点估计，完整状态见下表。当前两组点估计接近，同癌种分组子集的区间更宽，两者均跨零。这些区间分别描述各自平均差的不确定性，未检验两组效应之差，也不证明等价或无损。
+
+**B 图说明两条比较为什么相互依赖。** A、B、C 是示意队列，A–B 与 A–C 共享队列 A。若 A 的状态测量发生偏移，两条边都可能随之改变。因此，重采样以队列节点为单位，并同步改变与该节点相连的比较权重，不能把这些队列对独立抽取。节点颜色只突出共享的 A，不表示实验效应或重采样频次。
 
 ```{r structural-summary-table, echo=TRUE, interp_check=TRUE}
 render_dt(
@@ -726,7 +875,19 @@ $$
 
 任一端点未抽中的边不参与计算，无有效边的重复被丢弃，重复抽到同一队列也不新增自我比较。正式结构分析设置 `r structural_result$method$bootstrap` 次重复，以有效均值分布的 2.5% 和 97.5% 分位数给出区间。**重采样仅改变节点组成和边的权重，患者、状态质心和 bank 均保持不变。** 该区间反映固定表示、分组及现有目标队列网络下的队列组成不确定性，未涵盖患者测量、训练、模块重选及未来任意队列的全部波动。
 
-同癌种子集保留癌种标签相同的独立队列对，用于考察同类疾病在另一批患者中的状态关系是否相似；平台、疾病阶段和取样构成仍未控制。当前正向有 `r structural_same_cancer_pair_count` 对同癌种比较，`r structural_same_cancer_summary`。该子集的点估计也较小，区间更宽，平均变化方向尚不明确。全体与同癌种子集之间未进行正式交互检验，二者结果的差异不能归因于癌种混杂已被消除。
+同癌种分组子集用于考察相同项目标签下，不同队列的状态关系是否相似；组内的病理类型、平台、疾病阶段和取样构成仍未控制。当前正向有 `r structural_same_cancer_pair_count` 对比较，`r structural_same_cancer_summary`。该子集的点估计也较小，区间更宽，平均变化方向尚不明确。全体与同癌种分组子集之间未进行正式交互检验，二者结果的差异不能归因于癌种混杂已被消除。
+
+**同分组平均差仍按队列对等权，而非癌种分组等权。** 下表的权重占比为该分组的队列对数除以全部同分组队列对数。当前贡献最多的是 `r structural_same_group_largest$cancer_type_group`，有 `r structural_same_group_largest$cohort_count` 个队列、`r structural_same_group_largest$cohort_pair_count` 对比较，占 `r fmt_pct(structural_same_group_largest$pair_weight_share)`。因此，这一均值对队列较多、形成比较较多的分组更敏感，不能解释为各癌种平均贡献相同。
+
+```{r structural-same-group-composition, echo=TRUE, interp_check=TRUE}
+structural_same_group_table <- structural_same_group_composition
+structural_same_group_table$pair_weight_share <- fmt_pct(
+  structural_same_group_table$pair_weight_share
+)
+render_dt(structural_same_group_table, pageLength = 12L)
+```
+
+组成表中的 `cancer_type_group` 是项目分组标签，`cohort_count` 与 `cohort_pair_count` 分别为该组实际参与比较的队列数与队列对数，`pair_weight_share` 为其在同分组均值中的权重占比，`cohorts` 列出原队列标识。表中保留原名称，便于识别合并在同一标签下的不同病理类别。
 
 下表读取 `statistical_inference$structural`，列出节点层推断的均值、辅助中位数及“不低于 Direct 的队列对比例”，便于与总体结果核对。两套区间均采用节点 percentile bootstrap，但正式结构摘要与补充推断使用不同的固定种子，Monte Carlo 区间端点可能略有差别。正文主效应统一引用上方结构摘要，两套区间分别呈现，不混用端点。
 
@@ -734,9 +895,9 @@ $$
 render_dt(statistical_inference$structural, pageLength = 4L)
 ```
 
-**零假设检验对队列网络的要求比区间估计更高。** 上方结构摘要在至少四个节点、三条有效边时给出区间；补充均值检验还要求至少 12 个节点、每个节点至少三条边、有足够有效重采样，并通过当前网络上节点效应加边噪声的覆盖模拟。满足这些条件后，才使用删一节点 jackknife 标准误进行均值是否为零的双侧检验，并在正反方向 × 全体／同癌种的固定四项族内作 Holm 校正。
+**零假设检验对队列网络的要求比区间估计更高。** 上方结构摘要在至少四个节点、三条有效边时给出区间；补充均值检验还要求至少 12 个节点、每个节点至少三条边、有足够有效重采样，并通过当前网络上节点效应加边噪声的覆盖模拟。满足这些条件后，才使用删一节点 jackknife 标准误进行均值是否为零的双侧检验，并在正反方向 × 全体／同癌种分组的固定四项族内作 Holm 校正。
 
-本次两个全体网络均满足检验条件，Holm 校正 P 值分别为 `r fmt_p(statistical_inference$structural$p_value_adj[statistical_inference$structural$direction == "reference_bank_to_external_targets" & statistical_inference$structural$scope == "all_cohort_pairs"])` 与 `r fmt_p(statistical_inference$structural$p_value_adj[statistical_inference$structural$direction == "external_bank_to_reference_targets" & statistical_inference$structural$scope == "all_cohort_pairs"])`，尚无明确证据表明平均差偏离零。两个同癌种网络中，部分节点参与的比较次数不足，P 值保留 NA；**NA 表示未满足检验条件，不能解释为“不显著”或“没有差异”**。表中 `status` 描述检验是否满足条件；仍可计算的描述性均值和条件区间继续保留，不以零替代。
+本次两个全体网络均满足检验条件，Holm 校正 P 值分别为 `r fmt_p(statistical_inference$structural$p_value_adj[statistical_inference$structural$direction == "reference_bank_to_external_targets" & statistical_inference$structural$scope == "all_cohort_pairs"])` 与 `r fmt_p(statistical_inference$structural$p_value_adj[statistical_inference$structural$direction == "external_bank_to_reference_targets" & statistical_inference$structural$scope == "all_cohort_pairs"])`，尚无明确证据表明平均差偏离零。两个同癌种分组网络中，部分节点参与的比较次数不足，P 值保留 NA；**NA 表示未满足检验条件，不能解释为“不显著”或“没有差异”**。表中 `status` 描述检验是否满足条件；仍可计算的描述性均值和条件区间继续保留，不以零替代。
 
 ### Figure 14 与 matched-bank：匹配模块数量和组织组成后的差异
 
@@ -858,7 +1019,7 @@ render_dt(
 )
 ```
 
-匹配设计的正向中位差为 `r fmt(structural_matched_forward_all$mean_delta_median, 4L)`，反向为 `r fmt(structural_matched_reverse_all$mean_delta_median, 4L)`。对当前患者和这批有限的固定模块组合，**尚未观察到在不同模块组成下均成立的平均优势**。正向同癌种子集的设计范围可跨零，所以全体队列对的负差结论不能推广到所有比较范围，需按表中 `scope` 分别解读。
+匹配设计的正向中位差为 `r fmt(structural_matched_forward_all$mean_delta_median, 4L)`，反向为 `r fmt(structural_matched_reverse_all$mean_delta_median, 4L)`。对当前患者和这批有限的固定模块组合，**尚未观察到在不同模块组成下均成立的平均优势**。正向同癌种分组子集的设计范围可跨零，所以全体队列对的负差结论不能推广到所有比较范围，需按表中 `scope` 分别解读。
 
 下表列出重复设计的 2.5%—97.5% 分位范围。相比最小—最大范围，它较少受端点影响，仍仅描述这 `r unique(structural_matched_forward_all$repeat_count)` 次设计的分布。各次设计共享模块和目标患者，没有新增队列，也不提供人群层面的 P 值。**这里的 2.5%—97.5% 分位范围仍是设计敏感性的概括，不能解释为 95% 置信区间**。
 
@@ -909,7 +1070,7 @@ gene signature 邻居接近度报告呈现较一致的负差，本报告的状�
 
 主区间以队列节点为单位重采样。补充零假设检验须先检查节点结构和模拟覆盖，无法可靠估计时保留 NA。增加队列对数量并不能弥补节点数不足；若将有依赖的比较视为独立观测，即使得到较小 P 值，也不足以支持跨队列一致性的判断。
 
-同癌种子集减少了癌种差异的影响。本次正向有 `r structural_same_cancer_pair_count` 对同癌种比较，`r structural_same_cancer_summary`。结论限于实际参与比较的癌种，均值接近零不能推广为所有癌种均保留状态关系。平台、疾病阶段和样本构成的差异仍需考虑。
+同癌种分组子集限制到项目标签相同的队列对，但组内仍可能包含不同病理类别，不能据此认定癌种差异已经消除。本次正向有 `r structural_same_cancer_pair_count` 对比较，`r structural_same_cancer_summary`。结论限于实际参与比较的分组及其队列对权重，均值接近零不能推广为所有癌种均保留状态关系。平台、疾病阶段和样本构成的差异仍需考虑。
 
 ### 投影方向与模块组成的敏感性
 
@@ -923,9 +1084,9 @@ Matched-bank 将每侧模块预算固定为 `r structural_matched_modules` 个�
 
 若实际用途允许状态关系一致性有所下降，应先规定有科学依据的非劣效界值，再在独立未见队列中估计同一效应。区间下界高于负的可接受损失界值，才支持该用途下的非劣效判断；等价性则要求区间整体落入预设的双侧等价范围。两类界值都应在查看验证结果前确定。
 
-还需用独立测量定义状态，例如病理或蛋白测量，并在同癌种、已知平台组成受控的队列中重复当前比较。同时检查重要癌种内的状态是否仍可区分：总体排序相似时，关键亚群仍可能被合并，进而影响泛癌分类用途。这类验证可帮助判断排序稳定是否具有独立生物意义，以及它在多大程度上依赖共享表达数据。
+还需用独立测量定义状态，例如病理或蛋白测量，并在病理癌种一致、已知平台组成受控的队列中重复当前比较。同时检查重要癌种内的状态是否仍可区分：总体排序相似时，关键亚群仍可能被合并，进而影响泛癌分类用途。这类验证可帮助判断排序稳定是否具有独立生物意义，以及它在多大程度上依赖共享表达数据。
 
-本分析补充了 gene signature 邻居接近度之外的组间关系，也揭示了结果对模块组成的敏感性。论文中可报告：当前粗状态关系未出现明确的平均改善或下降，并同时呈现区间、同癌种分析的适用范围及局部表达代价。若进一步主张新的个性化亚型得到验证，仍需独立目标上的证据。
+本分析补充了 gene signature 邻居接近度之外的组间关系，也揭示了结果对模块组成的敏感性。论文中可报告：当前粗状态关系未出现明确的平均改善或下降，并同时呈现区间、同癌种分组分析的适用范围及局部表达代价。若进一步主张新的个性化亚型得到验证，仍需独立目标上的证据。
 
 ## 数字准确性验证
 
