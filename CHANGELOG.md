@@ -6,6 +6,10 @@
 
 ## [Unreleased]
 
+- 澄清 ablation-03 同癌种分组比较的口径：图标签改为 `Same cancer-type group`，明确按项目 `cancer_type` 标签匹配及 CRC、STAD、Blood、Pediatric 的宽分组边界；新增动态组成表与队列对权重占比，说明 26 个队列、22 个队列对是多个分组内比较的汇总，并非单癌种或癌种等权均值。同步讨论与 README，经正式 targets 更新报告，科学统计不变。
+
+- 为 ablation-03“总体区间与同癌种比较”补充两面板图：展示正向全体／同癌种队列对的平均 d1−Direct 与已有 95% 队列节点 bootstrap 区间，以及共享队列节点的依赖示意。保留明细表、推断方法与现有图号，经正式 `structural_report` target 更新 PDF／HTML，不重算科学估计或修改包版本。
+
 - 将 ablation-03 Figure 11 从密集配对连线改为等比例 Direct–d1 散点图与配对差值直方图，以对角线和零线区分变化方向，标注极端差值、平均差、已有的队列节点 bootstrap 区间及非下降比例；同步图注与 README，通过正式 `structural_report` target 更新 PDF 和 HTML，沿用科学结果与包版本。
 
 - 按 nsfc-humanization 润色 ablation-03“生物状态关系的跨队列一致性”报告：将工程措辞和模板式解读改为连贯的研究叙述，简化重复边界说明；保留 R 代码块、公式、动态数值、比较范围及统计条件，通过正式 `structural_report` target 同步 HTML。
