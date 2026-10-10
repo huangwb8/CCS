@@ -93,7 +93,8 @@ directional_paths <- file.path(
     "structural_directional_sample_audit.csv",
     "structural_module_bank_audit.csv",
     "structural_matched_bank_repeats.csv",
-    "structural_matched_bank_summary.csv"
+    "structural_matched_bank_summary.csv",
+    "structural_matched_bank_design.csv"
   )
 )
 if (!all(file.exists(directional_paths))) {
@@ -109,6 +110,7 @@ structural_sample_audit <- read.csv(directional_paths[2L], check.names = FALSE)
 structural_module_banks <- read.csv(directional_paths[3L], check.names = FALSE)
 structural_matched_repeats <- read.csv(directional_paths[4L], check.names = FALSE)
 structural_matched_summary <- read.csv(directional_paths[5L], check.names = FALSE)
+structural_matched_design <- read.csv(directional_paths[6L], check.names = FALSE)
 table_dir <- .ablation03_report_path("tables")
 dir.create(table_dir, recursive = TRUE, showWarnings = FALSE)
 utils::write.csv(
@@ -903,106 +905,186 @@ render_dt(statistical_inference$structural, pageLength = 4L)
 
 完整 reference bank 与 external bank 的模块数量和组织来源不同，双向结果也可能受到模块数量的影响。Matched-bank 仅保留两侧共有组织，以每个组织两侧模块数的较小值确定共同配额，再从各自已固定的模块池无放回抽取成员。每侧共 `r structural_matched_modules` 个模块，重复 `r unique(structural_matched_forward_all$repeat_count)` 次。这一设计匹配组织标签和模块数，沿用已有模块；两侧的训练人数、输出列数、特征选择及模型质量仍可能不同。
 
-同一方向内，目标患者、状态分组与 Direct 基线保持固定，仅更换 d1 模块成员，沿用拟合侧标尺并按模块宽度平衡权重。Figure 14 的每个散点因此代表**一次模块组合中所有有效队列对的平均差**；Figure 11 则逐点展示队列对。零线表示两种表示的平均一致性相同，箱体显示重复设计的中间一半分布，空心菱形显示完整模块库的均值。这些图形元素均不表示置信区间。
+同一方向内，目标患者、状态分组与 Direct 基线保持固定，仅更换 d1 模块成员，沿用拟合侧标尺并按模块宽度平衡权重。Figure 14 展示**每次抽取的模块组合中，所有有效队列对的平均差**；Figure 11 则逐点展示队列对。左右两图采用相同布局：上方保留每次匹配抽样，下方单列完整模块库。横轴零线表示两种表示的平均一致性相同，实心圆为一次匹配抽样，空心菱形为完整模块库；图中不绘制置信区间。
 
 ```{r figure-structural-matched-bank, interp_check=TRUE}
 # ==== Figure 14: Reciprocal matched-bank sensitivity (user-adjustable parameters) ====
 fig14 <- list(
-  # Wide canvas leaves room for two-line direction labels and the external legend.
-  width_in = 7.2,
+  width_in = 12.8,
   height_in = 4.8,
-  # Base font remains legible in print; jitter exposes all 20 bank repeats.
   base_size = 11,
-  point_size = 2.0,
-  point_alpha = 0.72,
-  jitter_width = 0.10,
+  point_size = 2.8,
+  point_alpha = 0.8,
+  jitter_height = 0.22,
   jitter_seed = 20260912L,
-  box_width = 0.42,
-  full_point_size = 4.0,
+  full_point_size = 3.8,
   zero_line_width = 0.55,
-  legend_position = "bottom"
+  x_padding = 0.12
 )
-structural_full_direction <- data.frame(
-  direction_label = factor(
-    c(
-      "reference_bank_to_external_targets",
-      "external_bank_to_reference_targets"
-    ),
-    levels = c(
-      "reference_bank_to_external_targets",
-      "external_bank_to_reference_targets"
-    ),
-    labels = c(
-      "Reference modules\non external targets",
-      "External modules\non reference targets"
+# Identity is the complete selected module set, never a rounded effect value.
+fig14_bank_keys <- function(bank_role) {
+  selected <- structural_matched_design[
+    structural_matched_design$bank_role == bank_role, , drop = FALSE
+  ]
+  banks <- split(selected, selected$repeat_id)
+  data.frame(
+    repeat_id = as.integer(names(banks)),
+    bank_key = vapply(banks, function(bank) {
+      paste(sort(bank$module_id), collapse = "\n")
+    }, character(1)),
+    stringsAsFactors = FALSE
+  )
+}
+fig14_reference <- structural_matched_all[
+  structural_matched_all$bank_role == "reference", , drop = FALSE
+]
+fig14_external <- structural_matched_all[
+  structural_matched_all$bank_role == "external", , drop = FALSE
+]
+fig14_reference_keys <- fig14_bank_keys("reference")
+fig14_external_keys <- fig14_bank_keys("external")
+stopifnot(setequal(fig14_reference$repeat_id, fig14_reference_keys$repeat_id),
+  setequal(fig14_external$repeat_id, fig14_external_keys$repeat_id),
+  !anyDuplicated(fig14_reference$repeat_id), !anyDuplicated(fig14_external$repeat_id))
+fig14_external$bank_key <- fig14_external_keys$bank_key[
+  match(fig14_external$repeat_id, fig14_external_keys$repeat_id)
+]
+fig14_external_design <- structural_matched_design[
+  structural_matched_design$bank_role == "external", , drop = FALSE
+]
+fig14_variable_tissues <- names(Filter(function(part) {
+  sets <- vapply(split(part, part$repeat_id), function(bank) {
+    paste(sort(bank$module_id), collapse = "\n")
+  }, character(1))
+  length(unique(sets)) > 1L
+}, split(fig14_external_design, fig14_external_design$tissue)))
+fig14_external_groups <- do.call(rbind, lapply(
+  split(fig14_external, fig14_external$bank_key), function(part) {
+    # Repeated draws of one fixed bank must reproduce the same statistic.
+    stopifnot(all(is.finite(part$mean_delta)),
+      diff(range(part$mean_delta)) < 1e-12)
+    members <- fig14_external_design[
+      fig14_external_design$repeat_id == part$repeat_id[1L] &
+        fig14_external_design$tissue %in% fig14_variable_tissues,
+      , drop = FALSE
+    ]
+    member_labels <- vapply(split(members, members$tissue), function(group) {
+      sources <- sub("^[^|]+\\|", "", group$module_id)
+      sources <- sub("-.*$", "", sources)
+      sources[sources == "TCGATARGET"] <- "TCGA"
+      paste0(group$tissue[1L], ": ", paste(sort(sources), collapse = "+"))
+    }, character(1))
+    data.frame(
+      member_label = paste(member_labels, collapse = " / "),
+      selected_variable_modules = paste(sort(members$module_id), collapse = "; "),
+      draw_count = nrow(part),
+      repeat_ids = paste(sort(part$repeat_id), collapse = ", "),
+      mean_delta = part$mean_delta[1L],
+      stringsAsFactors = FALSE
     )
-  ),
-  mean_delta = c(
-    structural_forward_all$mean_delta,
-    structural_reverse_all$mean_delta
+  }
+))
+fig14_external_groups <- fig14_external_groups[
+  order(-fig14_external_groups$mean_delta), , drop = FALSE
+]
+rownames(fig14_external_groups) <- NULL
+stopifnot(sum(fig14_external_groups$draw_count) == nrow(fig14_external))
+fig14_x_range <- range(c(structural_matched_all$mean_delta,
+  structural_forward_all$mean_delta, structural_reverse_all$mean_delta, 0))
+fig14_x_limits <- fig14_x_range + c(-1, 1) * diff(fig14_x_range) * fig14$x_padding
+fig14_axis <- function() {
+  list(
+    ggplot2::geom_vline(xintercept = 0, linetype = "dashed",
+      linewidth = fig14$zero_line_width, color = "grey55"),
+    ggplot2::scale_x_continuous(limits = fig14_x_limits,
+      breaks = pretty(fig14_x_limits, n = 4L),
+      labels = function(x) sprintf("%.3f", x), expand = c(0, 0)),
+    ggplot2::labs(x = "Mean change in agreement (d1 - Direct)", y = NULL),
+    theme_nature_readable(base_size = fig14$base_size, legend_position = "none"),
+    ggplot2::theme(panel.border = ggplot2::element_blank(),
+      axis.line.y = ggplot2::element_blank(),
+      axis.ticks.y = ggplot2::element_blank(),
+      plot.title = ggplot2::element_text(size = fig14$base_size,
+        face = "bold", hjust = 0),
+      plot.subtitle = ggplot2::element_text(size = fig14$base_size - 1,
+        hjust = 0))
   )
+}
+fig14_reference_labels <- c(
+  paste0("Matched banks\n", structural_matched_modules, " modules"),
+  paste0("Full bank\n", structural_reference_modules, " modules")
 )
-p14 <- ggplot2::ggplot(
-  structural_matched_all,
-  ggplot2::aes(x = .data$direction_label, y = .data$mean_delta)
-) +
-  ggplot2::geom_hline(
-    yintercept = 0,
-    linewidth = fig14$zero_line_width,
-    color = "grey55"
-  ) +
-  ggplot2::geom_boxplot(
-    width = fig14$box_width,
-    outlier.shape = NA,
-    fill = "grey92",
-    color = "grey40"
-  ) +
+fig14_reference$row_label <- factor(fig14_reference_labels[1L],
+  levels = rev(fig14_reference_labels))
+fig14_reference_full <- data.frame(
+  mean_delta = structural_forward_all$mean_delta,
+  row_label = factor(fig14_reference_labels[2L], levels = rev(fig14_reference_labels))
+)
+p14_reference <- ggplot2::ggplot(fig14_reference,
+  ggplot2::aes(x = .data$mean_delta, y = .data$row_label)) +
+  fig14_axis() +
   ggplot2::geom_jitter(
-    ggplot2::aes(color = .data$bank_role),
-    position = ggplot2::position_jitter(
-      width = fig14$jitter_width,
-      height = 0,
-      seed = fig14$jitter_seed
-    ),
-    size = fig14$point_size,
-    alpha = fig14$point_alpha
+    position = ggplot2::position_jitter(width = 0, height = fig14$jitter_height,
+      seed = fig14$jitter_seed),
+    size = fig14$point_size, alpha = fig14$point_alpha,
+    color = nature_colors[["blue"]]
   ) +
-  ggplot2::geom_point(
-    data = structural_full_direction,
-    ggplot2::aes(x = .data$direction_label, y = .data$mean_delta),
-    inherit.aes = FALSE,
-    shape = 23,
-    size = fig14$full_point_size,
-    fill = "white",
-    color = "black",
-    stroke = 0.9
+  ggplot2::geom_point(data = fig14_reference_full, shape = 23,
+    size = fig14$full_point_size, fill = "white", color = "black", stroke = 0.9) +
+  ggplot2::scale_y_discrete(limits = rev(fig14_reference_labels),
+    expand = ggplot2::expansion(add = 0.6)) +
+  ggplot2::labs(title = "Reference modules on external targets",
+    subtitle = paste0(nrow(fig14_reference), " draws; ",
+      length(unique(fig14_reference_keys$bank_key)), " distinct banks\n",
+      "Each point is one draw"))
+fig14_external_labels <- c(
+  paste0("Matched banks\n", structural_matched_modules, " modules"),
+  paste0("Full bank\n", structural_external_modules, " modules")
+)
+fig14_external$row_label <- factor(fig14_external_labels[1L],
+  levels = rev(fig14_external_labels))
+fig14_external_full <- data.frame(
+  mean_delta = structural_reverse_all$mean_delta,
+  row_label = factor(fig14_external_labels[2L], levels = rev(fig14_external_labels))
+)
+p14_external <- ggplot2::ggplot(fig14_external,
+  ggplot2::aes(x = .data$mean_delta, y = .data$row_label)) +
+  fig14_axis() +
+  ggplot2::geom_jitter(
+    position = ggplot2::position_jitter(width = 0, height = fig14$jitter_height,
+      seed = fig14$jitter_seed),
+    size = fig14$point_size, alpha = fig14$point_alpha,
+    color = nature_colors[["orange"]]
   ) +
-  ggplot2::scale_color_manual(
-    values = c(
-      reference = nature_colors[["blue"]],
-      external = nature_colors[["orange"]]
-    ),
-    labels = c(reference = "Reference modules", external = "External modules")
-  ) +
-  ggplot2::labs(
-    x = NULL,
-    y = "Mean rank-agreement difference\n(d1 - Direct)",
-    color = "Matched module bank"
-  ) +
-  theme_nature_readable(
-    base_size = fig14$base_size,
-    x_text_angle = 0,
-    legend_position = fig14$legend_position
-  )
+  ggplot2::geom_point(data = fig14_external_full, shape = 23,
+    size = fig14$full_point_size, fill = "white", color = "black", stroke = 0.9) +
+  ggplot2::scale_y_discrete(limits = rev(fig14_external_labels),
+    expand = ggplot2::expansion(add = 0.6)) +
+  ggplot2::labs(title = "External modules on reference targets",
+    subtitle = paste0(nrow(fig14_external), " draws; ",
+      nrow(fig14_external_groups), " distinct banks\n",
+      "Draw counts (left to right): ",
+      paste(rev(fig14_external_groups$draw_count), collapse = ", ")))
+p14 <- patchwork::wrap_plots(p14_reference, p14_external, nrow = 1) +
+  patchwork::plot_annotation(tag_levels = "A")
 
-# Readability check: two short direction labels prevent clipping, jitter keeps
-# all repeats visible, the zero line fixes direction, and outlined diamonds
-# distinguish complete-bank estimates from matched design sensitivity.
 fig14_jpg <- .ae_save_plot(
   p14, "02.03.00. structural-matched-bank-sensitivity", figure_dir,
   preview_dir, fig14, params$plot_preview_dpi
 )
 knitr::include_graphics(fig14_jpg)
+```
+
+**A 图的每个蓝点代表一次 reference 匹配抽样。** 本次 `r nrow(fig14_reference)` 次抽样得到 `r length(unique(fig14_reference_keys$bank_key))` 套不同模块组合，每套使用 `r structural_matched_modules` 个模块。两图的点都仅沿纵向轻微错开，以减少重叠；横向位置始终是原始效应值，纵向位置没有统计含义。下方空心菱形为完整 `r structural_reference_modules` 模块库的结果。
+
+**B 图的每个橙点也代表一次匹配抽样。** 本次 `r nrow(fig14_external)` 次抽样只有 `r nrow(fig14_external_groups)` 套不同的完整模块集合，因此这些点集中在四个横坐标位置。从左到右，各组合分别出现 `r paste(rev(fig14_external_groups$draw_count), collapse = "、")` 次，图中也注明了这些次数。变化来自 `r paste(fig14_variable_tissues, collapse = "、")` 的成员选择，其余匹配模块固定。重复抽到同一组合会得到相同结果，这些点的多少表示抽中频率，不能当作新增独立实验。下方空心菱形为完整 `r structural_external_modules` 模块库的结果，上方匹配组合每套使用 `r structural_matched_modules` 个模块。
+
+本次较接近零的两套组合使用 TCGA-LUSC，较负的两套组合使用 CPTAC-LUSC；UCEC 的选择解释了各簇内的两个数值。这里描述的是固定患者、其他模块及分析规则下的组合敏感性，不能外推为两类患者或某种平台具有普遍优势。下表保留原模块标识、重复编号和已有平均差，便于逐行核对。
+
+```{r structural-matched-combination-table, echo=TRUE, interp_check=TRUE}
+render_dt(fig14_external_groups[, c(
+  "selected_variable_modules", "draw_count", "repeat_ids", "mean_delta"
+)], pageLength = 6L)
 ```
 
 **匹配模块数与组织配额后，两个方向的全部重复设计均呈小幅负差。** 正向范围为 `r fmt(structural_matched_forward_all$mean_delta_min, 4L)` 至 `r fmt(structural_matched_forward_all$mean_delta_max, 4L)`，反向为 `r fmt(structural_matched_reverse_all$mean_delta_min, 4L)` 至 `r fmt(structural_matched_reverse_all$mean_delta_max, 4L)`，均低于零。反向完整库的微小正差，在所有匹配设计中均转为负差，因而尚无稳定反向优势的证据。模块数量、共有组织限制与成员选择同时改变，本分析未分离各自影响，负差也不能单独归因于模块数减少。

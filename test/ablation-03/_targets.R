@@ -432,7 +432,8 @@ list(
       "scripts/helpers/plot_delivery_helpers.R",
       "scripts/helpers/datatables_helper.R",
       "templates/liquid_glass_theme.css",
-      "templates/liquid_glass_lightbox.html"),
+      "templates/liquid_glass_lightbox.html",
+      file.path(structural_analysis$directory, "structural_matched_bank_design.csv")),
     format = "file"
   ),
   targets::tar_target(
