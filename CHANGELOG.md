@@ -6,6 +6,8 @@
 
 ## [Unreleased]
 
+- 重绘 ablation-03 Figure 14：移除箱线图，使用共同效应横轴的双面板点图；两侧统一为上方展示各次匹配抽样、下方单列完整库，点仅纵向错开。External 的 20 次抽样保留为 20 个点，标注 4 种完整模块组合及从左到右的抽中次数，成员来源和原模块标识保留在明细表。将既有 design CSV 纳入正式报告依赖，经 targets 更新 PDF／HTML，科学估计与版本不变。
+
 - 澄清 ablation-03 同癌种分组比较的口径：图标签改为 `Same cancer-type group`，明确按项目 `cancer_type` 标签匹配及 CRC、STAD、Blood、Pediatric 的宽分组边界；新增动态组成表与队列对权重占比，说明 26 个队列、22 个队列对是多个分组内比较的汇总，并非单癌种或癌种等权均值。同步讨论与 README，经正式 targets 更新报告，科学统计不变。
 
 - 为 ablation-03“总体区间与同癌种比较”补充两面板图：展示正向全体／同癌种队列对的平均 d1−Direct 与已有 95% 队列节点 bootstrap 区间，以及共享队列节点的依赖示意。保留明细表、推断方法与现有图号，经正式 `structural_report` target 更新 PDF／HTML，不重算科学估计或修改包版本。
