@@ -903,9 +903,81 @@ render_dt(statistical_inference$structural, pageLength = 4L)
 
 ### Figure 14 与 matched-bank：匹配模块数量和组织组成后的差异
 
-完整 reference bank 与 external bank 的模块数量和组织来源不同，双向结果也可能受到模块数量的影响。Matched-bank 仅保留两侧共有组织，以每个组织两侧模块数的较小值确定共同配额，再从各自已固定的模块池无放回抽取成员。每侧共 `r structural_matched_modules` 个模块，重复 `r unique(structural_matched_forward_all$repeat_count)` 次。这一设计匹配组织标签和模块数，沿用已有模块；两侧的训练人数、输出列数、特征选择及模型质量仍可能不同。
+**这个实验固定评价患者，只更换组成 d1 的模型模块，检查结果对模块选择有多敏感。** Reference 与 external 是两套已有的模型库，分别含 `r structural_reference_modules` 和 `r structural_external_modules` 个模块。一个模块是一个已经训练好的队列模型，可以输出若干列患者表示；模块数相同并不保证输出列数相同。完整库的规模和组织覆盖不同，因此从两侧各选出模块数量与组织配额一致的子库，再分别评价。
 
-同一方向内，目标患者、状态分组与 Direct 基线保持固定，仅更换 d1 模块成员，沿用拟合侧标尺并按模块宽度平衡权重。Figure 14 展示**每次抽取的模块组合中，所有有效队列对的平均差**；Figure 11 则逐点展示队列对。左右两图采用相同布局：上方保留每次匹配抽样，下方单列完整模块库。横轴零线表示两种表示的平均一致性相同，实心圆为一次匹配抽样，空心菱形为完整模块库；图中不绘制置信区间。
+```{r matched-bank-design-details, include=FALSE}
+structural_matched_tissues <- sort(intersect(
+  structural_module_banks$tissue[structural_module_banks$bank_role == "reference"],
+  structural_module_banks$tissue[structural_module_banks$bank_role == "external"]
+))
+structural_matched_quotas <- do.call(rbind, lapply(
+  structural_matched_tissues, function(tissue) {
+    reference_n <- sum(structural_module_banks$tissue == tissue &
+      structural_module_banks$bank_role == "reference")
+    external_n <- sum(structural_module_banks$tissue == tissue &
+      structural_module_banks$bank_role == "external")
+    data.frame(tissue = tissue, reference_modules = reference_n,
+      external_modules = external_n, modules_per_bank = min(reference_n, external_n))
+  }
+))
+structural_matched_external_choices <- choose(
+  structural_matched_quotas$external_modules,
+  structural_matched_quotas$modules_per_bank
+)
+structural_matched_external_possible <- prod(structural_matched_external_choices)
+structural_matched_brca <- structural_matched_quotas[
+  structural_matched_quotas$tissue == "BRCA", , drop = FALSE
+]
+structural_matched_evaluation <- rbind(
+  data.frame(panel = "A", module_bank = "reference", target_patients = "external",
+    matched_modules = structural_matched_modules,
+    full_modules = structural_reference_modules,
+    target_samples = structural_forward_all$target_sample_count,
+    target_cohorts = structural_forward_all$cohort_count,
+    cohort_pairs = structural_forward_all$cohort_pair_count),
+  data.frame(panel = "B", module_bank = "external", target_patients = "reference",
+    matched_modules = structural_matched_modules,
+    full_modules = structural_external_modules,
+    target_samples = structural_reverse_all$target_sample_count,
+    target_cohorts = structural_reverse_all$cohort_count,
+    cohort_pairs = structural_reverse_all$cohort_pair_count)
+)
+# Describe the existing design only; every recorded draw must match the quotas.
+stopifnot(sum(structural_matched_quotas$modules_per_bank) == structural_matched_modules,
+  setequal(structural_matched_tissues, unique(structural_matched_design$tissue)))
+for (draw in split(structural_matched_design, interaction(
+  structural_matched_design$bank_role, structural_matched_design$repeat_id,
+  drop = TRUE))) {
+  stopifnot(!anyDuplicated(draw$module_id),
+    identical(as.integer(table(factor(draw$tissue,
+      levels = structural_matched_tissues))), structural_matched_quotas$modules_per_bank))
+}
+```
+
+**先确定每个组织两侧各选多少模块。** 只使用两个模型库共有的 `r length(structural_matched_tissues)` 个组织；对每个组织，取两侧可用模块数的较小值作为共同配额。下表列出全部配额，最后一列相加为每侧每轮的 `r structural_matched_modules` 个模块。这里匹配的是项目中的组织标签及模块数量，不要求两侧选到同一个模型。
+
+```{r matched-bank-quota-table, echo=FALSE, interp_check=TRUE}
+knitr::kable(structural_matched_quotas,
+  col.names = c("组织标签", "reference 可用模块", "external 可用模块", "每侧每轮选取"),
+  align = c("l", "r", "r", "r"))
+```
+
+例如，BRCA 在 reference 库有 `r structural_matched_brca$reference_modules` 个模块，external 库有 `r structural_matched_brca$external_modules` 个，所以两侧每轮各选 `r structural_matched_brca$modules_per_bank` 个。Reference 侧有多种选择，external 侧则必须把这一组织的全部模块选入。每轮在各组织内部无放回抽取；下一轮重新从原模块池抽，因此可以再次选到之前的成员或完整组合。抽取沿用已经训练好的模型，不重新训练，也不重抽患者。
+
+**再把选出的模块用于固定的评价患者。** A 图使用 reference 模块评价 external 患者，B 图使用 external 模块评价 reference 患者；每轮的方向与评价规模如下。
+
+```{r matched-bank-evaluation-table, echo=FALSE, interp_check=TRUE}
+knitr::kable(structural_matched_evaluation,
+  col.names = c("面板", "模块来源", "评价患者", "匹配模块数", "完整库模块数",
+    "固定患者数", "评价队列数", "有效队列对数"),
+  align = c("l", "l", "l", rep("r", 5L)))
+```
+
+**共有组织限制只作用于模型模块，评价患者没有随之缩减成这些组织。** 同一方向内，患者名单、gene signature 高低状态分组、Direct 表示和比较门槛均保持固定；每轮只更换 d1 的模块成员，取出对应的模型输出列，沿用拟合侧标尺并按模块宽度平衡权重。A、B 评价的人群不同，因此不能把两侧点的位置直接当作两个模型库的优劣比较。匹配模块数量与组织配额后，两侧的训练人数、输出列数、特征选择及模型质量仍可能不同。
+
+**图上的一个点怎样得到？** 以 A 图的一轮为例：从 reference 库挑出 `r structural_matched_modules` 个模块，用对应的 d1 输出计算各 external 队列中生物状态的质心与状态间距离。对每个有效队列对，分别得到 Direct 与 d1 的状态距离排序 Spearman 一致性，再计算 d1−Direct；最后对本方向的 `r structural_forward_all$cohort_pair_count` 个队列对等权取平均，得到一个蓝点。B 图同样计算，只是换成 external 模块及 reference 患者，并对 `r structural_reverse_all$cohort_pair_count` 个队列对取平均。Figure 11 的一个点是一个队列对，Figure 14 的一个点是一整套模块组合的总体评价。
+
+这样的抽取重复 `r unique(structural_matched_forward_all$repeat_count)` 轮，两侧各有同样多的匹配抽样点。完整库另外评价一次，使用各自全部 `r structural_reference_modules` 或 `r structural_external_modules` 个模块，沿用同方向的患者与 Direct 基线，画成下方的空心菱形。它不受匹配子库的模块配额限制。横轴零线表示两种表示的平均一致性相同，左侧表示 d1 较低，右侧表示 d1 较高；图中不绘制置信区间。
 
 ```{r figure-structural-matched-bank, interp_check=TRUE}
 # ==== Figure 14: Reciprocal matched-bank sensitivity (user-adjustable parameters) ====
@@ -1077,7 +1149,7 @@ knitr::include_graphics(fig14_jpg)
 
 **A 图的每个蓝点代表一次 reference 匹配抽样。** 本次 `r nrow(fig14_reference)` 次抽样得到 `r length(unique(fig14_reference_keys$bank_key))` 套不同模块组合，每套使用 `r structural_matched_modules` 个模块。两图的点都仅沿纵向轻微错开，以减少重叠；横向位置始终是原始效应值，纵向位置没有统计含义。下方空心菱形为完整 `r structural_reference_modules` 模块库的结果。
 
-**B 图的每个橙点也代表一次匹配抽样。** 本次 `r nrow(fig14_external)` 次抽样只有 `r nrow(fig14_external_groups)` 套不同的完整模块集合，因此这些点集中在四个横坐标位置。从左到右，各组合分别出现 `r paste(rev(fig14_external_groups$draw_count), collapse = "、")` 次，图中也注明了这些次数。变化来自 `r paste(fig14_variable_tissues, collapse = "、")` 的成员选择，其余匹配模块固定。重复抽到同一组合会得到相同结果，这些点的多少表示抽中频率，不能当作新增独立实验。下方空心菱形为完整 `r structural_external_modules` 模块库的结果，上方匹配组合每套使用 `r structural_matched_modules` 个模块。
+**B 图的每个橙点也代表一次匹配抽样。** External 库在大多数共有组织中的可用模块数恰好等于配额，必须全部选入；只有 `r paste(fig14_variable_tissues, collapse = "、")` 各有二选一的空间。按配额可形成的组合总数为 `r structural_matched_external_possible`，本次 `r nrow(fig14_external)` 次抽样实际覆盖了其中 `r nrow(fig14_external_groups)` 套，因此这些点集中在相应的横坐标位置。从左到右，各组合分别出现 `r paste(rev(fig14_external_groups$draw_count), collapse = "、")` 次，图中也注明了这些次数。重复抽到同一组合会得到相同结果，这些点的多少表示抽中频率，不能当作新增独立实验。下方空心菱形为完整 `r structural_external_modules` 模块库的结果，上方匹配组合每套使用 `r structural_matched_modules` 个模块。
 
 本次较接近零的两套组合使用 TCGA-LUSC，较负的两套组合使用 CPTAC-LUSC；UCEC 的选择解释了各簇内的两个数值。这里描述的是固定患者、其他模块及分析规则下的组合敏感性，不能外推为两类患者或某种平台具有普遍优势。下表保留原模块标识、重复编号和已有平均差，便于逐行核对。
 
@@ -1087,7 +1159,7 @@ render_dt(fig14_external_groups[, c(
 )], pageLength = 6L)
 ```
 
-**匹配模块数与组织配额后，两个方向的全部重复设计均呈小幅负差。** 正向范围为 `r fmt(structural_matched_forward_all$mean_delta_min, 4L)` 至 `r fmt(structural_matched_forward_all$mean_delta_max, 4L)`，反向为 `r fmt(structural_matched_reverse_all$mean_delta_min, 4L)` 至 `r fmt(structural_matched_reverse_all$mean_delta_max, 4L)`，均低于零。反向完整库的微小正差，在所有匹配设计中均转为负差，因而尚无稳定反向优势的证据。模块数量、共有组织限制与成员选择同时改变，本分析未分离各自影响，负差也不能单独归因于模块数减少。
+**匹配模块数与组织配额后，两个方向的全部重复设计均呈小幅负差。** 正向范围为 `r fmt(structural_matched_forward_all$mean_delta_min, 4L)` 至 `r fmt(structural_matched_forward_all$mean_delta_max, 4L)`，反向为 `r fmt(structural_matched_reverse_all$mean_delta_min, 4L)` 至 `r fmt(structural_matched_reverse_all$mean_delta_max, 4L)`，均低于零。B 图完整库菱形位于零右侧，对应平均差 `r fmt(structural_reverse_all$mean_delta, 4L)`；使用全部 external 模块时，d1 的平均一致性略高于 Direct，但这一微小正差在所有匹配设计中均转为负差，尚无稳定反向优势的证据。模块数量、共有组织限制与成员选择同时改变，本分析未分离各自影响，负差也不能单独归因于模块数减少。
 
 ```{r structural-matched-summary-table, echo=TRUE, interp_check=TRUE}
 render_dt(

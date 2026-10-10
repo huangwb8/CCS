@@ -32,6 +32,10 @@ ablation-03里{chapter}的写作太过粗糙。 你学一下ablation-03里`输�
 
 ---
 
+E:\iProjects\Manuscripts\CCS 是论文的其它结果；ablation-03只是其中一个部分。我在其它地方基本上已经验证CCS作为一个算法原型是可用的，包括可以构建metaCCS/normCCS，并且normCCS有一些临床/治疗的相关性；但具体CCS为什么可以工作的机制还不知道；我当时只是一种直觉，感觉CCS是可行的（因此才有E:\iProjects\Manuscripts\CCS 里所描述的结果）。所以，ablation-03才聚焦d1，通过研究它的性质（特别是与 Direct-GSClassifier TSP的关系）。其实，我正是想通过 ablation-03 让整个论文的论述更加严谨、完整。你觉得，ablation-03可以如何补充E:\iProjects\Manuscripts\CCS里的论文？
+
+---
+
 原共同秩背景门槛为 5,000 个基因，增殖选定合同的 4,848 个基因未达到该要求。负责人查看该测量结果后，明确要求将高覆盖验证与全队列诊断的背景门槛统一调整为 3000 个基因
 
 上述这种属于防御型描述，我希望不要。 你就直接说： 高覆盖验证与全队列诊断的背景门槛为 3000 个基因。

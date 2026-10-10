@@ -6,6 +6,10 @@
 
 ## [Unreleased]
 
+- 在 ablation-03 README 新增“与 CCS 论文的衔接”小节：解释共同模型坐标与患者距离重表达，梳理机制证据、癌种混杂、IL6 读取限制及 matched-bank 成员敏感性，提出主文安排和选择性邻域重构的后续检验；经 nsfc-humanization 润色，不改动论文正文、科学计算或包版本。
+
+- 补充 ablation-03 Figure 14 matched-bank 的实验设计说明：动态列出共有组织的模块池数量、共同配额及每侧固定评价规模，解释不重训、不抽患者、一个点的计算过程、external 四种组合及完整库正差的含义；保留绘图代码与科学估计，经正式 structural_report targets 更新 HTML。
+
 - 重绘 ablation-03 Figure 14：移除箱线图，使用共同效应横轴的双面板点图；两侧统一为上方展示各次匹配抽样、下方单列完整库，点仅纵向错开。External 的 20 次抽样保留为 20 个点，标注 4 种完整模块组合及从左到右的抽中次数，成员来源和原模块标识保留在明细表。将既有 design CSV 纳入正式报告依赖，经 targets 更新 PDF／HTML，科学估计与版本不变。
 
 - 澄清 ablation-03 同癌种分组比较的口径：图标签改为 `Same cancer-type group`，明确按项目 `cancer_type` 标签匹配及 CRC、STAD、Blood、Pediatric 的宽分组边界；新增动态组成表与队列对权重占比，说明 26 个队列、22 个队列对是多个分组内比较的汇总，并非单癌种或癌种等权均值。同步讨论与 README，经正式 targets 更新报告，科学统计不变。
