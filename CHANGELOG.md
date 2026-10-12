@@ -6,6 +6,14 @@
 
 ## [Unreleased]
 
+- 移除 ablation-03 论文组图各面板及 F 内部的说明性小标题，收紧顶部与行间留白；保留子图字母、坐标、图例和分组标签，同步写作说明并经正式 targets 更新，科学结果不变。
+
+- 调整 ablation-03 论文组图 F 的内部排版：散点图与区间摘要统一为方形绘图区，添加各自的范围标题，将方向标签移入摘要内并缩小点标记；经正式 `paper_figure` targets 更新，保留既有队列对与区间结果。
+
+- 统一 ablation-03 论文组图命名：整图使用 `ablation-figure`，子图使用 `ablation-figure-a` 至 `ablation-figure-g`；同步正文引用、来源清单及正式 targets 输出路径，图形内容与科学结果不变。
+
+- 将 ablation-03 `reports/papers/paper.md` 的论文结果草稿与图注改为中文；缩小 C 面板的点标记并调细置信区间线条，通过正式 `paper_figure` targets 更新组图，保留既有点估计、区间与科学结论。
+
 - 按人类专家阅读尺寸优化 ablation-03 论文组图：以约 180 mm 双栏宽度排版，统一统计面板字号与低饱和配色，缩短标题并重新编辑 A 的小字；为 B–G 增加逐面板正式结果来源及 SHA-256，科学数值、区间、q 值和样本资格保持不变，经正式 paper_figure targets 更新输出。
 
 - 新增 ablation-03 论文衔接预览 `reports/papers/paper.md` 与 A–G 主图：A 使用 auto-draw-plot general 生成并编辑核验，B–G 按正式聚合结果统一重画，保留读取器限制与 matched-bank 不利结果；组图接入 `paper_figure_sources`／`paper_figure` targets，输出矢量统计面板、PDF 和 PNG，不改动科学估计或包版本。
