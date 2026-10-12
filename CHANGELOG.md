@@ -6,6 +6,10 @@
 
 ## [Unreleased]
 
+- 按人类专家阅读尺寸优化 ablation-03 论文组图：以约 180 mm 双栏宽度排版，统一统计面板字号与低饱和配色，缩短标题并重新编辑 A 的小字；为 B–G 增加逐面板正式结果来源及 SHA-256，科学数值、区间、q 值和样本资格保持不变，经正式 paper_figure targets 更新输出。
+
+- 新增 ablation-03 论文衔接预览 `reports/papers/paper.md` 与 A–G 主图：A 使用 auto-draw-plot general 生成并编辑核验，B–G 按正式聚合结果统一重画，保留读取器限制与 matched-bank 不利结果；组图接入 `paper_figure_sources`／`paper_figure` targets，输出矢量统计面板、PDF 和 PNG，不改动科学估计或包版本。
+
 - 在 ablation-03 README 新增“与 CCS 论文的衔接”小节：解释共同模型坐标与患者距离重表达，梳理机制证据、癌种混杂、IL6 读取限制及 matched-bank 成员敏感性，提出主文安排和选择性邻域重构的后续检验；经 nsfc-humanization 润色，不改动论文正文、科学计算或包版本。
 
 - 补充 ablation-03 Figure 14 matched-bank 的实验设计说明：动态列出共有组织的模块池数量、共同配额及每侧固定评价规模，解释不重训、不抽患者、一个点的计算过程、external 四种组合及完整库正差的含义；保留绘图代码与科学估计，经正式 structural_report targets 更新 HTML。
