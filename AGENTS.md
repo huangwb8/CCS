@@ -25,7 +25,7 @@ A Computational Framework for Personalized Pan-cancer Genomic Classification.
 ### targets 流程强制门禁
 
 - 任何已经设计、声明或规划了 `targets` 依赖图的分析，必须严格通过该分析的
-  `_targets.R`、`targets/` wiring、正式 targets store 和 `tar_make()`/`tar_watch()`
+  `_targets.R`、其加载的分析函数、正式 targets store 和 `tar_make()`/`tar_watch()`
   执行与监测；不得用自定义 runner、逐脚本 shell 调度、临时 checkpoint 或其它
   替代入口产生正式分析结果。
 - `targets` 的设计不是可选文档或备用实现。若正式入口、缓存边界、恢复逻辑或

@@ -98,7 +98,7 @@ targets 接管后，以下责任从 `R/ablation.R` 移出：
 test/ablation-03/
 ├── _targets.R
 ├── renv.lock                 # 正式复现/交付阶段生成；不是第一阶段硬前置
-├── targets/
+├── R/                        # 分析辅助函数；2026-10-12 统一迁入此处
 │   ├── functions.R
 │   ├── config.R
 │   └── report_helpers.R
@@ -155,7 +155,7 @@ representation_inputs + biology_inputs + native_geometry
 
 ### 让 ablation-03 只消费已安装 CCS 包
 
-`_targets.R` 的初始化阶段应显式检查并加载 `CCS`，然后通过包命名空间调用已导出的分析接口。不得在 `_targets.R`、`targets/`、Rmd 或报告 helper 中写入 `source("../../R/ablation.R")`、按路径 source 包源码，或把源码目录临时加入 `.libPaths()`。若包版本、R 版本或必需导出函数不符合运行契约，应在 targets 计算前立即失败。
+`_targets.R` 的初始化阶段应显式检查并加载 `CCS`，然后通过包命名空间调用已导出的分析接口。不得在 `_targets.R`、分析目录 `R/`、Rmd 或报告 helper 中写入 `source("../../R/ablation.R")`、按路径 source 包源码，或把源码目录临时加入 `.libPaths()`。若包版本、R 版本或必需导出函数不符合运行契约，应在 targets 计算前立即失败。
 
 每次正式运行的配置/metadata 至少记录 CCS 的包版本、安装路径、R 版本、包 DESCRIPTION 摘要和 Git/build 身份；这些信息必须作为 runtime config target 的一部分，使 CCS 包更新能够让相关下游 targets 正确失效。更新 `R/ablation.R` 后的顺序固定为：包源码修改 → `R CMD check`/科学验证 → patch 版本递增 → 用 `C:\R\R-4.3.1` 构建并安装 → 在 ablation-03 项目中验证 `packageVersion("CCS")` 和导出 API → 才运行正式 targets。
 

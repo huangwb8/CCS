@@ -6,6 +6,12 @@
 
 ## [Unreleased]
 
+- 将 ablation-03 `targets/` 中的五个 R 文件迁入分析目录 `R/`，同名高覆盖 I/O 文件改为 `biology_high_coverage_io.R`，统一通过 `tar_source("R")` 加载；同步源码追踪、测试、分析清单、实现路径和文档。仅调整目录及路径，保留函数实现、targets 依赖图、正式 store、crew 配置、科学结果与包版本。
+
+- 将 ablation-03 `paper.md` 的论文结果草稿重组为三个自然段，依次论述患者关系重组与输入可恢复、生物学任务的取舍、模型库组成依赖；保留主图关键效应与区间，压缩附图细节，不改动图形或科学结果。
+
+- 统一 `test/ablation-03/reports/papers/paper.md` 中的附图名称为 `ablation-supplement-1` 至 `ablation-supplement-3`，同步标题、正文引用、图片说明与来源表，链接及科学内容不变。
+
 - 将 ablation-03 三张附图整合到 `reports/papers/paper.md`：嵌入预览及 PDF／PNG 链接，明确主附图分工，补充结果草稿和 Discussion 中的面板引用、测量条件及组成敏感性解释；保留既有科学数值和图形，不重算分析。
 
 - 新增 ablation-03 三张论文附图，共 14 个面板，补充癌种与技术来源、模型库扩充、生物测量及跨队列稳健性；沿用冻结正式结果与已有区间，接入 `supplementary_figure_sources`／`supplementary_figures` targets，提供矢量 PDF、300 dpi PNG、中英文图注与聚合来源追踪，配套隔离同 DAG 验收和图形核验。

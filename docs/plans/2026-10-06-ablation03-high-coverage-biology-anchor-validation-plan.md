@@ -6,7 +6,7 @@
 
 按负责人本轮要求，本计划作为增量分析实施：广队列基线及低覆盖机制诊断作为不同证据层保留，全部按当前五锚点重新计算，高覆盖结果独立保存并在报告中并列解释。测量合同、覆盖率档和推断规则先于新效应冻结；不按结果调整签名或选队列。
 
-新增设计使用 `test/ablation-03/config/biology-high-coverage.yml`，避免改写只读原始输入。分析专用函数位于 `test/ablation-03/R/biology_high_coverage.R`，由既有 `_targets.R` 发现，I/O 在 `targets/biology_high_coverage.R`；计算复用已安装 CCS，不改公共包源码或版本。正式结果只写入现有 cache root 的 `biology-high-coverage/`。
+新增设计使用 `test/ablation-03/config/biology-high-coverage.yml`，避免改写只读原始输入。分析专用函数位于 `test/ablation-03/R/biology_high_coverage.R`，由既有 `_targets.R` 发现，I/O 在 `R/biology_high_coverage_io.R`；计算复用已安装 CCS，不改公共包源码或版本。正式结果只写入现有 cache root 的 `biology-high-coverage/`。
 
 队列搜索采用冻结的可用性种子规则：按原签名基因可用频率生成全体、单队列及两队列交集种子；每个种子纳入全部兼容且有癌种 reference 支持的队列，再对完整有限值求实际共同签名并稳定收敛。候选按 query 队列数、已知来源数、query 数、共同基因数、reference 队列数依次比较，相同者保留固定顺序首项。这是可审计的有界搜索，不证明全局最大广度。所有档位保留，主档按本计划的 8 队列／3 来源目标选择；不足时保留有限验证或敏感性层级。
 
