@@ -6,6 +6,10 @@
 
 ## [Unreleased]
 
+- 新增 ablation-03 三张论文附图，共 14 个面板，补充癌种与技术来源、模型库扩充、生物测量及跨队列稳健性；沿用冻结正式结果与已有区间，接入 `supplementary_figure_sources`／`supplementary_figures` targets，提供矢量 PDF、300 dpi PNG、中英文图注与聚合来源追踪，配套隔离同 DAG 验收和图形核验。
+
+- 补充 ablation-03 表示报告的反向解码原理与论文 C 图读法：说明冻结 bank、PCA＋ridge、患者内分箱和集合对比较比例、均值基准及队列等权损失改善，明确总体癌种差异与个体信息保留的证据边界；通过正式 `representation_report` target 同步 HTML，沿用既有科学结果。
+
 - 移除 ablation-03 论文组图各面板及 F 内部的说明性小标题，收紧顶部与行间留白；保留子图字母、坐标、图例和分组标签，同步写作说明并经正式 targets 更新，科学结果不变。
 
 - 调整 ablation-03 论文组图 F 的内部排版：散点图与区间摘要统一为方形绘图区，添加各自的范围标题，将方向标签移入摘要内并缩小点标记；经正式 `paper_figure` targets 更新，保留既有队列对与区间结果。
