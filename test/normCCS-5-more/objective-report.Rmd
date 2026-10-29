@@ -1,0 +1,192 @@
+---
+title: "normCCS 目标函数：兼容性、搜索质量与运行成本"
+author: "Bensz Conan"
+date: "2026-10-29"
+params:
+  products: "products"
+  figure_dir: "reports/figures"
+  plot_language: "en"
+output:
+  html_document:
+    toc: true
+    toc_float: true
+    number_sections: false
+    code_folding: hide
+    theme: readable
+    highlight: tango
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = FALSE, warning = FALSE, message = FALSE)
+quality <- read.csv(file.path(params$products, "objective-quality.csv"))
+timing <- read.csv(file.path(params$products, "objective-timing.csv"))
+scaling <- read.csv(file.path(params$products, "objective-scaling.csv"))
+cfg <- jsonlite::fromJSON(file.path(params$products, "objective-benchmark-config.json"))
+diagnostics_path <- file.path(params$products, "objective-gap-diagnostics.csv")
+gap_diagnostics <- if (file.exists(diagnostics_path)) read.csv(diagnostics_path) else data.frame()
+if (any(quality$gap > 0.005 + 1e-10) && !nrow(gap_diagnostics)) stop("Investigate retained quality gaps before rendering this report.")
+quality_summary <- do.call(rbind, lapply(split(quality, list(quality$objective, quality$method), drop = TRUE), function(x) {
+  data.frame(Objective = x$objective[1L], ROC = x$method[1L], Cases = nrow(x),
+             Exact = sum(abs(x$gap) <= 1e-10), Within_0.005 = sum(x$gap <= 0.005 + 1e-10),
+             Worst_gap = max(x$gap), Median_seconds = median(x$elapsed_seconds))
+}))
+paired <- reshape(timing, idvar = c("M", "C", "K", "method", "replicate"), timevar = "variant", direction = "wide")
+paired$old_new_dp <- paired$elapsed_seconds.new_dp / paired$elapsed_seconds.old_dp
+paired$dp_speedup <- paired$elapsed_seconds.new_bruteforce / paired$elapsed_seconds.new_dp
+timing_summary <- aggregate(paired[c("elapsed_seconds.old_dp", "elapsed_seconds.new_dp",
+                                    "elapsed_seconds.old_bruteforce", "elapsed_seconds.new_bruteforce",
+                                    "old_new_dp", "dp_speedup")], paired[c("K", "method")], median)
+example <- quality[quality$seed == min(quality$seed) & quality$C == max(quality$C) &
+                     quality$K == cfg$quality_k[1L] & quality$method == "Raw", ]
+scale_summary <- do.call(rbind, lapply(split(scaling, list(scaling$objective, scaling$method), drop = TRUE), function(x) {
+  data.frame(Objective = x$objective[1L], ROC = x$method[1L], Runs = nrow(x),
+             Min_seconds = min(x$elapsed_seconds), Max_seconds = max(x$elapsed_seconds),
+             Max_interval_MiB = max(x$interval_mib),
+             Empty_cohort_grade_cells = sum(x$empty_cohort_grade_cells))
+}))
+```
+
+## 改造带来了什么
+
+CCS 的目标函数现在可以通过 `norm_objective` 选择。旧脚本继续使用包含 `All` 的 AUC 中位数；需要比较队列平均效果或较差队列表现时，可以显式切换目标。穷举、DP 初值筛选、单切点和双切点精修、最终 ROC 复核都采用同一个评分定义。
+
+研究者现在可以在同一份数据上比较不同的分级标准，并明确记录选择依据。评分模块没有新增依赖，也没有改变 RR/NRR 排序、自动 ROC 方向或 `OptimizeRank` 的统计定义。负责人指定的软件版本为 **0.8.6**。默认结果回归、公开接口和包检查的执行记录见 [验证说明](objective-verification.md)。
+
+本次完成了 `r nrow(quality)` 个小规模质量比较和 `r nrow(scaling)` 次较大规模搜索。相同目标下，DP 与完整穷举的最大差距为 `r sprintf("%.6f", max(quality$gap))`，`r sum(quality$gap > 0.005 + 1e-10)` 个问题超过工程比较尺度。下文保留全部问题，避免用平均值掩盖未达到最优的情况。
+
+## 五种目标如何选择
+
+| 目标 | 纳入队列与计算方式 | 适合回答的问题 |
+|---|---|---|
+| `median` | `All` 与真实队列 AUC 的中位数；沿用 `na.rm = TRUE` | 如何完整复现旧分析？ |
+| `cohort_median` | 真实队列 AUC 中位数 | 排除 pooled `All` 后，中位数择优是否变化？ |
+| `mean` | 真实队列 AUC 等权平均 | 哪个分级的平均队列表现最好？ |
+| `lower_tail` | 最低 25% 队列概率质量的均值 | 哪个分级更照顾较差队列？ |
+| `mean_lower_tail` | 均值与下尾均值各占 0.5 | 如何兼顾平均表现与较差队列？ |
+
+`All` 来自合并样本，其 AUC 包含跨队列病例—对照比较，并不是独立队列。四种新目标均排除它，但仍在 `Raw` 中保留该行以便核对。队列等权也不等于样本等权或癌种等权。下尾比例与混合权重固定，便于比较，尚未经过最优超参数验证。
+
+下尾均值使用分数权重。例如，五个真实队列的 AUC 从低到高为 a₁ 至 a₅，则得分是 `(a₁ + 0.25 × a₂) / 1.25`；只有一个真实队列时，四种新策略都返回该队列 AUC。新增策略要求所有真实队列 AUC 有限，不通过丢弃缺失队列提高分数。
+
+```r
+fit <- CCS::subtypePerformance(
+  df, col_subtype = "Subtype", col_tissue = "tumor_type",
+  n_norm_subtype = 8, norm_search_method = "dp",
+  norm_roc_method = "Raw", norm_rank_marker = "NRR",
+  norm_objective = "mean_lower_tail", numCores = 1
+)
+fit$Data$Normalization$Summary[1, ]
+fit$Repeat$norm_objective
+```
+
+`norm_objective` 追加在形参末尾，旧的位置参数含义保持不变。新策略的最佳候选位于 `Summary` 首行，按 `objectiveScore`、真实队列均值降序，再按 `Info` 升序排列。`medianROCAUC` 始终保留旧定义，可能不随行序下降。缺少 `Repeat$norm_objective` 表示遗留 `median`，包括显式选择 `median` 的调用。
+
+## 不同目标实际选出了什么
+
+本报告的特定指标按以下口径解释；公式对应 `R/subtype_norm_objective.R`，搜索差距与耗时由 `benchmark-objectives.R` 计算。
+
+| 指标 | 问题与尺度 | 参考点与方向 | 不确定性和判读边界 |
+|---|---|---|---|
+| `objectiveScore` | 按选定规则汇总队列 AUC，范围 0–1 | 同一目标、同一数据上越高越好 | 固定数据的描述值；无总体区间，不跨目标比较大小 |
+| 下尾均值 | 最差 25% 队列概率质量的 AUC，范围 0–1 | 越高表示较差队列得分更高 | 可能受小队列噪声影响，不代表临床获益 |
+| `gap` | 同一目标的穷举最优值减 DP 最优值 | 零表示本例匹配，越低越好 | 固定种子逐例保留，无总体区间；不保证未知输入 |
+| 新／旧 DP 耗时比 | 目标抽象后运行成本相对旧版的比例 | 一表示相同，小于一表示本次更快 | 多次计时的描述性比较，无总体区间 |
+| 穷举／DP 加速比 | 两种搜索实际耗时之比 | 一表示相同，大于一表示 DP 更快 | 包含穷举 worker 成本，不能外推到未测规模 |
+
+```{r example}
+knitr::kable(example[c("objective", "objective_score", "cohort_mean", "cohort_median",
+                       "cohort_lower_tail", "cutpoints", "grade_counts")], digits = 6,
+             col.names = c("目标", "目标得分", "队列均值", "队列中位数", "队列下尾", "切点", "等级人数"),
+             caption = sprintf("同一合成问题：种子 %s，M=%s，C=%s，K=%s，Raw ROC",
+                               min(quality$seed), example$M[1], example$C[1], example$K[1]))
+```
+
+比较分级时，应同时查看真实队列的均值、中位数和下尾均值。每一行先按自己的目标搜索，再描述该分级的各项表现；不同目标列出的绝对得分不能直接比较优劣。这个例子中出现了 `r length(unique(example$mapping))` 种不同映射，目标选择是否改变分级，可以从切点与映射直接核实。完整 CSV 另保留每个真实队列的 AUC、各等级总人数及队列内空等级数。
+
+目标值提高说明当前数据更符合所选标准。下尾目标也可能追随小队列的噪声；要判断跨队列获益，应在训练数据中确定目标、排序、切点、方向和等级映射，再固定用于外部队列。`OptimizeRank` 会使用评价队列结局重新排列等级，不能据此声称统一等级的外部预测能力。
+
+## 搜索质量和精确性
+
+质量基准使用 M=`r cfg$quality_m`，真实队列数为 `r paste(cfg$quality_c, collapse = "/")`，K 为 `r paste(cfg$quality_k, collapse = "/")`，每组使用 `r length(cfg$quality_seeds)` 个固定种子。输入包含队列趋势冲突、稀疏状态和纯结局状态；每个队列始终有两类结局。
+
+```{r quality}
+knitr::kable(quality_summary, digits = 6,
+             col.names = c("目标", "ROC", "例数", "匹配最优", "差距≤0.005", "最大差距", "耗时中位数(s)"),
+             caption = "DP 对同目标完整穷举的差距；每个目标分别计算")
+```
+
+这里的 `gap = exhaustive_best_objective − dp_best_objective`，越接近零越好。`Exact` 使用数值容差，表示本例匹配，不表示算法获得全局精确性的证明。结果显示，`r sum(abs(quality$gap) <= 1e-10)`／`r nrow(quality)` 个固定问题达到同目标穷举值。所有超过比较尺度的例子均保留在 `objective-quality.csv`；该尺度是工程目标，与统计显著性无关。
+
+DP 精确求解固定方向、固定权重的均值 Raw AUC 子问题；公开目标继续使用自动方向，`OptimizeRank` 还会重排等级，因此所有公开目标的整体搜索都标为 `exact_global_optimum = FALSE`。精修只接受超过容差的目标改善，最终每个候选仍逐队列通过原 ROC 实现复核。组件测试另将快速 AUC 与原 ROC 逐项对照，覆盖反向 factor levels 与浮点并列。
+
+```{r retained-gap-diagnostics, results='asis'}
+if (nrow(gap_diagnostics)) {
+  print(knitr::kable(gap_diagnostics[c("seed", "C", "K", "objective", "gap", "max_passes", "minimum_changes_to_global")],
+                     col.names = c("种子", "队列数", "等级数", "目标", "差距", "最多轮数", "至全局最优的最少边界变动"),
+                     digits = 6, caption = "超过工程比较尺度的全部案例及局部搜索诊断"))
+  cat(sprintf("\n进一步枚举发现，%s 个案例的全部精修路径均已收敛，最多用了 %s 轮；%s 个案例即使允许任意两个切点同时改变，也没有严格改善。当前最佳切分与最近的全局最优切分相差 %s–%s 个按序对应的边界。这些案例的初值集合均未包含全局最优，当前严格改善规则下增加相同精修轮数无法直接解决；诊断没有排除经过同分平台或多步路径找到更优切分的可能。\n\n",
+              sum(gap_diagnostics$all_refinements_converged), max(gap_diagnostics$max_passes),
+              sum(gap_diagnostics$any_pair_gain <= 1e-12), min(gap_diagnostics$minimum_changes_to_global),
+              max(gap_diagnostics$minimum_changes_to_global)))
+  cat("本次保留计划约定的初值集合、起点数量和邻域。需要这些目标的精确结果时，应在规模保护允许的范围内使用穷举；更大问题若要缩小差距，需要另行比较扩大初值覆盖或多边界搜索的收益与成本。诊断明细见 objective-gap-diagnostics.csv。\n\n")
+}
+```
+
+```{r gap-plot, fig.width=8, fig.height=4}
+p <- ggplot2::ggplot(quality_summary, ggplot2::aes(Objective, Worst_gap, colour = ROC, group = ROC)) +
+  ggplot2::geom_point(position = ggplot2::position_dodge(width = 0.4), size = 2.4) +
+  ggplot2::geom_hline(yintercept = 0.005, linetype = 2, colour = "grey50") +
+  ggplot2::labs(x = "Objective", y = "Largest exhaustive minus DP score", colour = "ROC method") +
+  ggplot2::scale_colour_manual(values = c(Raw = "#246A73", OptimizeRank = "#B25C3A")) +
+  ggplot2::theme_bw(base_size = 11) +
+  ggplot2::theme(legend.position = "bottom", axis.text.x = ggplot2::element_text(angle = 20, hjust = 1))
+dir.create(params$figure_dir, recursive = TRUE, showWarnings = FALSE)
+ggplot2::ggsave(file.path(params$figure_dir, "objective-gap.pdf"), p, width = 8, height = 4)
+print(p)
+```
+
+图中每个点是上表某一目标、某一 ROC 方法的最大搜索差距，虚线对应工程比较尺度。较高的点意味着至少有一个固定问题的近似搜索仍可改善；它不意味着该目标的预测性能更差。图示只比较搜索对各自目标的优化程度，不能把不同目标的得分单位混为同一个临床效应。
+
+## 扩展目标增加了多少运行成本
+
+```{r timing}
+knitr::kable(timing_summary, digits = 4,
+             col.names = c("K", "ROC", "旧DP(s)", "新DP(s)", "旧穷举(s)", "新穷举(s)", "新／旧DP", "穷举／DP"),
+             caption = "默认 median 的直接计时：old 为冻结 0.8.5，new 为当前实现；时间为秒")
+```
+
+同一输入、同一 R 进程中的配对测量显示，新／旧默认 DP 耗时比的分组中位数为 `r sprintf("%.3f–%.3f", min(timing_summary$old_new_dp), max(timing_summary$old_new_dp))`。小于一表示本次测得更快，大于一表示存在额外成本。这是评分抽象的兼容成本，不能把既有 DP 相对穷举的收益全部归于这次目标扩展。当前默认穷举／DP 的加速比分组中位数为 `r sprintf("%.2f–%.2f", min(timing_summary$dp_speedup), max(timing_summary$dp_speedup))` 倍。
+
+计时每组重复 `r cfg$timing_reps` 次，交替先后顺序，计时包含一次搜索的排序、初值、精修和结果整理，排除加载包与生成输入。穷举固定一个 worker，DP 固定一个主进程；两者的候选保留范围不同。样本较少时计时波动与进程启动成本占比可能较高，因此仅作本机描述性比较，不报告总体置信区间或 p 值。每次的候选数、评分次数、最优分数和映射均保留，可检查新旧运行是否完成了相同工作。
+
+产品中的 `evaluations` 对应 `n_scored_proposals`，统计初值和精修提案的目标打分行数，重复提案会重复计数；它不包含并列判定中的均值重算及最终 ROC 复核，不能直接当作底层 AUC 函数的总调用次数。
+
+## 较大规模能否运行
+
+```{r scaling}
+knitr::kable(scale_summary, digits = 3,
+             col.names = c("目标", "ROC", "运行数", "最短(s)", "最长(s)", "区间模型(MiB)", "空队列×等级格数"),
+             caption = sprintf("M=%s，C=%s，K=%s；逐目标、逐 ROC 汇总",
+                               paste(cfg$scaling_m, collapse = "/"), cfg$scaling_c,
+                               paste(cfg$scaling_k, collapse = "/")))
+```
+
+结果显示，`r nrow(scaling)` 次实际搜索均产生了可复核候选，耗时范围为 `r sprintf("%.2f–%.2f", min(scaling$elapsed_seconds), max(scaling$elapsed_seconds))` 秒。区间模型最大为 `r sprintf("%.2f", max(scaling$interval_mib))` MiB；该数值仅指 R 对象大小，不是进程峰值内存。每一配置只测一次，不能据此估计运行时间的分布。
+
+这些规模没有运行完整穷举，`partitions` 仅表示合法切分数量，不能换算成实测加速比。增加等级可能使部分队列缺少某些等级；表中保留其计数，未加入计划之外的最小人数约束。完整切点、AUC 向量与等级人数见 `objective-scaling.csv`，可供后续稳定性和校准检验使用。
+
+## 测试与复现
+
+本报告只读取正式基准 CSV，渲染时不重新搜索。独立手算测试验证分数定义、下尾分数权重和基本单调性；冻结回归核对旧默认与显式 `median` 的完整输出；目标集成和公开 API 测试覆盖两种搜索、参数透传、位置参数、NULL 分支和错误输入。验证说明列出实际命令、退出状态及包检查限制。
+
+```powershell
+& 'C:/R/R-4.3.1/bin/Rscript.exe' --vanilla test/normCCS-5-more/test-objectives.R
+& 'C:/R/R-4.3.1/bin/Rscript.exe' --vanilla test/normCCS-5-more/scripts/tests/public-api.R
+& 'C:/R/R-4.3.1/bin/Rscript.exe' --vanilla test/normCCS-5-more/benchmark-objectives.R
+& 'C:/R/R-4.3.1/bin/Rscript.exe' --vanilla test/normCCS-5-more/diagnose-objective-gaps.R
+& 'C:/R/R-4.3.1/bin/Rscript.exe' --vanilla test/normCCS-5-more/render-report.R --objectives
+```
+
+重复生成结果需显式传入 `--overwrite`。已有 simple 分析保留原目录和执行方式，未隐式补建 renv 或迁移为 targets。`objective-source-identity.csv`、配置快照和 session 文件记录当前计算来源；正式测试和报告使用同一入口，隔离测试位于 `tmp/tests/`。
+
+全部输入由代码生成，真实患者全量验证为 **NOT_RUN**。本报告的差距、运行成本与映射变化均为确定性工程比较；它们不提供跨队列泛化改善、校准改善或临床获益的证据。

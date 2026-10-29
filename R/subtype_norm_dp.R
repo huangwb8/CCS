@@ -171,7 +171,7 @@ norm_info <- function(cuts, ranked) {
   }, character(1)), collapse = "; ")
 }
 
-subtype_norm_dp <- function(df, ranked, k, method, started, verbose) {
+subtype_norm_dp <- function(df, ranked, k, method, started, verbose, objective = "median") {
   # Test
   if (FALSE) {
     # The synthetic generator and complete runnable examples live in
@@ -179,7 +179,8 @@ subtype_norm_dp <- function(df, ranked, k, method, started, verbose) {
     model <- norm_prepare_counts(df, ranked)
     norm_solve_dp(model$loss[1L, , ], k)
   }
-  if (verbose) luckyBase::LuckyVerbose("subtypeNorm: DP starts and median-AUC refinement...", levels = 2)
+  objective <- norm_validate_objective(objective)
+  if (verbose) luckyBase::LuckyVerbose(paste0("subtypeNorm: DP starts and ", objective, " refinement..."), levels = 2)
   model <- norm_prepare_counts(df, ranked)
   nc <- length(model$cohorts)
   weights <- rbind(rep(1 / nc, nc), c(0, rep(1 / (nc - 1L), nc - 1L)), diag(nc))
@@ -191,9 +192,22 @@ subtype_norm_dp <- function(df, ranked, k, method, started, verbose) {
     norm_solve_dp(cost, k)$cuts
   })
   starts <- unique(c(starts, list(as.integer(floor(seq_len(k - 1L) * model$m / k)))))
-  score <- function(cuts) apply(norm_auc_batch(cuts, model, method), 1, stats::median)
+  score <- function(cuts) norm_objective_score(norm_auc_batch(cuts, model, method), model$cohorts, objective)
+  candidate_order <- function(values, cuts) {
+    if (objective == "median") return(order(-values, seq_along(values)))
+    auc <- norm_auc_batch(cuts, model, method)
+    means <- norm_objective_score(auc, model$cohorts, "mean")
+    infos <- apply(cuts, 1L, norm_info, ranked = ranked)
+    order(-values, -means, infos)
+  }
+  proposal_winner <- function(values, proposals) {
+    if (objective == "median") return(which.max(values))
+    ties <- which(values == max(values))
+    if (length(ties) == 1L) return(ties)
+    ties[candidate_order(values[ties], proposals[ties, , drop = FALSE])[1L]]
+  }
   start_scores <- score(do.call(rbind, starts))
-  selected <- order(-start_scores, seq_along(starts))[seq_len(min(6L, length(starts)))]
+  selected <- candidate_order(start_scores, do.call(rbind, starts))[seq_len(min(6L, length(starts)))]
   candidates <- starts[selected]
   evaluations <- length(starts)
   refinements <- vector("list", length(selected))
@@ -211,7 +225,7 @@ subtype_norm_dp <- function(df, ranked, k, method, started, verbose) {
         proposals[, j] <- lower:upper
         values <- score(proposals)
         evaluations <- evaluations + length(values)
-        winner <- which.max(values)
+        winner <- proposal_winner(values, proposals)
         if (values[winner] > best + 1e-12) {
           cuts <- as.integer(proposals[winner, ])
           best <- values[winner]
@@ -236,10 +250,15 @@ subtype_norm_dp <- function(df, ranked, k, method, started, verbose) {
             proposals[, j + 1L] <- second[ids]
             values <- score(proposals)
             evaluations <- evaluations + length(values)
-            winner <- which.max(values)
+            winner <- proposal_winner(values, proposals)
             if (values[winner] > pair_best + 1e-12) {
               pair_cuts <- as.integer(proposals[winner, ])
               pair_best <- values[winner]
+            } else if (objective != "median" && values[winner] == pair_best &&
+                       pair_best > best + 1e-12) {
+              tied <- rbind(pair_cuts, proposals[winner, ])
+              preferred <- proposal_winner(c(pair_best, values[winner]), tied)
+              pair_cuts <- as.integer(tied[preferred, ])
             }
           }
           if (pair_best > best + 1e-12) {
@@ -279,11 +298,16 @@ subtype_norm_dp <- function(df, ranked, k, method, started, verbose) {
       any(abs(reference_auc - fast_auc) > 1e-10)) {
     stop("Fast normCCS scoring disagrees with the reference ROC evaluator; results were not returned.")
   }
+  if (any(abs(norm_objective_score(fast_auc, model$cohorts, objective) -
+              norm_objective_score(reference_auc, model$cohorts, objective)) > 1e-10)) {
+    stop("Fast normCCS objective disagrees with reference ROC objective; results were not returned.")
+  }
   summary <- data.frame(Info = names(final_scores), medianROCAUC = unname(final_scores), stringsAsFactors = FALSE)
   summary <- summary[order(-summary$medianROCAUC, summary$Info), , drop = FALSE]
   rownames(summary) <- NULL
+  if (objective != "median") summary <- norm_objective_summary(raw, objective)
   winner <- match(summary$Info[1L], infos)
-  list(Raw = raw, Summary = summary, SearchDiagnostics = list(
+  result <- list(Raw = raw, Summary = summary, SearchDiagnostics = list(
     method = "dp", objective = "legacy_median_auc_including_All",
     roc_method = method, refinement_start_limit = 6L, refinement_pass_limit = 10L,
     refinement_neighborhood = "single_and_adjacent_pair_boundaries",
@@ -298,4 +322,21 @@ subtype_norm_dp <- function(df, ranked, k, method, started, verbose) {
     cohort_only_median_auc = stats::median(raw$ROCAUC[raw$Info == summary$Info[1L] & raw$Cohort != "All"]),
     workers = 1L, interval_storage_bytes = as.numeric(utils::object.size(model)),
     elapsed_seconds = unname(proc.time()[["elapsed"]] - started)))
+  if (objective != "median") {
+    diagnostics <- result$SearchDiagnostics
+    diagnostics$objective <- objective
+    diagnostics$objective_scope <- "cohorts_only"
+    diagnostics$n_real_cohorts <- nc - 1L
+    diagnostics$best_initial_median_auc <- NULL
+    diagnostics$best_initial_objective_score <- max(start_scores)
+    diagnostics$best_final_objective_score <- summary$objectiveScore[1L]
+    diagnostics$refinements <- lapply(refinements, function(x) {
+      names(x)[1:2] <- c("initial_objective_score", "final_objective_score")
+      x
+    })
+    settings <- norm_objective_settings(objective)
+    diagnostics <- c(diagnostics, settings[setdiff(names(settings), "norm_objective")])
+    result$SearchDiagnostics <- diagnostics
+  }
+  result
 }

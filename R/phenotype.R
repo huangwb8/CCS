@@ -12,14 +12,34 @@
 #' @param n_norm_subtype The number of normalized subtypes you want to explore
 #' @param norm_search_method Search algorithm: \code{"bruteforce"} (the default,
 #'   retaining all partitions) or \code{"dp"} (deterministic multi-start dynamic
-#'   programming followed by local refinement of the legacy median AUC).
+#'   programming followed by local refinement of the selected objective).
 #'   DP is exact only for its fixed-direction weighted mean Raw AUC surrogate,
-#'   not for the legacy median or \code{OptimizeRank} objective. It runs on one
+#'   not for any public objective under automatic direction or \code{OptimizeRank}. It runs on one
 #'   core, does not change the parallel backend, and returns only evaluated final
 #'   candidates plus \code{SearchDiagnostics} under \code{Data$Normalization}.
 #'   Oversized exhaustive searches are rejected before allocation. Every cohort
 #'   must contain both response classes; required input columns must be complete.
 #' @param norm_roc_method The method to call ROC AUC. One of \code{'OptimizeRank'} and \code{'Raw'}.
+#' @param norm_objective Candidate scoring strategy (exact names only).
+#'   \code{"median"} (default) retains the legacy median including pooled
+#'   \code{All}, with missing values removed. \code{"cohort_median"} and
+#'   \code{"mean"} use only real cohorts, with equal cohort weights.
+#'   \code{"lower_tail"} averages the lowest 25\% of cohort probability mass,
+#'   including a fractional boundary cohort. \code{"mean_lower_tail"} averages
+#'   that lower tail and the cohort mean with weights 0.5 each. Non-default
+#'   strategies require finite AUCs for every real cohort and exclude \code{All}.
+#'   Both search methods use the same objective throughout selection/refinement.
+#'   New strategies add \code{objective}, \code{objectiveScore},
+#'   \code{cohortMedianROCAUC}, \code{cohortMeanROCAUC} and
+#'   \code{cohortLowerTailROCAUC} to the normalization Summary; rows sort by
+#'   score, cohort mean (descending), then Info (ascending). The existing
+#'   \code{medianROCAUC} always retains its legacy definition.
+#'   Non-default settings are recorded in \code{Repeat}; absence of
+#'   \code{Repeat$norm_objective} means legacy \code{"median"}, including an
+#'   explicit median call. With \code{n_norm_subtype = NULL}, the objective is
+#'   validated and recorded but no normalization search or diagnostics are made.
+#'   These are selection criteria; external predictive gains require held-out
+#'   validation with training-derived ranks, cutpoints, direction and mapping.
 #' @param norm_rank_marker The marker for normalization rank. Interpretation:
 #' \itemize{
 #'   \item \code{NRR} Ranked only by normalized response rate.
@@ -93,9 +113,11 @@ subtypePerformance <- function(
     meta_subtitle_font_size = 10,
     norm_search_method = c("bruteforce", "dp"),
     numCores = NULL,
-    verbose = TRUE
+    verbose = TRUE,
+    norm_objective = "median"
 ){
 
+  norm_objective <- norm_validate_objective(norm_objective)
   norm_search_method <- match.arg(norm_search_method)
 
   # Test
@@ -247,7 +269,8 @@ subtypePerformance <- function(
       norm_rank_marker = norm_rank_marker,
       numCores = numCores,
       verbose = verbose,
-      norm_search_method = norm_search_method
+      norm_search_method = norm_search_method,
+      norm_objective = norm_objective
     )
   } else {
     data_norm <- NULL
@@ -288,6 +311,9 @@ subtypePerformance <- function(
       ClinicUtility = data_utility
     )
   )
+  if (norm_objective != "median") {
+    l$Repeat <- c(l$Repeat, norm_objective_settings(norm_objective))
+  }
   if(verbose) LuckyVerbose('subtypePerformance: All done!')
   return(l)
 
@@ -874,9 +900,18 @@ subtypeNorm <- function(
     norm_roc_method = 'Raw',
     norm_rank_marker = 'RR',
     numCores = NULL, verbose = TRUE,
-    norm_search_method = c("bruteforce", "dp")
+    norm_search_method = c("bruteforce", "dp"),
+    norm_objective = "median"
 ){
 
+  norm_objective <- norm_validate_objective(norm_objective)
+  # Test
+  if (FALSE) {
+    df <- expand.grid(Cohort = c("A", "B"), Subtype = 1:4, response = 0:1)
+    df$SampleIDs <- paste0("synthetic_", seq_len(nrow(df)))
+    df$tumor_type <- "Lung"
+    subtypeNorm(df, 3, "Raw", "RR", 1, FALSE, "dp", "mean_lower_tail")
+  }
   norm_search_method <- match.arg(norm_search_method)
   norm_validate_input(df, n_norm_subtype, norm_roc_method, numCores)
   if (length(norm_rank_marker) != 1L || is.na(norm_rank_marker) ||
@@ -926,7 +961,8 @@ subtypeNorm <- function(
     }
     if (norm_search_method == "dp") {
       result <- subtype_norm_dp(df, df_cutoff, n_norm_subtype,
-                                 norm_roc_method, search_started, verbose)
+                                 norm_roc_method, search_started, verbose,
+                                 objective = norm_objective)
       result$SearchDiagnostics$rank_marker <- norm_rank_marker
       return(result)
     }
@@ -1042,6 +1078,9 @@ subtypeNorm <- function(
       ungroup() %>%
       arrange(desc(medianROCAUC))
   )
+  if (norm_objective != "median") {
+    df_perform_summary <- norm_objective_summary(df_perform, norm_objective)
+  }
   # system.time({
   #   df_perform_summary <- ddply(
   #     df_perform,

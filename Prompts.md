@@ -32,6 +32,16 @@ ablation-03里{chapter}的写作太过粗糙。 你学一下ablation-03里`输�
 
 ---
 
+根据 docs\plans\2026-10-29-normCCS-objective-strategies.md 优化函数，让 subtypeNorm 函数里的目标函数工程化，可以具有很选项。 开发过程应该遵守  Bensz R Developer  skill 的相关规范。搞好之后，你要将ccs包更新到 0.8.6（只能用这个版本号，你不可以自定义版本号）。
+
+你可以在 test/normCCS-5-more 这个文件夹里加一些内容，向用户展示你具体做了什么，运行了哪些测试，结果如何；目标：充分向用户说明你做了哪些改变、为什么做、有哪些获益、效率加了多少之类的。 写 report 的时候要遵守 Bensz Rmd Rules skill 的相关规范。
+
+---
+
+在最近新增的DP算法里，有一个因素没考虑到：目标函数。目前，其实还是使用旧的`medianROCACU`；这个不一定是最好的方案。你觉得有哪些更好的选择？ 
+
+---
+
 根据 docs\plans\CCS_normCCS_DP_search_optimization_plan_2026-10-29.md 的提示，我希望你优化 normCCS>= 5 时的搜索效率。请你：
 
 - 基于代码构建测试用数据

@@ -28,9 +28,10 @@ subtypePerformance(
   meta_method = c("DL", "REML", "ML", "PM", "SJ", "HE", "EB", "HK"),
   meta_cohort_font_size = 11.5,
   meta_subtitle_font_size = 10,
+  norm_search_method = c("bruteforce", "dp"),
   numCores = NULL,
   verbose = TRUE,
-  norm_search_method = c("bruteforce", "dp")
+  norm_objective = "median"
 )
 }
 \arguments{
@@ -80,19 +81,40 @@ subtypePerformance(
 
 \item{meta_subtitle_font_size}{Text size (in points) for the overall summary subtitle (I^2, p, confidence interval) in each meta-analysis panel.}
 
-\item{numCores}{No. of CPU core}
-
-\item{verbose}{whether report messages}
-
 \item{norm_search_method}{Search algorithm: \code{"bruteforce"} (the default,
 retaining all partitions) or \code{"dp"} (deterministic multi-start dynamic
-programming followed by local refinement of the legacy median AUC).
+programming followed by local refinement of the selected objective).
 DP is exact only for its fixed-direction weighted mean Raw AUC surrogate,
-not for the legacy median or \code{OptimizeRank} objective. It runs on one
+not for any public objective under automatic direction or \code{OptimizeRank}. It runs on one
 core, does not change the parallel backend, and returns only evaluated final
 candidates plus \code{SearchDiagnostics} under \code{Data$Normalization}.
 Oversized exhaustive searches are rejected before allocation. Every cohort
 must contain both response classes; required input columns must be complete.}
+
+\item{numCores}{No. of CPU core}
+
+\item{verbose}{whether report messages}
+
+\item{norm_objective}{Candidate scoring strategy (exact names only).
+\code{"median"} (default) retains the legacy median including pooled
+\code{All}, with missing values removed. \code{"cohort_median"} and
+\code{"mean"} use only real cohorts, with equal cohort weights.
+\code{"lower_tail"} averages the lowest 25\% of cohort probability mass,
+including a fractional boundary cohort. \code{"mean_lower_tail"} averages
+that lower tail and the cohort mean with weights 0.5 each. Non-default
+strategies require finite AUCs for every real cohort and exclude \code{All}.
+Both search methods use the same objective throughout selection/refinement.
+New strategies add \code{objective}, \code{objectiveScore},
+\code{cohortMedianROCAUC}, \code{cohortMeanROCAUC} and
+\code{cohortLowerTailROCAUC} to the normalization Summary; rows sort by
+score, cohort mean (descending), then Info (ascending). The existing
+\code{medianROCAUC} always retains its legacy definition.
+Non-default settings are recorded in \code{Repeat}; absence of
+\code{Repeat$norm_objective} means legacy \code{"median"}, including an
+explicit median call. With \code{n_norm_subtype = NULL}, the objective is
+validated and recorded but no normalization search or diagnostics are made.
+These are selection criteria; external predictive gains require held-out
+validation with training-derived ranks, cutpoints, direction and mapping.}
 }
 \value{
 A list

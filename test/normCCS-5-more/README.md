@@ -1,6 +1,37 @@
 # normCCS 5–12 级搜索测试
 
-本目录展示 CCS 0.8.5 的搜索改造：保留默认穷举，新增显式 DP 搜索；所有数据由代码生成，不读取真实患者文件。
+本目录展示 CCS 的搜索与目标函数改造。0.8.5 引入显式 DP 搜索，0.8.6 将择优目标扩展为五种可选策略。所有数据由代码生成，不读取真实患者文件。
+
+本次新增内容从 [目标函数报告](objective-report.html) 开始阅读，源码见 [objective-report.Rmd](objective-report.Rmd)，命令与结果见 [本轮验证说明](objective-verification.md)。原有性能报告保留为 0.8.5 的历史证据。
+
+## 0.8.6 目标函数选项
+
+`norm_objective` 追加在公开接口末尾，默认 `"median"` 完整保留旧结果与表结构，包括 pooled `All`。新增 `"cohort_median"`、`"mean"`、`"lower_tail"`、`"mean_lower_tail"` 只评价真实队列，每队列等权。下尾取最低 25% 概率质量，非整数边界按比例计入；混合目标为均值与下尾均值各占 0.5。
+
+```r
+fit <- CCS::subtypePerformance(
+  df, col_subtype = "Subtype", col_tissue = "tumor_type",
+  n_norm_subtype = 8, norm_search_method = "dp", norm_roc_method = "Raw",
+  norm_objective = "mean_lower_tail", numCores = 1
+)
+fit$Data$Normalization$Summary[1, ]
+```
+
+新策略使用 `objectiveScore` 排序，同分先比较真实队列均值，再比较 `Info`；`medianROCAUC` 仍表示包含 `All` 的旧中位数。非默认目标写入 `Repeat`，下尾和混合设置同时记录。缺少 `Repeat$norm_objective` 表示遗留 `median`；NULL 归一化分支仍验证并记录新目标，但不生成搜索诊断。
+
+新增测试与复现命令如下，均从仓库根目录执行：
+
+```powershell
+& 'C:/R/R-4.3.1/bin/Rscript.exe' --vanilla test/normCCS-5-more/test-objectives.R
+& 'C:/R/R-4.3.1/bin/Rscript.exe' --vanilla test/normCCS-5-more/scripts/tests/objective-smoke.R
+& 'C:/R/R-4.3.1/bin/Rscript.exe' --vanilla test/normCCS-5-more/benchmark-objectives.R
+& 'C:/R/R-4.3.1/bin/Rscript.exe' --vanilla test/normCCS-5-more/diagnose-objective-gaps.R
+& 'C:/R/R-4.3.1/bin/Rscript.exe' --vanilla test/normCCS-5-more/render-report.R --objectives
+```
+
+`test-objectives.R` 可选 `baseline` 或 `objectives` 分段。`benchmark-objectives.R` 可选 `--section=quality`、`timing`、`scaling`；分段结果必须来自同一配置和源码。重新生成已存在结果需显式 `--overwrite`。`objective-benchmark-config.json` 声明正式规模，隔离 smoke 用同一入口降低输入规模并检查正式产品、代码与 raw 未变化。
+
+`reference/baseline-0.8.5.rds` 冻结了 64 组旧输出；两个 `0.8.5.R` 文件保留旧函数供直接计时。正式新增产品为 `objective-quality.csv`、`objective-timing.csv`、`objective-scaling.csv`，另含配置、会话与源码指纹。`diagnose-objective-gaps.R` 对所有差距超过工程比较尺度的案例枚举切点邻域，保留初值覆盖、收敛轮数和所需边界变动数。报告分别解释目标选择带来的分级变化、同目标近似差距、新旧默认路径开销和 DP／穷举加速，不把不同目标的分数直接比较为科学优劣。
 
 建议先阅读 [性能与算法报告](report.html)，源码见 [report.Rmd](report.Rmd)。[验证记录](verification.md) 汇总回归、公开入口和包检查结果。
 
