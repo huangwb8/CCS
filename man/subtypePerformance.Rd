@@ -29,7 +29,8 @@ subtypePerformance(
   meta_cohort_font_size = 11.5,
   meta_subtitle_font_size = 10,
   numCores = NULL,
-  verbose = TRUE
+  verbose = TRUE,
+  norm_search_method = c("bruteforce", "dp")
 )
 }
 \arguments{
@@ -82,6 +83,16 @@ subtypePerformance(
 \item{numCores}{No. of CPU core}
 
 \item{verbose}{whether report messages}
+
+\item{norm_search_method}{Search algorithm: \code{"bruteforce"} (the default,
+retaining all partitions) or \code{"dp"} (deterministic multi-start dynamic
+programming followed by local refinement of the legacy median AUC).
+DP is exact only for its fixed-direction weighted mean Raw AUC surrogate,
+not for the legacy median or \code{OptimizeRank} objective. It runs on one
+core, does not change the parallel backend, and returns only evaluated final
+candidates plus \code{SearchDiagnostics} under \code{Data$Normalization}.
+Oversized exhaustive searches are rejected before allocation. Every cohort
+must contain both response classes; required input columns must be complete.}
 }
 \value{
 A list
@@ -93,6 +104,18 @@ A list
 }
 \description{
 Downstream analysis: Molecular subtypes & Clinical features
+}
+\examples{
+\dontrun{
+df <- expand.grid(Cohort = c("A", "B", "C"), Subtype = 1:8,
+                  response = 0:1, replicate = 1:10)
+df$SampleIDs <- paste0("synthetic_", seq_len(nrow(df)))
+df$tumor_type <- "Lung"
+fit <- subtypePerformance(df, col_subtype = "Subtype",
+  col_tissue = "tumor_type", n_norm_subtype = 5,
+  norm_search_method = "dp", norm_roc_method = "Raw", numCores = 1)
+fit$Data$Normalization$SearchDiagnostics
+}
 }
 \author{
 Weibin Huang</email{hwb2012@qq.com}>

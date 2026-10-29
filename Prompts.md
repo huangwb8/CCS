@@ -32,6 +32,20 @@ ablation-03里{chapter}的写作太过粗糙。 你学一下ablation-03里`输�
 
 ---
 
+根据 docs\plans\CCS_normCCS_DP_search_optimization_plan_2026-10-29.md 的提示，我希望你优化 normCCS>= 5 时的搜索效率。请你：
+
+- 基于代码构建测试用数据
+- 完善算法及相关代码
+- 通过测试数据实际地运行
+- 必要时可以重复上述过程，直到找到最佳算法
+- 允许嵌合c++、并行计算之类的方案加速计算（如果觉得有必要）；但应该是本设备可以较轻松hold住的配置
+
+应该遵守  Bensz R Developer  skill 的相关规范。搞好之后，你要将ccs包更新到 0.8.5 （只能用这个版本号，你不可以自定义版本号）
+
+你可以在 test/normCCS-5-more 这个文件夹里向用户展示你具体做了什么，运行了哪些测试，结果如何；目标：充分向用户说明你做了哪些改变、为什么做、有哪些获益、效率加了多少之类的。 写 report 的时候要遵守 Bensz Rmd Rules skill 的相关规范。
+
+---
+
 E:\iProjects\Manuscripts\CCS 是论文的其它结果；ablation-03只是其中一个部分。我在其它地方基本上已经验证CCS作为一个算法原型是可用的，包括可以构建metaCCS/normCCS，并且normCCS有一些临床/治疗的相关性；但具体CCS为什么可以工作的机制还不知道；我当时只是一种直觉，感觉CCS是可行的（因此才有E:\iProjects\Manuscripts\CCS 里所描述的结果）。所以，ablation-03才聚焦d1，通过研究它的性质（特别是与 Direct-GSClassifier TSP的关系）。其实，我正是想通过 ablation-03 让整个论文的论述更加严谨、完整。你觉得，ablation-03可以如何补充E:\iProjects\Manuscripts\CCS里的论文？
 
 ---

@@ -8,6 +8,7 @@ plans/*
 !test/ablation/
 !test/ablation-02/
 !test/ablation-03/
+!test/normCCS-5-more/
 .bensz-api/
 .ccs-cache/
 /renv/

@@ -10,6 +10,15 @@
 #' @param color_cohort Default is \code{NULL}, which means that all cohort names were colored as black. You can also use a named vector like \code{c('Kim2018_PD-1_gastric' = "#E31A1C")}.
 #' @param color_subtype Default is \code{NULL}, which means that all raw subtype names were colored as \code{scales::hue_pal()(n)}. You can also use a named vector like \code{c('0' = "#E31A1C")}.
 #' @param n_norm_subtype The number of normalized subtypes you want to explore
+#' @param norm_search_method Search algorithm: \code{"bruteforce"} (the default,
+#'   retaining all partitions) or \code{"dp"} (deterministic multi-start dynamic
+#'   programming followed by local refinement of the legacy median AUC).
+#'   DP is exact only for its fixed-direction weighted mean Raw AUC surrogate,
+#'   not for the legacy median or \code{OptimizeRank} objective. It runs on one
+#'   core, does not change the parallel backend, and returns only evaluated final
+#'   candidates plus \code{SearchDiagnostics} under \code{Data$Normalization}.
+#'   Oversized exhaustive searches are rejected before allocation. Every cohort
+#'   must contain both response classes; required input columns must be complete.
 #' @param norm_roc_method The method to call ROC AUC. One of \code{'OptimizeRank'} and \code{'Raw'}.
 #' @param norm_rank_marker The marker for normalization rank. Interpretation:
 #' \itemize{
@@ -34,6 +43,17 @@
 #'   \item \code{Repeat} Data or parameters for repeatability
 #'   \item \code{Plot} 1. Scatter plot + bar plot for RR & NRR; 2. Forest plot for RR.
 #'   \item \code{Data} 1. ROC data; 2. Normalized subtype results 3. Clinic utility from \code{\link{subtypeEffect}}.
+#' }
+#' @examples
+#' \dontrun{
+#' df <- expand.grid(Cohort = c("A", "B", "C"), Subtype = 1:8,
+#'                   response = 0:1, replicate = 1:10)
+#' df$SampleIDs <- paste0("synthetic_", seq_len(nrow(df)))
+#' df$tumor_type <- "Lung"
+#' fit <- subtypePerformance(df, col_subtype = "Subtype",
+#'   col_tissue = "tumor_type", n_norm_subtype = 5,
+#'   norm_search_method = "dp", norm_roc_method = "Raw", numCores = 1)
+#' fit$Data$Normalization$SearchDiagnostics
 #' }
 #' @author Weibin Huang</email{hwb2012@@qq.com}>
 #' @export
@@ -71,9 +91,12 @@ subtypePerformance <- function(
     meta_method = c('DL','REML','ML','PM','SJ','HE','EB','HK'),
     meta_cohort_font_size = 11.5,
     meta_subtitle_font_size = 10,
+    norm_search_method = c("bruteforce", "dp"),
     numCores = NULL,
     verbose = TRUE
 ){
+
+  norm_search_method <- match.arg(norm_search_method)
 
   # Test
   if(F){
@@ -223,7 +246,8 @@ subtypePerformance <- function(
       norm_roc_method = norm_roc_method,
       norm_rank_marker = norm_rank_marker,
       numCores = numCores,
-      verbose = verbose
+      verbose = verbose,
+      norm_search_method = norm_search_method
     )
   } else {
     data_norm <- NULL
@@ -248,7 +272,8 @@ subtypePerformance <- function(
       col_id = col_id,
       col_tissue = col_tissue,
       cohort_level = cohort_level,
-      n_norm_subtype = n_norm_subtype
+      n_norm_subtype = n_norm_subtype,
+      norm_search_method = norm_search_method
     ),
     Plot = list(
       ScatterBarPlot = plot_r,
@@ -848,8 +873,17 @@ subtypeNorm <- function(
     n_norm_subtype=2,
     norm_roc_method = 'Raw',
     norm_rank_marker = 'RR',
-    numCores = NULL, verbose = TRUE
+    numCores = NULL, verbose = TRUE,
+    norm_search_method = c("bruteforce", "dp")
 ){
+
+  norm_search_method <- match.arg(norm_search_method)
+  norm_validate_input(df, n_norm_subtype, norm_roc_method, numCores)
+  if (length(norm_rank_marker) != 1L || is.na(norm_rank_marker) ||
+      !norm_rank_marker %in% c("RR", "NRR", "RR+NRR", "NRR+RR")) {
+    stop("norm_rank_marker must be one of 'RR', 'NRR', 'RR+NRR', 'NRR+RR'.")
+  }
+  search_started <- proc.time()[["elapsed"]]
 
   # Data
   if(T){
@@ -887,7 +921,21 @@ subtypeNorm <- function(
       stop('Not available rank marker. Please use one of "RR" and "NRR"!')
     }
 
-    combinations <- combn(1:(nrow(df_cutoff)-1), n_norm_subtype - 1)
+    if (n_norm_subtype > nrow(df_cutoff)) {
+      stop("n_norm_subtype must not exceed the number of observed subtypes.")
+    }
+    if (norm_search_method == "dp") {
+      result <- subtype_norm_dp(df, df_cutoff, n_norm_subtype,
+                                 norm_roc_method, search_started, verbose)
+      result$SearchDiagnostics$rank_marker <- norm_rank_marker
+      return(result)
+    }
+    n_partitions <- choose(nrow(df_cutoff) - 1, n_norm_subtype - 1)
+    estimated_result_bytes <- n_partitions * (length(unique(df$Cohort)) + 1) * 192
+    if (!is.finite(n_partitions) || n_partitions > 1e6 || estimated_result_bytes > 2 * 1024^3) {
+      stop("Brute-force search exceeds the partition/result-memory budget; use norm_search_method = 'dp'.")
+    }
+    combinations <- combn(seq_len(nrow(df_cutoff) - 1), n_norm_subtype - 1)
   }
 
   # Parallel processing: Find best combination
@@ -898,6 +946,7 @@ subtypeNorm <- function(
       numCores <- detectCores() - 1  # Use all but one core
     }
     registerDoParallel(cores = numCores)
+    on.exit(stopImplicitCluster(), add = TRUE)
 
     if(verbose) LuckyVerbose('subtypeNorm: Parallel processing - Find best combination...',levels = 2)
 
