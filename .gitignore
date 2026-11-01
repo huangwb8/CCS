@@ -11,6 +11,7 @@ plans/*
 !test/ablation-03-max/
 !test/normCCS-5-more/
 !test/normCCS-premium/
+!test/normCCS-optimization/
 .bensz-api/
 .ccs-cache/
 /renv/

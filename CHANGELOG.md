@@ -6,6 +6,8 @@
 
 ## [Unreleased]
 
+- 根据参数优化计划新增独立的 `test/normCCS-optimization/`，只读复用 premium 的原训练集合、逐记录输入和历史基线。实现排序／评分／目标组合、K2–30 精确与近似搜索、按来源分组的嵌套选择、配对患者区间及稳定性／来源／支持敏感性；批量重抽样保持原 OptimizeRank 统计定义和全部重复数，降低区间计算成本。边界与同 DAG 合成端到端验证通过，单 worker 全量计算于 2026-11-01 通过最终 `acceptance`，生成正式 HTML、结果表与 PDF；训练内规则锁定 K3，嵌套验证尚不支持优于重训 K4。状态与解释边界见 `test/normCCS-optimization/verification.md`，版本不变。
+
 - 继续将 normCCS-premium、ablation-03-max 与 ablation-03 的生成报告、穷举结果和图表外置到正式 cache root 的 `exports/`；同步适配默认输出、论文组图输入、隔离验证读取和文档链接。源码、报告模板及论文 Markdown 草稿保留，现有结果只做校验迁移，不重算分析；Git 忽略本地旧目录中的生成产物。
 
 - 将两套 ablation renv 包库、历史试跑缓存、大型模型及 AI 任务归档迁出坚果云同步目录；静态更新读写路径和隔离测试入口，保留现有正式 targets store、科学参数及包版本。新增外置缓存说明，并在 AGENTS.md 约定按分析项目自动使用 D 盘缓存；迁移只做文件校验及语法检查，不重跑分析。

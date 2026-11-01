@@ -32,6 +32,10 @@ ablation-03里{chapter}的写作太过粗糙。 你学一下ablation-03里`输�
 
 ---
 
+根据  docs\plans\2026-11-01-normCCS-parameter-optimization.md 优化 test\normCCS-premium 的分析。
+
+---
+
 请在 E:\RCloud\RFactory\ccs 继续完成以下分析，直接推进实现、验证和正式计算，不要停留在计划或状态说明。具体要求如下：
 
 ```

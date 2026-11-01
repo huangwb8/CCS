@@ -33,6 +33,8 @@
 | normCCS-premium 正式缓存和包库 | `D:/cache/ccs/normCCS-premium/`，本次保持原位 |
 | normCCS-premium 穷举导出、生成报告和图表 | `D:/cache/ccs/normCCS-premium/exports/` |
 | normCCS-premium 历史试跑和隔离测试 | `D:/cache/ccs/normCCS-premium/tmp/` |
+| normCCS 参数优化独立 store、包库与中间产物 | `D:/cache/ccs/normCCS-optimization/`；正式 store 为 `targets/` |
+| normCCS 参数优化交付及隔离测试 | `D:/cache/ccs/normCCS-optimization/exports/` 与 `tmp/tests/` |
 | ablation-02 中间结果 | `D:/cache/ccs/ablation-02/tmp/` |
 | 预训练信息取证缓存 | `D:/cache/ccs/pre-train-info/cache/` |
 | 旧 CCS 场景的 project_01 模型和结果 | `D:/cache/ccs/legacy/ccs/project_01/` |
