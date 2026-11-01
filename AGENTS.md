@@ -1,183 +1,93 @@
-# CCS - Cohort Congress System - 项目指令
+# CCS 项目指令
 
-本项目是用于个性化泛癌基因组分类的 R 包与计算框架。
+CCS（Cohort Congress System）是用于个性化泛癌基因组分类的 R 包与计算框架，重点是方法开发、验证和可复现性。
 
-## 项目目标
+## 沟通与协作
 
-A Computational Framework for Personalized Pan-cancer Genomic Classification.
-
-本工作区的核心目标是开发、验证并维护可复现的个性化泛癌基因组分类方法。
-
-## 核心工作流
-
-当用户提出数据科学或 R 包开发相关需求时，按以下流程执行：
-
-### 任务理解
-
-- 理解用户的真实需求和意图
-- 确认任务范围和预期输出
-- 识别可能的依赖和约束
-
-### 执行流程
-
-数据获取 → 探索分析 → 模型训练 → 验证评估
-
-### targets 流程强制门禁
-
-- 任何已经设计、声明或规划了 `targets` 依赖图的分析，必须严格通过该分析的
-  `_targets.R`、其加载的分析函数、正式 targets store 和 `tar_make()`/`tar_watch()`
-  执行与监测；不得用自定义 runner、逐脚本 shell 调度、临时 checkpoint 或其它
-  替代入口产生正式分析结果。
-- `targets` 的设计不是可选文档或备用实现。若正式入口、缓存边界、恢复逻辑或
-  dashboard 与 `_targets.R` 不一致，必须先修复流程一致性并停止正式计算，不能
-  继续运行另一套“等价”流程。
-- `tar_watch()` 必须指向本次正式运行实际使用的 targets store；不得把旧 store、
-  空 store 或自定义 checkpoint 状态冒充 targets 进度。删除、替换或降级既有
-  `targets` 流程必须由项目负责人明确授权，并同步更新计划、README、CHANGELOG
-  和验证门禁。
-- 需要 target-level 并行的分析必须通过 `crew` controller 接入 `tar_option_set()`；
-  worker-specific 日志、CPU/RAM metrics 和 targets 主进程 runtime logging 必须写入
-  正式 cache root 下的 observability 目录，并可由 `autometric::log_read()`/`log_plot()`
-  读取或可视化。不得把资源日志混入科学结果缓存，也不得用自定义并行 runner 替代 crew。
-
-### 输出规范
-
-- 代码变更应遵循项目现有风格
-- 文档更新应保持一致性
-- 测试覆盖应符合项目标准
-
-### 报告去 AI 味
-
-- 每次完成报告的新写或修订后，交付前必须使用 `humanization` skill 润色，检查词语、句法、段落和章节，减少套话、模板感、生硬措辞和重复表达。
-- Skill 指令位于 `C:/Users/Administrator/.codex/skills/humanization/SKILL.md`。按项目负责人明确要求，本规则适用于本项目所有报告，包括非 NSFC 报告；按报告自身用途组织内容，不套用标书章节结构。
-- 润色只调整表达，保留事实、数字、公式、引用、代码、专业术语和科学结论。完成后复核这些内容及 Markdown/LaTeX/R Markdown 结构；涉及正式分析报告时，仍须通过既有 `targets` 入口更新最终产物。
-
-## 项目目录约定
-
-- `R/`：R 包核心代码与导出 API
-- `man/`：由 roxygen2 生成的 Rd 文档
-- `test/`：可复现的场景测试、模型与测试夹具
-- `docs/`：解释性文档、审计材料与教程
-- `docs/plans/`：AI 为特定任务制定的正式计划
-- `docs/contribution.bac`：BAC 协作贡献账本，必须通过 `bac` 命令维护
-- `.bensz-api/`：AI/skill 中间产物，已由 `.gitignore` 排除
-
-### 大文件与外置缓存
-
-本项目位于坚果云同步目录。预计较大的中间文件必须自动托管到 `D:/cache/` 下对应分析项目的子目录，在编写代码和首次运行前确定读写位置，无需再次询问。默认采用 `D:/cache/ccs/<分析名>/`，按用途区分 `raw/`、`models/`、`targets/`、`tmp/`、`environment/` 和 `observability/`。已经启用的正式 cache root（例如 `D:/cache/ccs/_ablation-03/` 与 `D:/cache/ccs_ablation-03/ablation-03-max/`）继续沿用，不能仅为统一命名重建 store。
-
-- 单文件预计达到 50 MiB、单目录预计达到 200 MiB，或会随样本、迭代次数持续增长时，默认外置；训练模型、表达/概率矩阵、RDS 中间对象、targets store、renv 包库、构建副本及批量试跑产物均应提前外置，不必等到超过阈值。
-- `test/`、项目根目录 `tmp/` 和 `.bensz-api/` 只保留源码、配置、锁文件、小型测试夹具、轻量日志与交付说明。生成的正式 HTML/PDF、批量 CSV/CSV.gz、模型结果、展示图及配套资源默认一并放入对应 cache root 的 `exports/`，项目内保留 Rmd/Markdown 源稿和结果位置说明；必要的小型输入素材可保留。大型 AI 任务副本或归档放入 `D:/cache/ccs/ai-artifacts/<任务名>/`。
-- 通过统一路径配置和环境变量连接外部缓存，生产、测试、报告读取与监控必须使用各自对应的同一套路径；隔离测试仍通过原 `_targets.R` 执行。renv 的库路径必须在激活前设置，R 的 `TMPDIR`、`TMP`、`TEMP` 必须在进程启动前设置。不要通过 junction、符号链接或 Git ignore 代替坚果云缓存隔离。
-- 迁移现有文件时先确认没有相关计算正在写入，检查目标冲突，复制并核对文件数、大小和哈希后再移除原件；不覆盖内容不同的目标、不删除唯一数据副本。正式 targets store 如需迁移，必须同时更新全部入口、监控与文档；只读迁移不得重跑分析。
-- D 盘不可用或剩余空间不足时，应停止大文件写入并说明实际问题，不能静默回退到同步目录。外置缓存不随坚果云同步，唯一原始输入、不可替代模型和重要结果应另有独立备份。
+- 默认使用简体中文，保留必要的技术名称、命令和路径；README 的双语约定见下文。
+- 先明确需求、范围、产物和约束。数据分析通常按“数据获取 → 探索分析 → 模型训练 → 验证评估”推进。
+- 只修改任务相关文件，先读上下文再编辑，遵循现有代码、日志和通知风格，不做无关重构或添加未要求的功能。
+- 说明简洁自然；引用文件用可点击路径，必要时带起始行号。大文件只给路径和变更说明，交付时简述结果与后续步骤。
+- 优先依据项目文件和本地上下文；需要联网时先用本地搜索工具，不足时再用其他联网方式，并说明原因、保留关键链接。
 
 ## 工程原则
 
-本项目遵循以下工程原则：
+- 保持简单，只实现当前需要的功能；复用重复逻辑，分离职责，避免过度设计。
+- 接口行为符合直觉，无效输入尽早返回，减少嵌套。
+- 冲突时优先保证正确性；简洁性优于灵活性，清晰性优于性能，扩展性优于代码紧凑。
+- 文档标题不加序号。新增规则放入对应章节，避免重复；更新工作流或术语时，同步检查示例、验证要求和引用。
 
-| 原则 | 核心思想 | 在本项目中的体现 |
-|------|----------|------------------|
-| **KISS** | Keep It Simple, Stupid | 追求极致简洁，避免过度设计；文档标题不使用序号前缀（用 `##` 而非 `## 1)`） |
-| **YAGNI** | You Aren't Gonna Need It | 只实现当前需要的功能 |
-| **DRY** | Don't Repeat Yourself | 相似逻辑应抽象复用 |
-| **SOLID** | 面向对象设计五大原则 | 单一职责、开闭原则等 |
-| **关注点分离** | Separation of Concerns | 不同层次逻辑应分离 |
-| **奥卡姆剃刀** | 如无必要，勿增实体 | 优先选择最简单的解决方案；Markdown 本身有层级结构，序号是冗余的形式化标记 |
-| **最小惊讶原则** | Principle of Least Astonishment | API 行为应符合用户直觉 |
-| **早期返回原则** | Early Return | 尽早返回，减少嵌套 |
+## 目录与代码规范
 
-**原则冲突时的决策优先级**：
-1. **正确性 > 一切**
-2. **简洁性 > 灵活性**
-3. **清晰性 > 性能**
-4. **扩展性 > 紧凑性**
+| 路径 | 用途 |
+| --- | --- |
+| `R/` | 包源码与导出 API；`ccs*.R` 定义 S4 类，`hyperTuningGS.R`、`importance.R` 负责建模，`normalize.R`、`phenotype.R`、`simulatePA.R` 等负责预处理 |
+| `man/` | roxygen2 生成的 Rd 文档 |
+| `test/` | 可复现场景脚本与小型测试夹具；模型和大型数据使用外置缓存 |
+| `docs/` | 解释性文档、审计材料与教程；正式任务计划统一放在 `docs/plans/` |
+| `docs/contribution.bac` | 通过 `bac` 命令维护的协作贡献账本 |
+| `.bensz-api/` | AI 与技能的轻量中间产物，已由 `.gitignore` 排除 |
 
-## 默认语言
+提示词、许可证和 README 保留在根目录；使用外部数据的脚本旁应说明数据路径。
 
-除非用户明确要求其他语言，始终使用 简体中文 与用户对话与撰写文档/说明。
+R 代码使用两空格缩进、`<-` 赋值；函数与变量使用 `snake_case`，S4 类和导出方法沿用 `CamelCase`。保持结构和类型安全，补全 roxygen 的 `@description`、`@param`、`@return`、`@examples`。优先复用 `DESCRIPTION` 已声明的依赖，新增导入前先更新声明。
 
-## 联网与搜索
+## targets 分析流程
 
-默认优先使用项目内文件与本地上下文；确需联网获取信息时，优先使用本地搜索工具。仅当本地工具不足以满足需求时再使用其它联网手段，并说明原因与保留关键链接。
+- 已设计、声明或规划 `targets` 依赖图的分析，必须通过原 `_targets.R`、其加载函数、正式存储目录和 `tar_make()` 执行，通过 `tar_watch()` 监测。不得用自定义运行器、逐脚本调度或临时检查点产生正式结果。
+- 正式入口、缓存边界、恢复逻辑或监控面板与 `_targets.R` 不一致时，先停止正式计算并修复，不能另跑“等价”流程。
+- `tar_watch()` 必须指向本次实际使用的正式存储目录，不得用旧目录、空目录或自定义检查点冒充进度。删除、替换或降级现有流程须经负责人明确授权，并同步更新计划、README、CHANGELOG 和验证要求。
+- 目标级并行必须通过 `crew` 控制器接入 `tar_option_set()`。各工作进程日志、CPU/内存指标及 targets 主进程运行日志统一写入正式缓存根目录的 `observability/`，可由 `autometric::log_read()`、`autometric::log_plot()` 读取或可视化；不得混入科学结果缓存或用自定义并行运行器替代 `crew`。
+
+## 外置缓存与大文件
+
+项目位于坚果云同步目录。编写代码和首次运行前，自动将大型产物规划到 `D:/cache/ccs/<分析名>/`，无需再次询问。按用途划分 `raw/`、`models/`、`targets/`、`tmp/`、`environment/`、`observability/` 和 `exports/`。沿用已启用的正式缓存根目录，如 `D:/cache/ccs/_ablation-03/`、`D:/cache/ccs_ablation-03/ablation-03-max/`，不得为统一命名重建存储目录。
+
+- 单文件预计达到 50 MiB、单目录达到 200 MiB，或会持续增长时，提前外置。训练模型、表达/概率矩阵、RDS 中间对象、targets 存储目录、renv 包库、构建副本和批量试跑产物均适用，不必等到超过阈值。
+- `test/`、根目录 `tmp/` 和 `.bensz-api/` 仅保留源码、配置、锁文件、小型夹具、轻量日志和交付说明。正式 HTML/PDF、批量 CSV/CSV.gz、模型结果、展示图及配套资源统一放入对应缓存的 `exports/`；项目内保留 Rmd/Markdown 源稿、位置说明及必要的小型素材。大型 AI 任务副本或归档放入 `D:/cache/ccs/ai-artifacts/<任务名>/`。
+- 用统一路径配置和环境变量连接缓存，生产、测试、报告与监控各自使用对应的同一套路径；隔离测试仍走原 `_targets.R`。renv 库路径在激活前设置，`TMPDIR`、`TMP`、`TEMP` 在 R 进程启动前设置。不得以目录联接、符号链接或 Git 忽略规则替代缓存隔离。
+- 迁移前确认没有相关写入并检查目标冲突；复制后核对文件数、大小和哈希，再移除原件。不覆盖不同内容，不删除唯一副本。迁移正式 targets 存储目录时，同步全部入口、监控和文档；只读迁移不得重跑分析。
+- D 盘不可用或空间不足时停止大文件写入并说明问题，不得回退到同步目录。外置缓存不随坚果云同步，唯一原始输入、不可替代模型和重要结果须另有独立备份。
+
+## 开发与验证
+
+Windows 下统一使用 `C:\R\R-4.3.1` 对应的 R/Rscript。构建副本、包检查和试跑产物遵循外置缓存约定。
+
+| 操作 | 命令 |
+| --- | --- |
+| 刷新文档（提交前） | `Rscript -e "devtools::document()"` |
+| 加载开发源码 | `Rscript -e "devtools::load_all()"` |
+| 构建与检查 | `R CMD build .`，再运行 `R CMD check CCS_<version>.tar.gz`；版本从 `DESCRIPTION` 读取 |
+| normCCS 单元测试 | `Rscript --vanilla test/normCCS-5-more/run-unit-tests.R` |
+| 场景测试示例 | `Rscript test/03.test.Classes.R`、`Rscript test/test.classifier_performance.R` |
+
+- 根目录不保留 `tests/`；normCCS 轻量单元测试放在 `test/normCCS-5-more/tests/`，其他测试归入对应场景目录。`test/` 不随 R 包打包，包检查前必须单独运行相关测试入口。
+- 场景脚本按 `01.test.*`、`02.test.*` 等编号表达执行顺序，能通过 `Rscript` 非交互运行。大型 `.rds` 和临时试跑产物写入对应外置缓存，临时产物放在 `tmp/`。
+- 使用 `stopifnot` 或轻量 `testthat` 断言；涉及概率输出或亚型图变化时，补充小型样本快照。验证范围应与变更相符。
+
+## 文档与报告
+
+- README 以英文 `README.md` 为主，简体中文 `README_CN.md` 为辅，首屏提供语言切换链接。两份同步维护，章节层级、技术事实、示例、命令、版本和链接对应一致，分别自然表达。未经负责人明确要求，不得反转主辅语言、改名或按技能默认命名覆盖此约定。
+- 代码变更使 `docs/` 中非 `plans/` 文档过时时，必须同步更新；修改 `AGENTS.md` 后，检查 `CLAUDE.md` 的核心规则一致性。
+- 所有新写或修订的报告，交付前必须使用 `humanization` 技能润色（`C:/Users/Administrator/.codex/skills/humanization/SKILL.md`），减少套话、生硬措辞和重复表达。此规则也适用于非 NSFC 报告，按报告用途组织内容，不套用标书结构。
+- 润色只调整表达，保留事实、数字、公式、引用、代码、术语和科学结论，并复核 Markdown/LaTeX/R Markdown 结构。正式分析报告仍通过既有 `targets` 入口更新。
+
+## 版本、变更与提交
+
+- `DESCRIPTION` 的 `Version` 是版本号唯一来源。版本、发布时间、Git 标签及 GitHub Release 由负责人决定；除下述既有授权外，只有当前请求明确指定目标版本并要求修改时，才能同步修改 `DESCRIPTION`、README 版本徽章、CHANGELOG 发布标题及标签说明，不得自行推断或递增版本。
+- **ablation 重构既有授权**：新的 `R/ablation.R` 完成改造，通过声明的包检查、科学等价性验证及 `test/ablation-03` 串行验收后，才将当前版本第三位修订号恰好加 1，不改主/次版本，不提前升版。随后用 `C:\R\R-4.3.1` 构建、检查并安装到该 R 环境的可写包库；源码和构建临时文件不得混入 R 安装目录。
+- 行为、结构、工作流、工程原则、指令或关键配置的变更，必须记入 `CHANGELOG.md` 的 `[Unreleased]`；功能、修复或文档更新本身不构成升版授权。CHANGELOG 遵循 Keep a Changelog，Git 标签格式为 `v{Version}`，创建或推送均须明确授权。
+- 提交说明简短、使用祈使句，必要时关联问题编号。拉取请求说明目的、涉及的数据和参数、包检查及相关场景测试结果；绘图或统计变更附截图或指标，说明未纳入 Git 的大型产物。强制推送变基结果前与审阅者协调。
 
 ## 贡献记录
 
-本项目默认且强制基于 [bensz-auto-contribution](https://github.com/huangwb8/bensz-auto-contribution) 使用 `bac` 工具，客观记录人类、AI 与工具的协作贡献边界。默认账本为 `docs/contribution.bac`，运行环境要求 Python 3.10+。
+使用 [bensz-auto-contribution](https://github.com/huangwb8/bensz-auto-contribution) 的 `bac` 工具记录人类、AI 与工具的贡献边界，要求 Python 3.10+，账本为 `docs/contribution.bac`。
 
-- 开始实质性工作时，用 `bac input record` 记录经过脱敏的用户指令摘要
-- 发生文件修改、工具执行或验证时，用 `bac record` 记录对应事件与证据；文件路径必须位于项目内
-- 交付前运行 `python -m bac --root . --bac-file docs/contribution.bac verify --json`，确认哈希链完整
-- 需要审阅贡献时间线时，运行 `python -m bac --root . --bac-file docs/contribution.bac inspect --limit 20`
-- 不直接编辑 `.bac` 文件；初始化或修复必须通过 `bac` 命令完成
-- 仅当项目负责人明确要求时，才可在 `init-project` 中使用 `--disable-bac`；关闭状态必须在系统文档与 `CHANGELOG.md` 中说明
-- BAC 是过程记录与辅助审计材料，不替代最终署名、责任或合规判断
-- 不记录密钥、访问令牌、完整私有提示词、PHI、专有基因组数据或无关个人隐私
+- 开始实质工作时，用 `bac input record` 记录脱敏后的用户指令摘要；文件修改、工具执行和验证用 `bac record` 记录事件与证据，引用路径必须位于项目内。
+- 交付前运行 `python -m bac --root . --bac-file docs/contribution.bac verify --json` 验证哈希链；审阅时间线用 `python -m bac --root . --bac-file docs/contribution.bac inspect --limit 20`。
+- 不直接编辑账本，初始化和修复均通过 `bac` 命令。仅负责人明确要求时，才可在 `init-project` 中使用 `--disable-bac`，并在系统文档与 CHANGELOG 说明。修改贡献规则时，同步验证账本并记录变更。
+- BAC 仅为过程记录和辅助审计，不替代署名、责任或合规判断；不得记录密钥、令牌、完整私有提示词、个人健康信息、专有基因组数据或无关隐私。
 
-## Codex CLI 特定说明
+## 数据安全
 
-### 文件与输出
-
-- 引用文件时使用可点击路径，并尽量带起始行号：`src/main.py:42`
-- 不输出刚写入的大文件内容，只引用路径并说明变更
-- 简单确认避免复杂格式；结束时给出简短后续步骤
-
-### 编辑原则
-
-- 只修改与当前任务直接相关的文件
-- 保持现有代码风格、结构和类型安全
-- 读取足够上下文后再批量处理相关修改
-- 无效输入早返回，遵循项目既有日志/通知模式
-- 不主动添加用户未要求的功能
-
-## 变更记录与版本
-
-- `DESCRIPTION` 中的 `Version` 是项目版本号的唯一来源，但该事实不授予 AI 修改版本号的权限
-- 软件何时发布、采用什么版本号、创建什么 tag 以及是否执行发布，只能由项目负责人本人决定；任何 AI 都不得推断、选择、递增或代替决定
-- 除非项目负责人在当前请求中明确给出目标版本并要求修改，否则 AI 严禁修改 `DESCRIPTION` 的 `Version`、README 版本徽章、`CHANGELOG.md` 的发布版本标题、Git tag 或 GitHub Release
-- **ablation 重构版本门禁（项目负责人已明确授权）**：新的 `R/ablation.R` 完成改造并通过声明的包检查、科学等价性验证和 `test/ablation-03` 串行验收后，才将 `DESCRIPTION` 中当前版本的修订号（patch，第三位）恰好递增 1，例如 `0.8.2` → `0.8.3`；不得改变 major/minor，也不得在验证前升版
-- **ablation 包安装门禁**：完成上述 patch 升级后，使用 `C:\R\R-4.3.1` 对应的 R/Rscript 构建、检查并安装该版本 CCS 包；安装目标应是该 R 环境的可写包库，不得把源码或构建临时文件直接混入 R 安装目录
-- 功能新增、问题修复、文档更新、BAC 引入等变更即使按照 SemVer 可能需要升版，AI 也只能记录到 `[Unreleased]`，不得自行调整版本号；如有必要可说明影响，等待项目负责人决定
-- 项目负责人明确要求更新版本时，AI 才可按其指定值同步 `DESCRIPTION`、README、`CHANGELOG.md` 与 tag 说明，不得擅自改成其它版本
-- 影响项目行为、结构、工作流、工程原则、指令文件或关键配置的变更，必须更新 `CHANGELOG.md` 的 `[Unreleased]`
-- 修改 `AGENTS.md` 后，应同步检查 `CLAUDE.md` 的核心内容是否一致
-- `CHANGELOG.md` 遵循 Keep a Changelog；Git tag 使用 `v{Version}`，但只有项目负责人明确授权后才能创建或推送
-
-## Project Structure & Module Organization
-
-Core package code lives in `R/`, with `ccs*.R` owning S4 classes, `hyperTuningGS.R` and `importance.R` for modeling, and utilities such as `normalize.R`, `phenotype.R`, and `simulatePA.R` for preprocessing. Generated Rd files remain in `man/`. Scenario scripts and small fixtures live under `test/`; models and large auxiliary data belong to the analysis-specific external cache described above. Keep prompts, licensing, and README material at the repo root, and document external data paths next to the scripts that consume them.
-
-## Build, Test, and Development Commands
-
-Refresh documentation before committing with `Rscript -e "devtools::document()"`. Package locally with `R CMD build .`, then run `R CMD check CCS_<version>.tar.gz` against the tarball version read from `DESCRIPTION`. During interactive work `Rscript -e "devtools::load_all()"` mirrors `library(CCS)` without reinstalling. Scenario tests run via plain scripts; e.g., `Rscript test/03.test.Classes.R` validates the class definitions and `Rscript test/test.classifier_performance.R` exercises the classifier benchmarks.
-
-On Windows computers, use the R installation at `C:\R\R-4.3.1` for `Rscript`, package builds, checks, and scenario tests.
-
-## Coding Style & Naming Conventions
-
-Match the existing tidy R style: two-space indent, `<-` for assignment, and `snake_case` for functions and variables while keeping S4 classes and exported methods in `CamelCase`. Keep roxygen headers complete (`@description`, `@param`, `@return`, `@examples`) so `man/` stays in sync after `devtools::document()`. Reuse verbs from the packages declared in `DESCRIPTION`, and update that file before relying on new imports.
-
-## Testing Guidelines
-
-根目录不保留 `tests/`。normCCS 轻量单元测试统一放在 `test/normCCS-5-more/tests/`，使用 `Rscript --vanilla test/normCCS-5-more/run-unit-tests.R` 执行；其它测试归入对应的 `test/` 场景目录，临时试跑产物放在对应外置缓存的 `tmp/` 子目录。由于 `test/` 不随 R 包打包，`R CMD check` 不会自动执行这些测试，包检查前必须单独运行相关测试入口。
-
-Each script in `test/` targets a reproducible scenario; follow the numbering scheme (`01.test.*`, `02.test.*`, etc.) to signal execution order. Scripts must be runnable through `Rscript` without interactive prompts and write large `.rds` artifacts into dedicated external cache subdirectories. Favor `stopifnot` or lightweight `testthat` expectations to make failures obvious and add small sample data snapshots when a change impacts probability outputs or subtype plots.
-
-## Commit & Pull Request Guidelines
-
-Git history favors concise imperative summaries with optional release tags (`v0.7.0`, `Routine update`). Use the same style, referencing issue IDs when relevant. Pull requests should include: purpose, datasets or parameters touched, confirmation that `R CMD check` and the relevant `test/*.R` scripts succeeded, and screenshots or metrics for any plotting/statistics change. Mention large artifacts deliberately excluded from git and coordinate with reviewers before force-pushing rebases.
-
-## Security & Data Handling
-
-Handle genomic `.rds` files as sensitive. Keep PHI and proprietary data out of the repo, scrub metadata in sample fixtures, and document any secure storage requirements in the PR description. Gate remote downloads behind explicit arguments and never embed credentials or tokens in tracked files or the BAC ledger.
-
-## 有机更新原则
-
-当需要更新本文档时：
-
-- 先理解变更意图，再把规则放到最合适的章节，避免重复堆叠
-- 更新工作流、输出规范或术语时，同步检查相关示例、验证清单和引用位置
-- 计划文档统一保存在 `./docs/plans/`
-- 代码变化导致 `docs/` 中非 `plans/` 文档过时时，必须同步更新
-- 修改贡献记录规则时，同步检查 `docs/contribution.bac` 的可验证性与 `CHANGELOG.md` 记录
-- 文档标题不使用序号前缀，保持 Markdown 层级清晰
+基因组 `.rds` 按敏感数据处理，个人健康信息和专有数据不得进入仓库；样本夹具清理敏感元数据，拉取请求说明安全存储要求。远程下载须由显式参数启用，凭据或令牌不得写入跟踪文件或贡献账本。
