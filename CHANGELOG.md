@@ -6,7 +6,9 @@
 
 ## [Unreleased]
 
-- 重构 `test/normCCS-optimization/` 的默认分析：固定原始数据、metaCCS、论文训练名单与 K4，限定 K2–15，以同一 K≥5 映射的训练／全部外部队列 OptimizeRank 和固定方向 AUC 四项中位数共同改善为目标。新增 K4 全队列回归门禁、扩展目标网格、保留论文分界的细分候选、冻结登记、探索性达标表和来源组配对区间；分别报告训练侧学习与论文历史条件性结果。新 `goal_*` 分支沿用原 targets store，产物写入外置 `exports/paper-goal/`；旧分支重算隔离到 `legacy-recompute/`，旧科学文件保留。状态与结论见场景验证说明，软件版本不变。
+- 按负责人指定将 CCS 更新为 **0.8.7**。`subtypePerformance()` 新增默认 `norm_mode = "discrete"`、连续模式 `"continuous"` 和每层保留数 `norm_top_n = 10`；连续搜索由 `subtypeNorm_continuous()` 从 K1 的唯一映射开始，K≥2 保留上一层 top 方案的全部分界，做受约束 DP 并按实际目标核对所有合法单次细分。各 K 保留方案沿用 `Raw`、`Summary` 和 `Info` 格式，逐队列用原 ROC 复核，诊断记录继承关系、分界和搜索量；有限 top 不保证全局最优或逐 K 改善。新增 `MeanNRR`、`LowerTailNRR`、`ShrunkLogOR`、`RankFusion` 排序，默认仍为 NRR，原四种离散排序及搜索保持回归兼容。DP 和目标函数辅助代码统一归入 `R/phenotype.R` 尾部，移除两个独立文件，并同步现有 targets 的源码引用；本次不运行或替换真实分析流程。新增合成边界、穷举核对、离散回归与公共接口测试，验证状态见 `test/normCCS-continuous/verification.md`。
+
+- 完成 `test/normCCS-optimization/` 的替换式重构：固定原始数据、metaCCS、论文训练名单与 K4，限定 K2–15，以同一 K≥5 映射的训练／全部外部队列 OptimizeRank 和固定方向 AUC 四项中位数共同改善为目标。保留论文复现门禁、扩展搜索、K4 分界细分、冻结登记、完整达标比较及来源组配对区间；删除旧嵌套验证图、专用模块、S3 概率评分、重复配置、旧报告和旧测试。退役结果逐文件校验归档后移出活动目录，通过原生 `tar_prune()` 清理旧目标；仅保留当前流程，沿用原正式 store 和外置 `exports/paper-goal/`。验证和科学解释见场景说明，软件版本不变。
 
 - 根据参数优化计划新增独立的 `test/normCCS-optimization/`，只读复用 premium 的原训练集合、逐记录输入和历史基线。实现排序／评分／目标组合、K2–30 精确与近似搜索、按来源分组的嵌套选择、配对患者区间及稳定性／来源／支持敏感性；批量重抽样保持原 OptimizeRank 统计定义和全部重复数，降低区间计算成本。边界与同 DAG 合成端到端验证通过，单 worker 全量计算于 2026-11-01 通过最终 `acceptance`，生成正式 HTML、结果表与 PDF；训练内规则锁定 K3，嵌套验证尚不支持优于重训 K4。状态与解释边界见 `test/normCCS-optimization/verification.md`，版本不变。
 

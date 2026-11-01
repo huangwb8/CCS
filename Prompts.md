@@ -32,6 +32,31 @@ ablation-03里{chapter}的写作太过粗糙。 你学一下ablation-03里`输�
 
 ---
 
+CCS v0.8.7的 R\phenotype.R 做了一些改进，我们有机会探索连续模式、新的norm_rank_marker对最终normCCS的performance的影响。我希望你在  test\normCCS-optimization-02
+
+---
+
+先给状态排队，再划分等级；从 test\normCCS-optimization 目前的分析结果来看，对于k>=5的DP探索来说，似乎并不成功。我觉得是目前搜索的策略太差。请你：
+
+- 优化R\phenotype.R 里的 subtypePerformance 函数。 新增一个参数： norm_mode，它是一个字符。支持2种模式：默认的离散；还有一个连续模式。它的作用是：如果是离散，就和原来一样， n_norm_subtype = 4就代表找k=4的情况；如果连续，就是1，2，3，4都探索。
+- 连续模式的时候，是这么探索：第1个是暴力算，然后找到top的几个（这是用一个参数控制）。k>=2时，就基于第k-1个探索的那些top成果里继续DP探索。为什么我这么想呢？因为之前的分析表明，如果在一个好的normCCS的基础上增加k，一般来说表现会有所上升。那我就干脆搞这种继承式的；一来探索的空间小很多，二来也比较有效。当然，这是我的推测，没有完全实证。
+- 我希望连续模式是由一个新的内部函数  subtypeNorm_continuous 来负责；原有的 subtypeNorm 内部函数不要动。 subtypeNorm_continuous 只是和 subtypeNorm_continuous 的探索方式不同；输出格式应该和 subtypeNorm 一样，从而保证它的输出可以成为下游分析的输入。
+
+另外，关于 norm_rank_marker 的方式，我也希望你加入除 c('NRR', 'RR', 'NRR+RR', 'RR+NRR') 以外的其它合理方法，让metaCCS的初始排序可以更加合理；用什么字符你自己决定，只要在函数里的默认值里加进去就行，类似这样`norm_rank_marker = c('NRR', 'RR', 'NRR+RR', 'RR+NRR', <把你觉得好的方法的字符列在这里>)[1]`。这方面我的建议是这样：
+
+- 专门设计一个内部的子函数，基于给定的norm_rank_marker（当然包括其它输入；你自己把握），会返回一个metaCCS的排序
+
+开发完成后，CCS包的版本定为 0.8.7 。 
+
+注意：
+
+- R\subtype_norm_dp.R R\subtype_norm_objective.R 不要单独成文件；或者说本次任务里要开发的子函数/为了更好地完成任务而开发的子函数，不要单独成文件。统一拉到 R\phenotype.R 的尾巴后面。
+- 本次任务，你可以在 ./tmp 的某个子文件夹里构建测试用例，真实地运行测试，从而最终保证代码的功能正常。
+
+全程遵守 Bensz R Developer 的规范。
+
+---
+
 test/normCCS-optimization 的分析要重构：
 
 - 使用同样的原始数据，metaCCS已经固定

@@ -12,6 +12,7 @@ plans/*
 !test/normCCS-5-more/
 !test/normCCS-premium/
 !test/normCCS-optimization/
+!test/normCCS-continuous/
 .bensz-api/
 .ccs-cache/
 /renv/

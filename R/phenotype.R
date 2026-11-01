@@ -9,7 +9,22 @@
 #' @param color_tissue a named vector like \code{c(Brain = "#984EA3",Oral = "#BF5B17")}
 #' @param color_cohort Default is \code{NULL}, which means that all cohort names were colored as black. You can also use a named vector like \code{c('Kim2018_PD-1_gastric' = "#E31A1C")}.
 #' @param color_subtype Default is \code{NULL}, which means that all raw subtype names were colored as \code{scales::hue_pal()(n)}. You can also use a named vector like \code{c('0' = "#E31A1C")}.
-#' @param n_norm_subtype The number of normalized subtypes you want to explore
+#' @param n_norm_subtype The number of normalized subtypes in discrete mode,
+#'   or the maximum number in continuous mode (which also includes K = 1).
+#' @param norm_mode Either \code{"discrete"} (default, search only the specified
+#'   K) or \code{"continuous"} (search K = 1 through the specified maximum).
+#'   Continuous search fixes the state order once, exhaustively evaluates K = 1,
+#'   and uses constrained DP within each previous top parent's partitions for
+#'   K >= 2. All legal single-split extensions are scored with the public
+#'   objective before pruning. Every child preserves all parent cutpoints.
+#'   This mode always uses inherited DP, irrespective of \code{norm_search_method}.
+#' @param norm_top_n Positive integer, default 10. Maximum number of distinct
+#'   candidates retained at each K in continuous mode. Only retained candidates
+#'   appear in Raw/Summary; each is checked with the reference ROC evaluator.
+#'   Summary combines all K and keeps the existing column schema; the number of
+#'   grades can be read from Info or the per-layer SearchDiagnostics. K = 1 has
+#'   constant predictor AUC 0.5. Finite-width pruning is approximate and neither
+#'   guarantees a global optimum nor monotone improvement as K increases.
 #' @param norm_search_method Search algorithm: \code{"bruteforce"} (the default,
 #'   retaining all partitions) or \code{"dp"} (deterministic multi-start dynamic
 #'   programming followed by local refinement of the selected objective).
@@ -46,7 +61,16 @@
 #'   \item \code{RR} Ranked only by raw response rate.
 #'   \item \code{NRR+RR} Ranked by normalized response rate and then by raw response rate.
 #'   \item \code{RR+NRR} Ranked by raw response rate and then by normalized response rate.
+#'   \item \code{MeanNRR} Equal-cohort mean normalized response rate.
+#'   \item \code{LowerTailNRR} Mean of the lowest 25\% cohort NRR mass,
+#'     including a fractional boundary cohort.
+#'   \item \code{ShrunkLogOR} Equal-cohort mean of Jeffreys-smoothed state
+#'     log-odds minus Jeffreys-smoothed overall cohort log-odds.
+#'   \item \code{RankFusion} Equal-weight average ranks of median NRR and RR.
 #' }
+#'   New rules break ties by median NRR, median RR, then state identifier.
+#'   Missing states contribute no observation in that cohort; these are
+#'   training-derived ordering heuristics, not claims of external superiority.
 #' @param plot_layout_widths \code{layout_widths} for \code{\link[patchwork]{plot_layout}}
 #' @param plot_ROCCutoff The cut-off value for visualization of ROC AUC
 #' @param plot_silence_cohort Whether to silence cohort names in the plot
@@ -103,7 +127,10 @@ subtypePerformance <- function(
     ),
     n_norm_subtype = 2,
     norm_roc_method = c('OptimizeRank', 'Raw')[1],
-    norm_rank_marker = c('NRR', 'RR', 'NRR+RR', 'RR+NRR')[1],
+    norm_rank_marker = c('NRR', 'RR', 'NRR+RR', 'RR+NRR',
+                         'MeanNRR', 'LowerTailNRR', 'ShrunkLogOR', 'RankFusion')[1],
+    norm_search_method = c("bruteforce", "dp"),
+    norm_mode = c("discrete", "continuous")[1],
     plot_ROCCutoff = 0.8,
     plot_layout_widths = c(9, 1),
     plot_silence_cohort = F,
@@ -111,14 +138,17 @@ subtypePerformance <- function(
     meta_method = c('DL','REML','ML','PM','SJ','HE','EB','HK'),
     meta_cohort_font_size = 11.5,
     meta_subtitle_font_size = 10,
-    norm_search_method = c("bruteforce", "dp"),
     numCores = NULL,
     verbose = TRUE,
-    norm_objective = "median"
+    norm_objective = "median",
+    norm_top_n = 10L
 ){
 
   norm_objective <- norm_validate_objective(norm_objective)
   norm_search_method <- match.arg(norm_search_method)
+  norm_mode <- norm_validate_mode(norm_mode)
+  norm_validate_top_n(norm_top_n)
+  norm_validate_rank_marker(norm_rank_marker)
 
   # Test
   if(F){
@@ -262,7 +292,8 @@ subtypePerformance <- function(
   # Performance of normalized subtype
   if(verbose) LuckyVerbose('subtypePerformance: Normailized subtype...')
   if(!is.null(n_norm_subtype)){
-    data_norm <- subtypeNorm(
+    norm_function <- if (norm_mode == "continuous") subtypeNorm_continuous else subtypeNorm
+    norm_args <- list(
       df,
       n_norm_subtype = n_norm_subtype,
       norm_roc_method = norm_roc_method,
@@ -272,6 +303,8 @@ subtypePerformance <- function(
       norm_search_method = norm_search_method,
       norm_objective = norm_objective
     )
+    if (norm_mode == "continuous") norm_args$norm_top_n <- norm_top_n
+    data_norm <- do.call(norm_function, norm_args)
   } else {
     data_norm <- NULL
   }
@@ -313,6 +346,16 @@ subtypePerformance <- function(
   )
   if (norm_objective != "median") {
     l$Repeat <- c(l$Repeat, norm_objective_settings(norm_objective))
+  }
+  if (norm_mode == "continuous") {
+    l$Repeat$norm_mode <- norm_mode
+    l$Repeat$norm_top_n <- norm_top_n
+    l$Repeat$norm_search_method <- "dp"
+  }
+  if (norm_mode == "continuous" ||
+      !norm_rank_marker %in% c("NRR", "RR", "NRR+RR", "RR+NRR")) {
+    l$Repeat$norm_rank_marker <- norm_rank_marker
+    l$Repeat$norm_roc_method <- norm_roc_method
   }
   if(verbose) LuckyVerbose('subtypePerformance: All done!')
   return(l)
@@ -914,10 +957,7 @@ subtypeNorm <- function(
   }
   norm_search_method <- match.arg(norm_search_method)
   norm_validate_input(df, n_norm_subtype, norm_roc_method, numCores)
-  if (length(norm_rank_marker) != 1L || is.na(norm_rank_marker) ||
-      !norm_rank_marker %in% c("RR", "NRR", "RR+NRR", "NRR+RR")) {
-    stop("norm_rank_marker must be one of 'RR', 'NRR', 'RR+NRR', 'NRR+RR'.")
-  }
+  norm_validate_rank_marker(norm_rank_marker)
   search_started <- proc.time()[["elapsed"]]
 
   # Data
@@ -944,17 +984,7 @@ subtypeNorm <- function(
     )
 
     # Rank
-    if(norm_rank_marker == 'RR+NRR'){
-      df_cutoff <- arrange(df_cutoff, desc(medianRR), desc(medianNRR))
-    } else if(norm_rank_marker == 'NRR+RR'){
-      df_cutoff <- arrange(df_cutoff, desc(medianNRR), desc(medianRR))
-    } else if(norm_rank_marker == 'RR'){
-      df_cutoff <- arrange(df_cutoff, desc(medianRR))
-    } else if(norm_rank_marker == 'NRR'){
-      df_cutoff <- arrange(df_cutoff, desc(medianNRR))
-    } else {
-      stop('Not available rank marker. Please use one of "RR" and "NRR"!')
-    }
+    df_cutoff <- norm_rank_subtypes(df, norm_rank_marker, df_cutoff)
 
     if (n_norm_subtype > nrow(df_cutoff)) {
       stop("n_norm_subtype must not exceed the number of observed subtypes.")
@@ -1913,3 +1943,691 @@ calculate_bounded_confidence_interval <- function(data, conf_level = 0.95, lower
 }
 
 
+
+
+# Shared candidate x cohort scoring for both normCCS search algorithms.
+norm_validate_objective <- function(objective) {
+  choices <- c("median", "cohort_median", "mean", "lower_tail", "mean_lower_tail")
+  if (!is.character(objective) || length(objective) != 1L ||
+      is.na(objective) || !objective %in% choices) {
+    stop("norm_objective must be one of: ", paste(choices, collapse = ", "), ".")
+  }
+  objective
+}
+
+norm_objective_score <- function(auc, cohorts, objective = "median") {
+  # Test
+  if (FALSE) {
+    auc <- matrix(c(0.9, 0.5, 0.7, 0.8, 0.9, 1), nrow = 1L)
+    norm_objective_score(auc, c("All", LETTERS[1:5]), "lower_tail")
+  }
+  objective <- norm_validate_objective(objective)
+  if (!is.matrix(auc) || !is.numeric(auc) || ncol(auc) != length(cohorts) ||
+      !is.character(cohorts) || anyNA(cohorts) || any(!nzchar(cohorts)) ||
+      anyDuplicated(cohorts)) {
+    stop("auc must be a numeric candidate-by-cohort matrix with unique, nonempty cohort identifiers.")
+  }
+  if (objective == "median") {
+    return(apply(auc, 1L, stats::median, na.rm = TRUE))
+  }
+  real <- auc[, cohorts != "All", drop = FALSE]
+  if (!ncol(real)) stop("norm_objective requires at least one real cohort (excluding 'All').")
+  if (any(!is.finite(real))) {
+    bad <- which(!is.finite(real), arr.ind = TRUE)[1L, ]
+    stop("Non-finite AUC at candidate ", bad[1L], ", cohort '",
+         cohorts[cohorts != "All"][bad[2L]], "'.")
+  }
+  if (objective == "mean") return(rowMeans(real))
+  if (objective == "cohort_median") return(apply(real, 1L, stats::median))
+  mass <- 0.25 * ncol(real)
+  whole <- floor(mass)
+  fraction <- mass - whole
+  tail <- apply(real, 1L, function(x) {
+    x <- sort(x)
+    (sum(x[seq_len(whole)]) + if (fraction > 0) fraction * x[whole + 1L] else 0) / mass
+  })
+  if (objective == "lower_tail") return(tail)
+  0.5 * rowMeans(real) + 0.5 * tail
+}
+
+norm_objective_settings <- function(objective) {
+  settings <- list(norm_objective = objective)
+  if (objective %in% c("lower_tail", "mean_lower_tail")) settings$tail_fraction <- 0.25
+  if (objective == "mean_lower_tail") settings$mean_weight <- 0.5
+  settings
+}
+
+# Preserve legacy columns; never relabel a new score as medianROCAUC.
+norm_objective_summary <- function(raw, objective) {
+  infos <- sort(unique(as.character(raw$Info)))
+  cohorts <- sort(unique(as.character(raw$Cohort)))
+  key <- paste(match(raw$Info, infos), match(raw$Cohort, cohorts), sep = ":")
+  if (anyDuplicated(key) || nrow(raw) != length(infos) * length(cohorts)) {
+    stop("Each candidate must have exactly one AUC for every cohort.")
+  }
+  auc <- matrix(NA_real_, length(infos), length(cohorts))
+  auc[cbind(match(raw$Info, infos), match(raw$Cohort, cohorts))] <- raw$ROCAUC
+  summary <- data.frame(Info = infos,
+                        medianROCAUC = norm_objective_score(auc, cohorts, "median"),
+                        stringsAsFactors = FALSE)
+  summary$objective <- objective
+  summary$objectiveScore <- norm_objective_score(auc, cohorts, objective)
+  summary$cohortMedianROCAUC <- norm_objective_score(auc, cohorts, "cohort_median")
+  summary$cohortMeanROCAUC <- norm_objective_score(auc, cohorts, "mean")
+  summary$cohortLowerTailROCAUC <- norm_objective_score(auc, cohorts, "lower_tail")
+  summary <- summary[order(-summary$objectiveScore, -summary$cohortMeanROCAUC, summary$Info), , drop = FALSE]
+  rownames(summary) <- NULL
+  summary
+}
+
+
+# Internal normCCS search kernels. States are ordered from high to low RR/NRR.
+# No RNG, persistent cache, native code, or parallel backend is used here.
+
+norm_validate_input <- function(df, k, method, cores) {
+  required <- c("Cohort", "Subtype", "response", "SampleIDs", "tumor_type")
+  if (!is.data.frame(df) || !all(required %in% names(df)) || !nrow(df)) {
+    stop("df must be a nonempty data frame with Cohort, Subtype, response, SampleIDs and tumor_type.")
+  }
+  if (anyNA(df[required]) || !all(as.character(df$response) %in% c("0", "1"))) {
+    stop("Required columns must be complete; response must contain only 0 and 1.")
+  }
+  if (!is.numeric(k) || length(k) != 1L || !is.finite(k) || k < 2 || k != floor(k)) {
+    stop("n_norm_subtype must be a single integer >= 2.")
+  }
+  if (length(method) != 1L || !method %in% c("Raw", "OptimizeRank")) {
+    stop("norm_roc_method must be 'Raw' or 'OptimizeRank'.")
+  }
+  if (!is.null(cores) && (!is.numeric(cores) || length(cores) != 1L ||
+      !is.finite(cores) || cores < 1 || cores != floor(cores))) {
+    stop("numCores must be NULL or a positive integer.")
+  }
+  if (any(vapply(split(df$response, df$Cohort, drop = TRUE),
+                 function(x) length(unique(x)) != 2L, logical(1)))) {
+    stop("Every cohort must contain both response classes (0 and 1).")
+  }
+  if (any(as.character(df$Cohort) == "All")) {
+    stop("Cohort name 'All' is reserved for the pooled summary.")
+  }
+}
+
+# Prefix counts and interval loss relative to keeping all M distinct scores.
+# L[a,b] = U[a,b] - P[a,b]*N[a,b]/2; negative loss is legal.
+norm_prepare_counts <- function(df, ranked) {
+  m <- nrow(ranked)
+  cohorts <- sort(unique(as.character(df$Cohort)))
+  state <- match(as.character(df$Subtype), as.character(ranked$Subtype))
+  rows <- c(list(seq_len(nrow(df))), lapply(cohorts, function(x) which(df$Cohort == x)))
+  names(rows) <- c("All", cohorts)
+  # pROC respects factor level order, even when '0' is the case level.
+  roc_levels <- levels(droplevels(as.factor(df$response)))
+  p <- n <- matrix(0, length(rows), m)
+  loss <- first <- array(0, c(length(rows), m, m))
+  median_states <- matrix(0L, length(rows), 4L)
+  for (c in seq_along(rows)) {
+    ids <- rows[[c]]
+    positive <- as.character(df$response[ids]) == roc_levels[2L]
+    p[c, ] <- tabulate(state[ids[positive]], nbins = m)
+    n[c, ] <- tabulate(state[ids[!positive]], nbins = m)
+    cp <- c(0, cumsum(p[c, ]))
+    cn <- c(0, cumsum(n[c, ]))
+    pair_prefix <- c(0, cumsum(p[c, ] * (cn[-1L] - n[c, ] / 2)))
+    first_state <- match(seq_len(m), state[ids])
+    first_state[is.na(first_state)] <- Inf
+    for (a in seq_len(m)) {
+      b <- a:m
+      pg <- cp[b + 1L] - cp[a]
+      ng <- cn[b + 1L] - cn[a]
+      loss[c, a, b] <- (pg * cn[b + 1L] -
+        (pair_prefix[b + 1L] - pair_prefix[a]) - pg * ng / 2) / (sum(p[c, ]) * sum(n[c, ]))
+      first[c, a, b] <- cummin(first_state[b])
+    }
+    for (j in 1:2) {
+      counts <- if (j == 1L) p[c, ] else n[c, ]
+      total <- sum(counts)
+      median_states[c, (2L * j - 1L):(2L * j)] <-
+        vapply(c(ceiling(total / 2), floor(total / 2) + 1),
+               function(x) which(cumsum(counts) >= x)[1L], integer(1))
+    }
+  }
+  prefix <- function(x) t(apply(cbind(0, x), 1, cumsum))
+  base_auc <- rowSums(p * (rowSums(n) - t(apply(n, 1, cumsum)) + n / 2)) /
+    (rowSums(p) * rowSums(n))
+  list(m = m, cohorts = names(rows), rows = rows, p = p, n = n,
+       roc_levels = roc_levels,
+       cp = prefix(p), cn = prefix(n), loss = loss, first = first,
+       median_states = median_states, base_auc = base_auc)
+}
+
+# Exact O(K*M^2) solution for a weighted fixed-direction mean AUC.
+norm_solve_dp <- function(cost, k) {
+  m <- nrow(cost)
+  value <- matrix(Inf, k, m)
+  parent <- matrix(0L, k, m)
+  value[1L, ] <- cost[1L, ]
+  for (g in 2:k) {
+    for (b in g:m) {
+      ends <- (g - 1L):(b - 1L)
+      choices <- value[g - 1L, ends] + cost[cbind(ends + 1L, b)]
+      best <- which.min(choices)
+      value[g, b] <- choices[best]
+      parent[g, b] <- ends[best]
+    }
+  }
+  cuts <- integer(k - 1L)
+  b <- m
+  for (g in k:2) {
+    cuts[g - 1L] <- parent[g, b]
+    b <- cuts[g - 1L]
+  }
+  list(cuts = cuts, loss = value[k, m])
+}
+
+norm_median_bin <- function(counts) {
+  cumulative <- counts
+  if (ncol(counts) > 1L) for (j in 2:ncol(counts)) {
+    cumulative[, j] <- cumulative[, j - 1L] + counts[, j]
+  }
+  total <- rowSums(counts)
+  (rowSums(cumulative < ceiling(total / 2)) +
+     rowSums(cumulative < (floor(total / 2) + 1))) / 2 + 1
+}
+
+# Batched legacy AUC, including pROC's median-based automatic direction.
+# OptimizeRank preserves first-observation tie order in one-vs-rest AUCs.
+norm_auc_batch <- function(cuts, model, method = "Raw") {
+  if (is.null(dim(cuts))) cuts <- matrix(cuts, nrow = 1L)
+  nr <- nrow(cuts)
+  k <- ncol(cuts) + 1L
+  m <- model$m
+  left <- cbind(1L, cuts + 1L)
+  right <- cbind(cuts, m)
+  interval <- left + (right - 1L) * m
+  result <- matrix(0, nr, length(model$cohorts), dimnames = list(NULL, model$cohorts))
+  for (c in seq_along(model$cohorts)) {
+    if (method == "Raw" || k == 2L) {
+      auc <- model$base_auc[c] - rowSums(matrix(model$loss[c, , ][as.vector(interval)], nr, k))
+      median_group <- matrix(vapply(model$median_states[c, ],
+                                    function(s) rowSums(cuts < s), numeric(nr)), nr, 4L)
+      reverse <- rowSums(median_group[, 3:4, drop = FALSE]) <
+        rowSums(median_group[, 1:2, drop = FALSE])
+    } else {
+      p <- matrix(model$cp[c, right + 1L] - model$cp[c, left], nr, k)
+      n <- matrix(model$cn[c, right + 1L] - model$cn[c, left], nr, k)
+      pt <- rowSums(p)
+      nt <- rowSums(n)
+      # Match pROC's trapezoid arithmetic, not just its algebraic value:
+      # last-bit differences change OptimizeRank's ordering of nearly tied AUCs.
+      sensitivity <- p / pt
+      specificity <- (nt - n) / nt
+      ovr <- ((1 + sensitivity) / 2) * specificity +
+        (sensitivity / 2) * (1 - specificity)
+      # A binary indicator has median 0, 0.5 or 1 depending on its count.
+      binary_median <- function(x, total) (x >= total / 2) / 2 + (x > total / 2) / 2
+      flip <- binary_median(n, nt) > binary_median(p, pt)
+      reverse_sensitivity <- (pt - p) / pt
+      reverse_specificity <- n / nt
+      reverse_auc <- ((1 + reverse_sensitivity) / 2) * reverse_specificity +
+        (reverse_sensitivity / 2) * (1 - reverse_specificity)
+      ovr[flip] <- reverse_auc[flip]
+      first <- matrix(model$first[c, , ][as.vector(interval)], nr, k)
+      # Absent groups never occur in unique(predictor) in the reference.
+      ovr[p + n == 0] <- Inf
+      ordering <- order(rep(seq_len(nr), k), as.vector(ovr), as.vector(first))
+      p <- matrix(p[ordering], nr, k, byrow = TRUE)
+      n <- matrix(n[ordering], nr, k, byrow = TRUE)
+      cumulative_n <- n
+      if (k > 1L) for (j in 2:k) cumulative_n[, j] <- cumulative_n[, j - 1L] + n[, j]
+      auc <- rowSums(p * (cumulative_n - n / 2)) / (pt * nt)
+      reverse <- norm_median_bin(n) > norm_median_bin(p)
+    }
+    result[, c] <- ifelse(reverse, 1 - auc, auc)
+  }
+  result
+}
+
+norm_info <- function(cuts, ranked) {
+  k <- length(cuts) + 1L
+  groups <- k - 1L - findInterval(seq_len(nrow(ranked)) - 1L, cuts)
+  paste(vapply(0:(k - 1L), function(g) {
+    paste0(g, "=", paste(ranked$Subtype[groups == g], collapse = ","))
+  }, character(1)), collapse = "; ")
+}
+
+subtype_norm_dp <- function(df, ranked, k, method, started, verbose, objective = "median") {
+  # Test
+  if (FALSE) {
+    # The synthetic generator and complete runnable examples live in
+    # test/normCCS-5-more/; no patient data are needed.
+    model <- norm_prepare_counts(df, ranked)
+    norm_solve_dp(model$loss[1L, , ], k)
+  }
+  objective <- norm_validate_objective(objective)
+  if (verbose) luckyBase::LuckyVerbose(paste0("subtypeNorm: DP starts and ", objective, " refinement..."), levels = 2)
+  model <- norm_prepare_counts(df, ranked)
+  nc <- length(model$cohorts)
+  weights <- rbind(rep(1 / nc, nc), c(0, rep(1 / (nc - 1L), nc - 1L)), diag(nc))
+  # Also seed reverse directions because legacy pROC auto-direction can flip.
+  weights <- rbind(weights, -weights)
+  loss_matrix <- matrix(model$loss, nrow = nc)
+  starts <- lapply(seq_len(nrow(weights)), function(i) {
+    cost <- matrix(as.vector(crossprod(weights[i, ], loss_matrix)), model$m, model$m)
+    norm_solve_dp(cost, k)$cuts
+  })
+  starts <- unique(c(starts, list(as.integer(floor(seq_len(k - 1L) * model$m / k)))))
+  score <- function(cuts) norm_objective_score(norm_auc_batch(cuts, model, method), model$cohorts, objective)
+  candidate_order <- function(values, cuts) {
+    if (objective == "median") return(order(-values, seq_along(values)))
+    auc <- norm_auc_batch(cuts, model, method)
+    means <- norm_objective_score(auc, model$cohorts, "mean")
+    infos <- apply(cuts, 1L, norm_info, ranked = ranked)
+    order(-values, -means, infos)
+  }
+  proposal_winner <- function(values, proposals) {
+    if (objective == "median") return(which.max(values))
+    ties <- which(values == max(values))
+    if (length(ties) == 1L) return(ties)
+    ties[candidate_order(values[ties], proposals[ties, , drop = FALSE])[1L]]
+  }
+  start_scores <- score(do.call(rbind, starts))
+  selected <- candidate_order(start_scores, do.call(rbind, starts))[seq_len(min(6L, length(starts)))]
+  candidates <- starts[selected]
+  evaluations <- length(starts)
+  refinements <- vector("list", length(selected))
+  for (i in seq_along(selected)) {
+    cuts <- starts[[selected[i]]]
+    best <- start_scores[selected[i]]
+    converged <- FALSE
+    pair_moves <- 0L
+    for (pass in seq_len(10L)) {
+      improved <- FALSE
+      for (j in seq_along(cuts)) {
+        lower <- if (j == 1L) 1L else cuts[j - 1L] + 1L
+        upper <- if (j == length(cuts)) model$m - 1L else cuts[j + 1L] - 1L
+        proposals <- matrix(rep(cuts, each = upper - lower + 1L), ncol = length(cuts))
+        proposals[, j] <- lower:upper
+        values <- score(proposals)
+        evaluations <- evaluations + length(values)
+        winner <- proposal_winner(values, proposals)
+        if (values[winner] > best + 1e-12) {
+          cuts <- as.integer(proposals[winner, ])
+          best <- values[winner]
+          improved <- TRUE
+        }
+      }
+      # A single-boundary optimum can still improve by moving two neighboring
+      # boundaries together. Search that neighborhood only after singles stall.
+      if (!improved && length(cuts) > 1L) {
+        for (j in seq_len(length(cuts) - 1L)) {
+          lower <- if (j == 1L) 1L else cuts[j - 1L] + 1L
+          upper <- if (j + 1L == length(cuts)) model$m - 1L else cuts[j + 2L] - 1L
+          if (upper - lower < 2L) next
+          first <- rep(lower:(upper - 1L), times = (upper - lower):1L)
+          second <- unlist(lapply(lower:(upper - 1L), function(a) (a + 1L):upper), use.names = FALSE)
+          pair_best <- best
+          pair_cuts <- cuts
+          for (offset in seq.int(1L, length(first), by = 512L)) {
+            ids <- offset:min(offset + 511L, length(first))
+            proposals <- matrix(rep(cuts, each = length(ids)), ncol = length(cuts))
+            proposals[, j] <- first[ids]
+            proposals[, j + 1L] <- second[ids]
+            values <- score(proposals)
+            evaluations <- evaluations + length(values)
+            winner <- proposal_winner(values, proposals)
+            if (values[winner] > pair_best + 1e-12) {
+              pair_cuts <- as.integer(proposals[winner, ])
+              pair_best <- values[winner]
+            } else if (objective != "median" && values[winner] == pair_best &&
+                       pair_best > best + 1e-12) {
+              tied <- rbind(pair_cuts, proposals[winner, ])
+              preferred <- proposal_winner(c(pair_best, values[winner]), tied)
+              pair_cuts <- as.integer(tied[preferred, ])
+            }
+          }
+          if (pair_best > best + 1e-12) {
+            cuts <- pair_cuts
+            best <- pair_best
+            improved <- TRUE
+            pair_moves <- pair_moves + 1L
+          }
+        }
+      }
+      if (!improved) {
+        converged <- TRUE
+        break
+      }
+    }
+    candidates[[length(candidates) + 1L]] <- cuts
+    refinements[[i]] <- list(initial_auc = start_scores[selected[i]], final_auc = best,
+                             passes = pass, converged = converged, pair_moves = pair_moves)
+  }
+  candidates <- unique(candidates)
+  infos <- vapply(candidates, norm_info, character(1), ranked = ranked)
+  raw <- lapply(seq_along(candidates), function(i) {
+    cuts <- candidates[[i]]
+    group <- k - 1L - findInterval(match(as.character(df$Subtype), as.character(ranked$Subtype)) - 1L, cuts)
+    do.call(rbind, lapply(seq_along(model$rows), function(c) {
+      ids <- model$rows[[c]]
+      data.frame(Cohort = model$cohorts[c], Info = infos[i], nSample = length(ids),
+                 get_perform_markers(df$response[ids], group[ids], k, method),
+                 stringsAsFactors = FALSE)
+    }))
+  })
+  raw <- do.call(rbind, raw)
+  final_scores <- vapply(split(raw$ROCAUC, raw$Info), stats::median, numeric(1), na.rm = TRUE)
+  fast_auc <- norm_auc_batch(do.call(rbind, candidates), model, method)
+  reference_auc <- matrix(raw$ROCAUC, nrow = length(candidates), byrow = TRUE)
+  if (any(!is.finite(fast_auc)) || any(!is.finite(reference_auc)) ||
+      any(abs(reference_auc - fast_auc) > 1e-10)) {
+    stop("Fast normCCS scoring disagrees with the reference ROC evaluator; results were not returned.")
+  }
+  if (any(abs(norm_objective_score(fast_auc, model$cohorts, objective) -
+              norm_objective_score(reference_auc, model$cohorts, objective)) > 1e-10)) {
+    stop("Fast normCCS objective disagrees with reference ROC objective; results were not returned.")
+  }
+  summary <- data.frame(Info = names(final_scores), medianROCAUC = unname(final_scores), stringsAsFactors = FALSE)
+  summary <- summary[order(-summary$medianROCAUC, summary$Info), , drop = FALSE]
+  rownames(summary) <- NULL
+  if (objective != "median") summary <- norm_objective_summary(raw, objective)
+  winner <- match(summary$Info[1L], infos)
+  result <- list(Raw = raw, Summary = summary, SearchDiagnostics = list(
+    method = "dp", objective = "legacy_median_auc_including_All",
+    roc_method = method, refinement_start_limit = 6L, refinement_pass_limit = 10L,
+    refinement_neighborhood = "single_and_adjacent_pair_boundaries",
+    refinement_pair_batch_size = 512L,
+    surrogate = "fixed_direction_weighted_mean_raw_auc",
+    exact_global_optimum = FALSE, dp_subproblems_exact = TRUE,
+    M = model$m, K = k, n_dp_starts = nrow(weights), n_unique_starts = length(starts),
+    n_unique_candidates = length(candidates), n_scored_proposals = evaluations,
+    n_reference_verifications = length(reference_auc),
+    selected_cutpoints = candidates[[winner]], ranked_subtypes = as.character(ranked$Subtype),
+    best_initial_median_auc = max(start_scores), refinements = refinements,
+    cohort_only_median_auc = stats::median(raw$ROCAUC[raw$Info == summary$Info[1L] & raw$Cohort != "All"]),
+    workers = 1L, interval_storage_bytes = as.numeric(utils::object.size(model)),
+    elapsed_seconds = unname(proc.time()[["elapsed"]] - started)))
+  if (objective != "median") {
+    diagnostics <- result$SearchDiagnostics
+    diagnostics$objective <- objective
+    diagnostics$objective_scope <- "cohorts_only"
+    diagnostics$n_real_cohorts <- nc - 1L
+    diagnostics$best_initial_median_auc <- NULL
+    diagnostics$best_initial_objective_score <- max(start_scores)
+    diagnostics$best_final_objective_score <- summary$objectiveScore[1L]
+    diagnostics$refinements <- lapply(refinements, function(x) {
+      names(x)[1:2] <- c("initial_objective_score", "final_objective_score")
+      x
+    })
+    settings <- norm_objective_settings(objective)
+    diagnostics <- c(diagnostics, settings[setdiff(names(settings), "norm_objective")])
+    result$SearchDiagnostics <- diagnostics
+  }
+  result
+}
+
+
+# Internal state ordering and inherited normCCS search. No files or backends
+# are changed; the continuous engine is intentionally single-core.
+norm_validate_mode <- function(mode) {
+  if (!is.character(mode) || length(mode) != 1L || is.na(mode) ||
+      !mode %in% c("discrete", "continuous")) {
+    stop("norm_mode must be 'discrete' or 'continuous'.")
+  }
+  mode
+}
+
+norm_validate_top_n <- function(top_n) {
+  if (!is.numeric(top_n) || length(top_n) != 1L || !is.finite(top_n) ||
+      top_n < 1 || top_n != floor(top_n) || top_n > .Machine$integer.max) {
+    stop("norm_top_n must be a positive integer no larger than .Machine$integer.max.")
+  }
+  invisible(top_n)
+}
+
+norm_validate_rank_marker <- function(marker) {
+  choices <- c("NRR", "RR", "NRR+RR", "RR+NRR", "MeanNRR", "LowerTailNRR",
+               "ShrunkLogOR", "RankFusion")
+  if (!is.character(marker) || length(marker) != 1L || is.na(marker) ||
+      !marker %in% choices) {
+    stop("norm_rank_marker must be one of: ", paste(choices, collapse = ", "), ".")
+  }
+  invisible(marker)
+}
+
+# Return the ordered state table. Supplying the legacy summary preserves its
+# original factor/tie order exactly; added methods use deterministic tie breaks.
+norm_rank_subtypes <- function(df, norm_rank_marker = "NRR", summary = NULL) {
+  # Test
+  if (FALSE) {
+    df <- expand.grid(Cohort = c("A", "B"), Subtype = 1:4, response = 0:1)
+    df$SampleIDs <- seq_len(nrow(df))
+    df$tumor_type <- "Lung"
+    norm_rank_subtypes(df, "ShrunkLogOR")
+  }
+  norm_validate_rank_marker(norm_rank_marker)
+  legacy <- norm_rank_marker %in% c("NRR", "RR", "NRR+RR", "RR+NRR")
+  if (is.null(summary) || !legacy) {
+    counts <- plyr::ddply(df, c("Cohort", "Subtype"), function(x) {
+      data.frame(size = nrow(x), nResponse = sum(as.character(x$response) == "1"))
+    })
+    counts$response_rate <- counts$nResponse / counts$size
+    totals <- plyr::ddply(counts, "Cohort", function(x) {
+      data.frame(total = sum(x$size), positives = sum(x$nResponse))
+    })
+    index <- match(counts$Cohort, totals$Cohort)
+    baseline <- totals$positives[index] / totals$total[index]
+    counts$normalized_response_rate <- (counts$response_rate - baseline) / baseline
+    if (is.null(summary)) {
+      summary <- plyr::ddply(counts, "Subtype", function(x) {
+        data.frame(medianNRR = stats::median(x$normalized_response_rate),
+                   medianRR = stats::median(x$response_rate))
+      })
+    }
+  }
+  if (legacy) {
+    if (norm_rank_marker == "NRR") return(dplyr::arrange(summary, dplyr::desc(medianNRR)))
+    if (norm_rank_marker == "RR") return(dplyr::arrange(summary, dplyr::desc(medianRR)))
+    if (norm_rank_marker == "NRR+RR") {
+      return(dplyr::arrange(summary, dplyr::desc(medianNRR), dplyr::desc(medianRR)))
+    }
+    return(dplyr::arrange(summary, dplyr::desc(medianRR), dplyr::desc(medianNRR)))
+  }
+  if (norm_rank_marker == "RankFusion") {
+    score <- -(rank(-summary$medianNRR, ties.method = "average") +
+                 rank(-summary$medianRR, ties.method = "average")) / 2
+  } else {
+    counts$centered_log_odds <- log((counts$nResponse + 0.5) /
+      (counts$size - counts$nResponse + 0.5)) -
+      log((totals$positives[index] + 0.5) /
+        (totals$total[index] - totals$positives[index] + 0.5))
+    scores <- plyr::ddply(counts, "Subtype", function(x) {
+      value <- switch(norm_rank_marker,
+        MeanNRR = mean(x$normalized_response_rate),
+        LowerTailNRR = {
+          ordered <- sort(x$normalized_response_rate)
+          mass <- length(ordered) * 0.25
+          whole <- floor(mass)
+          fraction <- mass - whole
+          (sum(ordered[seq_len(whole)]) +
+             if (fraction > 0) fraction * ordered[whole + 1L] else 0) / mass
+        },
+        ShrunkLogOR = mean(x$centered_log_odds))
+      data.frame(rank_score = value)
+    })
+    score <- scores$rank_score[match(summary$Subtype, scores$Subtype)]
+  }
+  summary$rankScore <- score
+  summary <- summary[order(-score, -summary$medianNRR, -summary$medianRR,
+                           as.character(summary$Subtype)), , drop = FALSE]
+  rownames(summary) <- NULL
+  summary
+}
+
+# Bellman recurrence across mandatory parent blocks: allocate exactly one extra
+# grade. Each block may stay intact or split once. The fixed-direction additive
+# AUC surrogate is exact here; the public nonadditive objective is scored later.
+norm_inherited_dp <- function(cost, parent_cuts) {
+  edges <- c(0L, parent_cuts, nrow(cost))
+  value <- c(0, Inf)
+  selected <- NA_integer_
+  for (j in seq_len(length(edges) - 1L)) {
+    left <- edges[j] + 1L
+    right <- edges[j + 1L]
+    intact <- cost[left, right]
+    next_value <- c(value[1L] + intact, value[2L] + intact)
+    if (left < right) {
+      splits <- seq.int(left, right - 1L)
+      loss <- cost[cbind(left, splits)] + cost[cbind(splits + 1L, right)]
+      best <- which.min(loss)
+      alternative <- value[1L] + loss[best]
+      if (alternative < next_value[2L]) {
+        next_value[2L] <- alternative
+        selected <- splits[best]
+      }
+    }
+    value <- next_value
+  }
+  if (is.na(selected)) stop("No legal inherited split remains.")
+  list(cuts = sort(c(parent_cuts, selected)), loss = value[2L])
+}
+
+# Original ROC evaluator, including legacy binary performance columns.
+norm_reference_candidates <- function(df, ranked, candidates, model, method) {
+  rows <- lapply(candidates, function(cuts) {
+    k <- length(cuts) + 1L
+    group <- k - 1L - findInterval(
+      match(as.character(df$Subtype), as.character(ranked$Subtype)) - 1L, cuts)
+    info <- norm_info(cuts, ranked)
+    do.call(rbind, lapply(seq_along(model$rows), function(c) {
+      ids <- model$rows[[c]]
+      metrics <- if (k == 1L) {
+        data.frame(ROCAUC = as.numeric(pROC::roc(df$response[ids], group[ids],
+                                               quiet = TRUE)$auc))
+      } else {
+        get_perform_markers(df$response[ids], group[ids], k, method)
+      }
+      data.frame(Cohort = model$cohorts[c], Info = info, nSample = length(ids),
+                 metrics, stringsAsFactors = FALSE)
+    }))
+  })
+  plyr::rbind.fill(rows)
+}
+
+subtypeNorm_continuous <- function(
+    df, n_norm_subtype = 2, norm_roc_method = "Raw", norm_rank_marker = "RR",
+    numCores = NULL, verbose = TRUE,
+    norm_search_method = c("bruteforce", "dp"), norm_objective = "median",
+    norm_top_n = 10L
+) {
+  # Test
+  if (FALSE) {
+    df <- expand.grid(Cohort = c("A", "B"), Subtype = 1:5, response = 0:1)
+    df$SampleIDs <- paste0("synthetic_", seq_len(nrow(df)))
+    df$tumor_type <- "Lung"
+    subtypeNorm_continuous(df, 4, norm_top_n = 3, verbose = FALSE)
+  }
+  objective <- norm_validate_objective(norm_objective)
+  norm_validate_top_n(norm_top_n)
+  norm_validate_rank_marker(norm_rank_marker)
+  norm_search_method <- match.arg(norm_search_method)
+  if (!is.numeric(n_norm_subtype) || length(n_norm_subtype) != 1L ||
+      !is.finite(n_norm_subtype) || n_norm_subtype < 1 ||
+      n_norm_subtype != floor(n_norm_subtype)) {
+    stop("n_norm_subtype must be a single integer >= 1 in continuous mode.")
+  }
+  norm_validate_input(df, max(2, n_norm_subtype), norm_roc_method, numCores)
+  started <- proc.time()[["elapsed"]]
+  ranked <- norm_rank_subtypes(df, norm_rank_marker)
+  if (n_norm_subtype > nrow(ranked)) {
+    stop("n_norm_subtype must not exceed the number of observed subtypes.")
+  }
+  # Bound both count-tensor and result growth before allocating either.
+  nc <- length(unique(df$Cohort)) + 1L
+  interval_bytes <- if (n_norm_subtype > 1L) 64 * nc * nrow(ranked)^2 else 0
+  estimated_bytes <- interval_bytes +
+    as.double(norm_top_n) * n_norm_subtype * nc * 192
+  if (!is.finite(estimated_bytes) || estimated_bytes > 2 * 1024^3) {
+    stop("Continuous search exceeds the interval/result-memory budget; reduce norm_top_n or the state count.")
+  }
+  costs <- list()
+  if (n_norm_subtype == 1L) {
+    cohorts <- sort(unique(as.character(df$Cohort)))
+    rows <- c(list(seq_len(nrow(df))), lapply(cohorts, function(c) which(df$Cohort == c)))
+    model <- list(m = nrow(ranked), cohorts = c("All", cohorts), rows = rows)
+  } else {
+    model <- norm_prepare_counts(df, ranked)
+    weights <- rbind(rep(1 / nc, nc), c(0, rep(1 / (nc - 1L), nc - 1L)), diag(nc))
+    weights <- rbind(weights, -weights)
+    loss <- matrix(model$loss, nrow = nc)
+    costs <- lapply(seq_len(nrow(weights)), function(i) {
+      matrix(as.vector(crossprod(weights[i, ], loss)), model$m, model$m)
+    })
+  }
+  frontier <- list(integer())
+  raw_layers <- layers <- vector("list", n_norm_subtype)
+  evaluations <- dp_problems <- reference_checks <- 0L
+  for (k in seq_len(n_norm_subtype)) {
+    if (verbose) luckyBase::LuckyVerbose(paste0("subtypeNorm_continuous: K = ", k), levels = 2)
+    parents <- frontier
+    dp_starts <- list()
+    if (k == 1L) {
+      candidates <- list(integer())
+    } else {
+      dp_starts <- unlist(lapply(parents, function(cuts) {
+        lapply(costs, function(cost) norm_inherited_dp(cost, cuts)$cuts)
+      }), recursive = FALSE)
+      dp_problems <- dp_problems + length(dp_starts)
+      # A parent has M-K+1 legal splits. Complete this small neighborhood so
+      # median/OptimizeRank candidates cannot be missed by the DP surrogate.
+      extensions <- unlist(lapply(parents, function(cuts) {
+        lapply(setdiff(seq_len(model$m - 1L), cuts), function(split) sort(c(cuts, split)))
+      }), recursive = FALSE)
+      candidates <- unique(c(dp_starts, extensions))
+    }
+    cut_matrix <- matrix(unlist(candidates, use.names = FALSE),
+                         nrow = length(candidates), ncol = k - 1L, byrow = TRUE)
+    auc <- if (k == 1L) matrix(0.5, 1L, nc) else norm_auc_batch(cut_matrix, model, norm_roc_method)
+    scores <- norm_objective_score(auc, model$cohorts, objective)
+    means <- norm_objective_score(auc, model$cohorts, "mean")
+    infos <- vapply(candidates, norm_info, character(1), ranked = ranked)
+    ordering <- if (objective == "median") order(-scores, infos) else order(-scores, -means, infos)
+    retained <- head(ordering, norm_top_n)
+    frontier <- candidates[retained]
+    reference <- norm_reference_candidates(df, ranked, frontier, model, norm_roc_method)
+    actual <- matrix(reference$ROCAUC, nrow = length(retained), ncol = nc, byrow = TRUE)
+    if (any(!is.finite(actual)) || any(!is.finite(auc)) ||
+        any(abs(actual - auc[retained, , drop = FALSE]) > 1e-10)) {
+      stop("Fast continuous normCCS scoring disagrees with the reference ROC evaluator; results were not returned.")
+    }
+    evaluations <- evaluations + length(candidates)
+    reference_checks <- reference_checks + length(actual)
+    raw_layers[[k]] <- reference
+    layers[[k]] <- list(K = k, method = if (k == 1L) "bruteforce" else "inherited_dp",
+      parent_cutpoints = if (k == 1L) list() else parents,
+      parent_infos = if (k == 1L) character() else vapply(parents, norm_info, character(1), ranked = ranked),
+      dp_start_cutpoints = unique(dp_starts), n_evaluated = length(candidates),
+      n_retained = length(frontier), retained_cutpoints = frontier,
+      retained_infos = infos[retained], objective_scores = scores[retained])
+  }
+  raw <- plyr::rbind.fill(raw_layers)
+  if (objective == "median") {
+    values <- vapply(split(raw$ROCAUC, raw$Info), stats::median, numeric(1), na.rm = TRUE)
+    summary <- data.frame(Info = names(values), medianROCAUC = unname(values), stringsAsFactors = FALSE)
+    summary <- summary[order(-summary$medianROCAUC, summary$Info), , drop = FALSE]
+    rownames(summary) <- NULL
+  } else {
+    summary <- norm_objective_summary(raw, objective)
+  }
+  list(Raw = raw, Summary = summary, SearchDiagnostics = list(
+    method = "dp", mode = "continuous", rank_marker = norm_rank_marker,
+    objective = objective, roc_method = norm_roc_method,
+    M = model$m, K = n_norm_subtype, top_n = norm_top_n, layers = layers,
+    ranked_subtypes = as.character(ranked$Subtype),
+    inheritance = "preserve_all_parent_cutpoints_and_add_one",
+    surrogate = "fixed_direction_weighted_mean_raw_auc",
+    exact_global_optimum = FALSE, dp_subproblems_exact = TRUE,
+    complete_single_split_neighborhood = TRUE,
+    n_dp_subproblems = dp_problems, n_scored_proposals = evaluations,
+    n_unique_candidates = nrow(summary), n_reference_verifications = reference_checks,
+    workers = 1L, interval_storage_bytes = as.numeric(utils::object.size(model)),
+    elapsed_seconds = unname(proc.time()[["elapsed"]] - started)))
+}

@@ -20,7 +20,10 @@ subtypePerformance(
     "#4DAF4A"),
   n_norm_subtype = 2,
   norm_roc_method = c("OptimizeRank", "Raw")[1],
-  norm_rank_marker = c("NRR", "RR", "NRR+RR", "RR+NRR")[1],
+  norm_rank_marker = c("NRR", "RR", "NRR+RR", "RR+NRR", "MeanNRR", "LowerTailNRR",
+    "ShrunkLogOR", "RankFusion")[1],
+  norm_search_method = c("bruteforce", "dp"),
+  norm_mode = c("discrete", "continuous")[1],
   plot_ROCCutoff = 0.8,
   plot_layout_widths = c(9, 1),
   plot_silence_cohort = F,
@@ -28,10 +31,10 @@ subtypePerformance(
   meta_method = c("DL", "REML", "ML", "PM", "SJ", "HE", "EB", "HK"),
   meta_cohort_font_size = 11.5,
   meta_subtitle_font_size = 10,
-  norm_search_method = c("bruteforce", "dp"),
   numCores = NULL,
   verbose = TRUE,
-  norm_objective = "median"
+  norm_objective = "median",
+  norm_top_n = 10L
 )
 }
 \arguments{
@@ -55,7 +58,8 @@ subtypePerformance(
 
 \item{color_tissue}{a named vector like \code{c(Brain = "#984EA3",Oral = "#BF5B17")}}
 
-\item{n_norm_subtype}{The number of normalized subtypes you want to explore}
+\item{n_norm_subtype}{The number of normalized subtypes in discrete mode,
+or the maximum number in continuous mode (which also includes K = 1).}
 
 \item{norm_roc_method}{The method to call ROC AUC. One of \code{'OptimizeRank'} and \code{'Raw'}.}
 
@@ -65,7 +69,34 @@ subtypePerformance(
   \item \code{RR} Ranked only by raw response rate.
   \item \code{NRR+RR} Ranked by normalized response rate and then by raw response rate.
   \item \code{RR+NRR} Ranked by raw response rate and then by normalized response rate.
-}}
+  \item \code{MeanNRR} Equal-cohort mean normalized response rate.
+  \item \code{LowerTailNRR} Mean of the lowest 25\% cohort NRR mass,
+    including a fractional boundary cohort.
+  \item \code{ShrunkLogOR} Equal-cohort mean of Jeffreys-smoothed state
+    log-odds minus Jeffreys-smoothed overall cohort log-odds.
+  \item \code{RankFusion} Equal-weight average ranks of median NRR and RR.
+}
+  New rules break ties by median NRR, median RR, then state identifier.
+  Missing states contribute no observation in that cohort; these are
+  training-derived ordering heuristics, not claims of external superiority.}
+
+\item{norm_search_method}{Search algorithm: \code{"bruteforce"} (the default,
+retaining all partitions) or \code{"dp"} (deterministic multi-start dynamic
+programming followed by local refinement of the selected objective).
+DP is exact only for its fixed-direction weighted mean Raw AUC surrogate,
+not for any public objective under automatic direction or \code{OptimizeRank}. It runs on one
+core, does not change the parallel backend, and returns only evaluated final
+candidates plus \code{SearchDiagnostics} under \code{Data$Normalization}.
+Oversized exhaustive searches are rejected before allocation. Every cohort
+must contain both response classes; required input columns must be complete.}
+
+\item{norm_mode}{Either \code{"discrete"} (default, search only the specified
+K) or \code{"continuous"} (search K = 1 through the specified maximum).
+Continuous search fixes the state order once, exhaustively evaluates K = 1,
+and uses constrained DP within each previous top parent's partitions for
+K >= 2. All legal single-split extensions are scored with the public
+objective before pruning. Every child preserves all parent cutpoints.
+This mode always uses inherited DP, irrespective of \code{norm_search_method}.}
 
 \item{plot_ROCCutoff}{The cut-off value for visualization of ROC AUC}
 
@@ -80,16 +111,6 @@ subtypePerformance(
 \item{meta_cohort_font_size}{Text size (in points) for cohort labels on the meta-analysis plot. Defaults to 15\% larger than the previous styling.}
 
 \item{meta_subtitle_font_size}{Text size (in points) for the overall summary subtitle (I^2, p, confidence interval) in each meta-analysis panel.}
-
-\item{norm_search_method}{Search algorithm: \code{"bruteforce"} (the default,
-retaining all partitions) or \code{"dp"} (deterministic multi-start dynamic
-programming followed by local refinement of the selected objective).
-DP is exact only for its fixed-direction weighted mean Raw AUC surrogate,
-not for any public objective under automatic direction or \code{OptimizeRank}. It runs on one
-core, does not change the parallel backend, and returns only evaluated final
-candidates plus \code{SearchDiagnostics} under \code{Data$Normalization}.
-Oversized exhaustive searches are rejected before allocation. Every cohort
-must contain both response classes; required input columns must be complete.}
 
 \item{numCores}{No. of CPU core}
 
@@ -115,6 +136,14 @@ explicit median call. With \code{n_norm_subtype = NULL}, the objective is
 validated and recorded but no normalization search or diagnostics are made.
 These are selection criteria; external predictive gains require held-out
 validation with training-derived ranks, cutpoints, direction and mapping.}
+
+\item{norm_top_n}{Positive integer, default 10. Maximum number of distinct
+candidates retained at each K in continuous mode. Only retained candidates
+appear in Raw/Summary; each is checked with the reference ROC evaluator.
+Summary combines all K and keeps the existing column schema; the number of
+grades can be read from Info or the per-layer SearchDiagnostics. K = 1 has
+constant predictor AUC 0.5. Finite-width pruning is approximate and neither
+guarantees a global optimum nor monotone improvement as K increases.}
 }
 \value{
 A list
