@@ -10,6 +10,8 @@
 
 - 在 `AGENTS.md` 固化 README 双语约定：英文 `README.md` 为主、中文 `README_CN.md` 为辅，两份文档同步维护并提供语言切换。该约定优先于默认中文写作规则及 Skill 默认文件命名；`CLAUDE.md` 通过引用 `AGENTS.md` 沿用同一规范。
 
+- 重写英文首页 `README.md`，新增对应中文版 `README_CN.md`：补齐依赖安装、可运行的合成入门示例、核心 API 导航及 normCCS 搜索说明；移除指向已不存在场景目录的直接链接，明确 Raw AUC 的方向选择与外部验证边界。示例使用 R 4.3.1 加载当前源码验证，项目版本不变。
+
 - 按负责人指定将 CCS 更新为 **0.8.7**。`subtypePerformance()` 新增默认 `norm_mode = "discrete"`、连续模式 `"continuous"` 和每层保留数 `norm_top_n = 10`；连续搜索由 `subtypeNorm_continuous()` 从 K1 的唯一映射开始，K≥2 保留上一层 top 方案的全部分界，做受约束 DP 并按实际目标核对所有合法单次细分。各 K 保留方案沿用 `Raw`、`Summary` 和 `Info` 格式，逐队列用原 ROC 复核，诊断记录继承关系、分界和搜索量；有限 top 不保证全局最优或逐 K 改善。新增 `MeanNRR`、`LowerTailNRR`、`ShrunkLogOR`、`RankFusion` 排序，默认仍为 NRR，原四种离散排序及搜索保持回归兼容。DP 和目标函数辅助代码统一归入 `R/phenotype.R` 尾部，移除两个独立文件，并同步现有 targets 的源码引用；本次不运行或替换真实分析流程。新增合成边界、穷举核对、离散回归与公共接口测试，验证状态见 `test/normCCS-continuous/verification.md`。
 
 - 完成 `test/normCCS-optimization/` 的替换式重构：固定原始数据、metaCCS、论文训练名单与 K4，限定 K2–15，以同一 K≥5 映射的训练／全部外部队列 OptimizeRank 和固定方向 AUC 四项中位数共同改善为目标。保留论文复现门禁、扩展搜索、K4 分界细分、冻结登记、完整达标比较及来源组配对区间；删除旧嵌套验证图、专用模块、S3 概率评分、重复配置、旧报告和旧测试。退役结果逐文件校验归档后移出活动目录，通过原生 `tar_prune()` 清理旧目标；仅保留当前流程，沿用原正式 store 和外置 `exports/paper-goal/`。验证和科学解释见场景说明，软件版本不变。

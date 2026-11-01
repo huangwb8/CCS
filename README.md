@@ -1,99 +1,176 @@
-# CCS: Cohort Congress System
+<div align="center">
+  <h1>CCS · Cohort Congress System</h1>
+  <p>
+    <a href="https://github.com/huangwb8/CCS"><img src="https://img.shields.io/badge/version-0.8.7-brightgreen.svg" alt="Version 0.8.7"></a>
+    <a href="https://www.r-project.org/"><img src="https://img.shields.io/badge/R-package-276DC3.svg" alt="R package"></a>
+    <a href="license.txt"><img src="https://img.shields.io/badge/License-Apache%202.0-blue.svg" alt="Apache 2.0 license"></a>
+  </p>
+  <p><a href="README_CN.md">简体中文</a> · <a href="#quick-start">Quick start</a> · <a href="#api-and-documentation">Documentation</a> · <a href="https://github.com/huangwb8/CCS/issues">Issues</a></p>
+  <p><strong>A computational framework for personalized pan-cancer genomic classification.</strong></p>
+</div>
 
-[![License](https://img.shields.io/badge/License-Apache%202.0-blue.svg)](https://opensource.org/licenses/Apache-2.0)
-[![R Version](https://img.shields.io/badge/R-%E2%89%A5%203.6.0-blue.svg)](https://www.r-project.org/)
-[![Version](https://img.shields.io/badge/version-0.8.7-brightgreen.svg)](https://github.com/huangwb8/CCS)
+CCS is an R package that represents a sample through the predictions of cohort-specific models built with **GSClassifier**. It supports subtype discovery from these cohort-probability profiles, prediction for new samples, and analysis of subtype-associated response across cohorts. The downstream **normCCS** workflow groups existing subtype states into ordered grades.
 
-### A computational framework for personalized pan-cancer genomic classification
+Start with the synthetic example below to explore normCCS without patient data or a pretrained model bank. Training the full genomic classification workflow requires expression data, gene sets, and gene annotations supplied by the user.
 
-`CCS` is an R package for personalized pan-cancer genomic classification. It supports cohort-level probability modeling, subtype discovery, and downstream response-oriented analyses, and is designed to work within the `GSClassifier` ecosystem.
+## Quick start
 
-## Tutorial
+### Install
 
-For teaching materials and step-by-step workflow explanations, please visit [Online Tutorial](https://huangwb8.github.io/ccs.principle/). Please note that the tutorial will be made publicly available in its full, fully usable form only after the manuscript is formally published.
-
-## Searching five or more normCCS grades
-
-Use `subtypePerformance(..., n_norm_subtype = 8, norm_search_method = "dp")`
-for deterministic, single-core search without enumerating every partition. The
-default `"bruteforce"` retains the original complete candidate tables. DP optimizes
-fixed-direction mean AUC subproblems and refines the original median AUC objective;
-it does not guarantee the global median optimum. Its final candidates are checked
-with the original ROC evaluator. `norm_roc_method = "Raw"` preserves the grade
-ordering; the legacy `"OptimizeRank"` reorders grades using evaluation labels and
-should not be used as a frozen external prediction score.
-
-See the [synthetic benchmark and reproducible report](test/normCCS-5-more/README.md)
-for exactness checks, measured speedups, resource usage, and the public API example.
-
-### 选择 normCCS 的目标函数
-
-`norm_objective = "median"` 默认复现包含 pooled `All` 的旧中位数目标。
-显式选择 `"cohort_median"`、`"mean"`、`"lower_tail"` 或 `"mean_lower_tail"`
-时，仅对真实队列 AUC 评分，队列等权。下尾取最低 25% 概率质量，边界队列按比例计入；
-混合目标由均值和下尾均值各占 0.5。穷举和 DP 使用同一目标，DP 整体仍是近似搜索。
+Development and example validation use **R 4.3.1**. [DESCRIPTION](DESCRIPTION) does not specify a minimum R version, and older releases have not been checked here. Enable Bioconductor repositories before installing from GitHub so that dependencies such as `ComplexHeatmap` and those required by `WGCNA` can be resolved:
 
 ```r
-fit <- subtypePerformance(df, col_subtype = "Subtype", col_tissue = "tumor_type",
-  n_norm_subtype = 8, norm_search_method = "dp", norm_roc_method = "Raw",
-  norm_objective = "mean_lower_tail", numCores = 1)
-fit$Data$Normalization$Summary[1, ]
+install.packages(c("remotes", "BiocManager"))
+options(repos = BiocManager::repositories())
+
+remotes::install_github("huangwb8/luckyBase", upgrade = "never")
+remotes::install_github("huangwb8/GSClassifier", upgrade = "never")
+remotes::install_github("huangwb8/CCS", upgrade = "never")
+
+library(CCS)
+packageVersion("CCS")
 ```
 
-新增策略以 `objectiveScore` 择优；`medianROCAUC` 保留旧定义。缺少
-`Repeat$norm_objective` 表示使用遗留 `median`。参见
-[目标函数报告](test/normCCS-5-more/objective-report.html)和
-[复现说明](test/normCCS-5-more/README.md)。新目标的训练内得分改善不等同于外部预测收益。
+The dependency stack includes `xgboost`, `torch`, and `luz`. Deep-learning workflows also require the torch runtime; follow the [R torch installation guide](https://torch.mlverse.org/docs/articles/installation.html) when using that backend. If installation fails, check which dependency failed and its repository or system requirements before retrying. Windows source compilation may require the Rtools version matching your R installation.
 
-### 连续继承式 normCCS 搜索
+### Run a synthetic normCCS analysis
 
-`norm_mode = "discrete"` 默认只搜索指定 K，保留既有行为。选择
-`"continuous"` 后，先固定 metaCCS 状态顺序，再探索 K=1 到指定最大值。
-K1 穷举唯一映射；K≥2 在上一层 top 方案内做受约束 DP，保留父方案的全部
-分界，只增加一个分界，并用实际目标核对全部合法单次细分。
-`norm_top_n` 控制每层保留数，默认 10；连续模式固定使用单核继承式 DP，
-无需另设 `norm_search_method`。
+This example creates 480 synthetic observations across three cohorts and eight subtype states, with response rates that increase with state number. It searches for a five-grade mapping on one CPU core.
 
 ```r
-fit <- subtypePerformance(df, col_subtype = "Subtype", col_tissue = "tumor_type",
+library(CCS)
+
+df <- expand.grid(
+  Cohort = c("A", "B", "C"),
+  Subtype = 1:8,
+  replicate = 1:20,
+  KEEP.OUT.ATTRS = FALSE
+)
+df$response <- as.integer(df$replicate <= 2 * df$Subtype + 1)
+df$SampleIDs <- paste0("synthetic_", seq_len(nrow(df)))
+df$tumor_type <- "Lung"
+
+fit <- subtypePerformance(
+  df, col_subtype = "Subtype", col_tissue = "tumor_type",
+  n_norm_subtype = 5, norm_search_method = "dp",
+  norm_roc_method = "Raw", norm_objective = "cohort_median",
+  numCores = 1, verbose = FALSE
+)
+
+normalization <- fit$Data$Normalization
+head(normalization$Summary)
+grades <- newSubtype(df$Subtype, normalization$Summary$Info[1])
+table(grades)
+```
+
+`Summary` ranks candidate mappings by their AUC-based scores. Its `Info` column stores each mapping for application to subtype labels with `newSubtype()`. In this example, `grades` assigns all 480 observations to five grades, numbered 0–4. Search details are in `normalization$SearchDiagnostics`, and plots are in `fit$Plot`. The synthetic results demonstrate usage; predictive performance requires patient-data validation.
+
+## From expression data to subtypes
+
+CCS connects cohort-model training, probability-based representation, subtype discovery, and downstream evaluation:
+
+| Task | Main entry points | Inputs or outputs |
+| --- | --- | --- |
+| Prepare training data | `createCCSData()` | Tissue/cohort-nested expression matrices, gene sets, and gene annotations |
+| Train cohort models | `ccs()` | Prepared data → a `CCS` S4 object and saved model files |
+| Explore and define subtypes | `dr()`, `cluster()`, `optimizeCluster()` | Cohort-probability representation → embeddings and subtype assignments |
+| Fit a subtype classifier and predict | `scaller()`, `predict()` | A clustered CCS object and new expression data |
+| Evaluate response and construct grades | `subtypePerformance()`, `newSubtype()` | Subtype labels, cohort labels, and binary response |
+| Compare frozen representations | `ablation()` | A fitted CCS object, expression data, and sample metadata |
+
+`ccs()` stores the cohort-probability representation in `object@Data$Probability$d1`. Downstream methods operate on the CCS object; full training is a separate workflow from the synthetic grade-search example. See the [API documentation](#api-and-documentation) for each function's input contract.
+
+For response analysis, supply a complete table containing sample identifiers, subtypes, cohorts, tissues, and response coded as **0/1**. Each cohort must contain both response classes. The example uses the default columns `SampleIDs`, `Subtype`, `Cohort`, and `response`, and explicitly sets `col_tissue = "tumor_type"`.
+
+## Choose a normCCS search
+
+### Search a fixed number of grades
+
+The default `norm_mode = "discrete"` searches only the requested number of grades. The default `norm_search_method = "bruteforce"` retains complete candidate tables; the number of partitions can grow rapidly. Choose `"dp"`, as in the quick start, to use deterministic, single-core dynamic programming with local refinement. DP returns evaluated final candidates and search diagnostics rather than every partition.
+
+DP exactly optimizes a surrogate based on fixed-direction weighted mean Raw AUC. The full search refines candidates against the selected objective and checks them with the reference ROC evaluator. **It does not guarantee a global optimum for the selected public objective.**
+
+### Explore an inherited sequence of grades
+
+Reuse `df` from the quick start to explore K = 1 through K = 8:
+
+```r
+continuous_fit <- subtypePerformance(
+  df, col_subtype = "Subtype", col_tissue = "tumor_type",
   n_norm_subtype = 8, norm_mode = "continuous", norm_top_n = 10,
   norm_rank_marker = "ShrunkLogOR", norm_objective = "cohort_median",
-  norm_roc_method = "Raw", numCores = 1)
-normalization <- fit$Data$Normalization
-normalization$Summary  # 各 K 保留方案的合并排名，沿用原列结构
-normalization$SearchDiagnostics$layers[[5]]  # K5 的父方案、分界和得分
-grades <- newSubtype(df$Subtype, normalization$Summary$Info[1])
+  norm_roc_method = "Raw", numCores = 1, verbose = FALSE
+)
+
+continuous_fit$Data$Normalization$Summary
+continuous_fit$Data$Normalization$SearchDiagnostics$layers[[5]]
 ```
 
-`Raw` 与 `Summary` 保留各 K 的 top 方案，最终仍由原 ROC 逐队列复核。
-映射语法与 `newSubtype()` 不变。K1 为恒定评分，AUC=0.5；有限 top 会剪掉部分
-搜索路径，因此不保证全局最优，也不保证增加 K 后得分上升。
+Continuous mode fixes the state order once. K = 1 has a constant score with AUC = 0.5. At each later K, a child preserves every parent boundary and adds one split. Legal single-split extensions are scored with the selected objective before retaining at most `norm_top_n` candidates per layer. This mode always uses inherited DP on one core, regardless of `norm_search_method`.
 
-`norm_rank_marker` 在原四种规则外增加 `MeanNRR`（队列等权均值）、
-`LowerTailNRR`（最低 25% 队列 NRR）、`ShrunkLogOR`（Jeffreys 平滑后的
-状态与队列总体 log-odds 差的均值）和 `RankFusion`（中位 RR/NRR 的等权秩融合）。
-缺失状态不在该队列补零；新规则同分时按中位 NRR、中位 RR、状态名排序。
-这些规则应在训练数据上估计并冻结，效果仍需独立验证。
+`Summary` combines retained candidates across K, and the layer diagnostics record parent mappings, cutpoints, and scores. Pruning to a finite number of candidates makes the search approximate; neither global optimality nor improving scores with increasing K is guaranteed.
 
-运行合成测试：`Rscript --vanilla test/normCCS-continuous/run-tests.R`。
-源码、DP 内核及目标函数统一位于 `R/phenotype.R`。
+### Select the scoring objective
 
-## Citation
+| `norm_objective` | Selection criterion |
+| --- | --- |
+| `"median"` (default) | Legacy median AUC, including pooled `All` |
+| `"cohort_median"` | Median AUC across real cohorts |
+| `"mean"` | Equal-cohort mean AUC |
+| `"lower_tail"` | Mean of the lowest 25% of cohort AUC probability mass, including a fractional boundary cohort |
+| `"mean_lower_tail"` | Equal-weight average of the cohort mean and lower-tail mean |
 
-The `CCS` manuscript is currently under review.
+Non-default objectives exclude pooled `All` and require finite AUCs in every real cohort. They rank candidates by `objectiveScore`; `medianROCAUC` retains its legacy definition. Discrete and continuous searches use the chosen objective for candidate selection.
 
-## AI-Assisted Development
+The default `norm_rank_marker = "NRR"` orders states by normalized response rate. Other options are `RR`, `NRR+RR`, `RR+NRR`, `MeanNRR`, `LowerTailNRR`, `ShrunkLogOR`, and `RankFusion`. Definitions and tie-breaking rules are in the [subtypePerformance reference](man/subtypePerformance.Rd).
 
-Project-wide AI instructions live in [`AGENTS.md`](AGENTS.md); [`CLAUDE.md`](CLAUDE.md) is the Claude Code adapter. Human, AI, and tool contributions are recorded with [bensz-auto-contribution](https://github.com/huangwb8/bensz-auto-contribution) in [`docs/contribution.bac`](docs/contribution.bac). The ledger requires Python 3.10+ and can be verified with:
+### Interpret AUC and validation correctly
+
+The legacy default `norm_roc_method = "OptimizeRank"` reorders grades using evaluation labels. The examples explicitly choose `"Raw"` to preserve the grade order, but the ROC evaluator still uses automatic direction selection. **Raw evaluation alone is not a frozen external prediction protocol.**
+
+For external validation, estimate and freeze the state order, cutpoints, mapping, and score direction using training data. Keep external outcomes out of model and mapping selection. An improved training objective does not establish an external predictive gain or clinical benefit.
+
+## API and documentation
+
+| Resource | What it covers |
+| --- | --- |
+| [Training](man/ccs.Rd) and [data preparation](man/CCS-method.createCCSData.Rd) | Expression inputs, gene sets, annotations, and cohort-model parameters |
+| [Subtype classifier](man/CCS-method.scaller.Rd) and [prediction](man/CCS-method.predict.Rd) | Classifier backends and prediction inputs |
+| [Response and grade search](man/subtypePerformance.Rd) and [mapping application](man/newSubtype.Rd) | Input columns, objectives, search modes, and result structure |
+| [Representation ablation](man/ablation.Rd) | Frozen-representation comparisons and their parameters |
+| [External-cache guide](docs/external-cache.md) | Local storage layout and cache handling |
+| [Changelog](CHANGELOG.md) | Package changes and development history |
+
+After installation, use R help, for example `?CCS::ccs` or `?CCS::subtypePerformance`. The [online tutorial](https://huangwb8.github.io/ccs.principle/) is intended for step-by-step teaching; the complete, fully usable tutorial is planned for release after formal manuscript publication.
+
+Historical analysis directories referenced by older documentation are not all included in this checkout. Large datasets, trained model banks, and generated reports are not bundled with the README example; reproducing a study requires its inputs and analysis environment.
+
+## Development and reproducibility
+
+Work from the repository root. To load the current source without installing it, use:
+
+```r
+devtools::load_all(".")
+```
+
+Repository conventions are documented in [AGENTS.md](AGENTS.md), with a [Claude Code adapter](CLAUDE.md). Use R 4.3.1 for Windows development checks. Scenario tests live under `test/` and are run separately from package checks; confirm that the relevant scenario is present before running a command from historical documentation.
+
+For analyses defined by a `targets` graph, use the analysis's `_targets.R` and its actual store for execution, recovery, and monitoring. Configure target-level parallelism through `crew`. Store large data, models, package libraries, and generated reports outside the source tree; the local convention is `D:/cache/ccs/<analysis>/`, with existing analysis cache roots preserved. See the external-cache guide for details.
+
+Human, AI, and tool contributions are recorded with [bensz-auto-contribution](https://github.com/huangwb8/bensz-auto-contribution) in [docs/contribution.bac](docs/contribution.bac). With Python 3.10+ and `bac` installed, verify the ledger with:
 
 ```bash
 python -m bac --root . --bac-file docs/contribution.bac verify --json
 ```
 
-## Authors
+Keep patient identifiers, protected health information, and proprietary genomic data out of commits and issue reports. Use de-identified or synthetic examples when reporting a problem.
 
-Weibin Huang (黄伟斌); <hwb2012@qq.com>; [Blog](https://blognas.hwb0307.com/); [ORCID: 0000-0003-0159-435X](https://orcid.org/0000-0003-0159-435X)
+## Citation, support, and license
 
-## License
+The CCS manuscript is currently under review. Citation details will be added when available.
 
-`CCS` is released under the Apache-2.0 license. See [`license.txt`](license.txt) for details.
+For bugs or usage questions, open a [GitHub issue](https://github.com/huangwb8/CCS/issues) with the CCS version, R session information, and a minimal reproducible example.
+
+**Author and maintainer:** Weibin Huang (黄伟斌) · <hwb2012@qq.com> · [ORCID](https://orcid.org/0000-0003-0159-435X) · [Blog](https://blognas.hwb0307.com/).
+
+CCS is distributed under the **Apache-2.0** license. See [license.txt](license.txt). Dependencies and external datasets retain their respective licenses and access conditions.
