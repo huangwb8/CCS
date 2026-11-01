@@ -32,6 +32,19 @@ ablation-03里{chapter}的写作太过粗糙。 你学一下ablation-03里`输�
 
 ---
 
+test/normCCS-optimization 的分析要重构：
+
+- 使用同样的原始数据，metaCCS已经固定
+- 使用和论文里一样的normCCS的训练集
+- 要可以重复论文里的数据
+- 允许的k的取值是2至15；可以适当优化 subtypePerformance 的其它关键参数的值
+- 在训练队列和全部外部队列上，OptimizeRank AUC 中位数与固定方向 AUC 中位数四项都严格超过论文 K4。
+- 如果找不到，很大的概率是目前的策略不对；你要给出一些候选的策略，让这个目标有可能实现
+
+全程遵守 Bensz Rmd Rules 的规范。
+
+---
+
 根据  docs\plans\2026-11-01-normCCS-parameter-optimization.md 优化 test\normCCS-premium 的分析。
 
 ---
