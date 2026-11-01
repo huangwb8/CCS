@@ -359,7 +359,7 @@ existing representation_inputs / biology_inputs / structural_analysis
 
 ### 阶段七：回归验证及项目文档同步
 
-通过全部科学、工程和统计门禁；同步 `test/ablation-03/README.md`、`analysis-plan.yaml`、`docs/ablation.md`、`CHANGELOG.md` `[Unreleased]`，将计划归档 `docs/plans/`。按仓库 `AGENTS.md` 使用 `nsfc-humanization` 润色新报告并复核数字保真，按 BAC 工具进行贡献记录与哈希链验证，不擅自调整版本或发布。
+通过全部科学、工程和统计门禁；同步 `test/ablation-03/README.md`、`analysis-plan.yaml`、`docs/ablation.md`、`CHANGELOG.md` `[Unreleased]`，将计划归档 `docs/plans/`。按仓库 `AGENTS.md` 使用 `humanization` 润色新报告并复核数字保真，按 BAC 工具进行贡献记录与哈希链验证，不擅自调整版本或发布。
 
 ## 如何确认完成
 

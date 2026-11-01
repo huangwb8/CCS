@@ -32,6 +32,343 @@ ablation-03里{chapter}的写作太过粗糙。 你学一下ablation-03里`输�
 
 ---
 
+请在 E:\RCloud\RFactory\ccs 继续完成以下分析，直接推进实现、验证和正式计算，不要停留在计划或状态说明。具体要求如下：
+
+```
+任务依据：
+- docs/plans/2026-10-29-ablation03-max-analysis-plan.md
+- 项目 AGENTS.md
+- 全程使用 C:/Users/Administrator/.codex/skills/bensz-rmd-rules/SKILL.md
+- 按项目要求，正式报告交付前使用 humanization 润色，并通过正式 targets 入口更新产物。
+
+目标是完成计划中的 D1–D4 重训、生物学比较、临床比较及最终报告。A/B/C 已完成一轮正式计算，但结果验收仍需补齐。不能把当前 targets 图跑完等同于整份计划完成。
+
+【已有工程与缓存】
+
+分析工程：
+test/ablation-03-max/
+
+唯一正式分析入口：
+test/ablation-03-max/_targets.R
+
+正式 cache root：
+D:/cache/ccs_ablation-03/ablation-03-max/
+
+正式 targets store：
+D:/cache/ccs_ablation-03/ablation-03-max/targets
+
+资源与运行日志：
+D:/cache/ccs_ablation-03/ablation-03-max/observability/
+
+既有任务工作区：
+.bensz-api/task-20261031-0634-ablation03-continue/
+本次为同一任务续做，请复用该目录。
+
+使用 C:/R/R-4.3.1 对应的 Rscript。源码目录已有大量相关及无关的未提交改动，先检查，保留已有工作，不要清理或覆盖。
+
+【上次核实的状态，须先重新检查】
+
+2026-10-31 中午核对：
+- A：500 个分支完成。
+- B：100 个分支完成。
+- C：5 个分支完成。
+- mechanism_inference、mechanism_products、mechanism_figures、mechanism_report 均完成。
+- 正式运行日志显示耗时约 2 小时 25 分钟，604 completed、42 skipped。
+- 已生成 test/ablation-03-max/mechanisms.html。
+- 日志在 pipeline 完成后又出现：
+  Error: unexpected symbol in " parent plus"
+  Execution halted
+  请查明来源，区分分析计算错误与完成后的启动/清理错误，不要仅凭完成提示宣布验收通过。
+
+正式日志：
+.bensz-api/task-20261031-0634-ablation03-continue/bensz-rmd-rules/log/formal-mechanisms.log
+
+当前 README 和 analysis-plan.yaml 仍有 A/B/C running 等过时状态，需按核实结果同步。
+
+【D 阶段的真实缺口】
+
+现有 _targets.R 仅实现来源审计、training_role_files 和 A/B/C。
+D1–D4 训练、策略评价和临床比较尚未接入正式 DAG。
+所以再次运行现有 tar_make() 不会自动完成 D 阶段，必须继续实现。
+
+已完成的条件性训练角色预检：
+- 45 个训练 cohort；
+- 14 个 representation calibration cohort；
+- 7 个 external candidate cohort；
+- 覆盖 7 个组织；
+- LUAD、OV、Pediatric 在当前来源、平台与留出约束下不可识别。
+
+对应证据：
+.bensz-api/task-20261031-0634-ablation03-continue/bensz-rmd-rules/output/training-tissue-feasibility.csv
+test/ablation-03-max/R/training_design.R
+
+注意：旧 role_audit 和新 training_design 的候选分配不是同一份方案。正式训练前需厘清二者关系，统一 readiness、角色清单和实际执行依赖，避免旧 BLOCKED 标记与新条件性设计互相矛盾。
+
+已利用 GEO series、已知样本 accession、TCGA participant 和完全相同的填补前表达谱排查部分重复；患者别名及研究来源别名尚未完全核实。
+请继续利用本地证据核实。缺失身份信息不能凭空补造，也不能将“未发现重叠”写成“已证明完全独立”。
+同时，不要把别名未完全解决当作停止全部开发和轻量验证的理由。区分程序验证、条件性分析与严格独立主分析，按计划要求明确各自可执行范围；不得悄悄放宽主设计标准。
+
+【继续工作的顺序】
+
+1. 核实当前进程、store、错误及 A/B/C 产物；补齐检索质量、效应、CI、多重校正和报告解读的验收。
+2. 阅读计划、相关 R 函数、GSClassifier/CCS 训练接口及历史训练脚本，继续核实来源与数据角色。
+3. 实现并验证 D1 标签及预测复现，解释与历史结果的差异。
+4. 将 D1–D4 的训练、预测、评价、报告节点接入同一个正式 targets DAG：
+   - D1：真实 cohort 分组重新生成状态并训练；
+   - D2：有效伪队列混合后重新生成状态并训练，不能只改 cohort 名；
+   - D3：同组织 pooled 训练与 ensemble；
+   - D4：按计划实现无监督 autoencoder，不能用监督式 caller 冒充。
+5. 先完成四臂同算法的小规模真实执行，覆盖关键边界，并实测进程树内存、耗时及缓存占用。
+6. 冻结有证据支持的角色与训练清单后，执行计划规定的正式重复、D1–D2 主比较、D3/D4 竞争对照及容量敏感性；取得 matched D1 后复核关键 A/B/C。
+7. 完成各臂共同临床读出和独立状态映射。development 内选择参数，冻结后评价 external；禁止用外部结局翻转 ROC 方向。
+8. 完成正式报告、状态文档、CHANGELOG [Unreleased] 和 BAC 验证。报告需清楚列出完成、不可估计和仍有条件限制的部分。
+
+不要无依据减少种子、伪分组次数、样本或训练强度。资源不足时先优化执行与缓存；确需改变科学范围时，给出具体证据、影响与可审阅方案。
+
+【稳定性与执行要求】
+
+此前发生过真实的虚拟内存耗尽和 targets metadata 截断。已验证：
+- 不限制线程的空 R 进程提交内存约 4.25 GB；
+- R 启动前限制 BLAS/OpenMP 后约 82 MB。
+
+现有 scripts/run-targets.ps1 已在 R 启动前设置线程限制，默认一个 crew worker。保留这些修复；提高并发前须实测系统提交内存余量。GSClassifier 的子进程也应计入资源观测。
+不要终止无关 R 会话或 VSCode 语言服务。
+
+正式计算只能通过 _targets.R、其分析函数、crew 和正式 store 执行。不要用自定义 runner、逐脚本调度或临时 checkpoint 代替 targets。监控必须指向实际运行 store；发现计算仍活跃时不要启动重复 make。
+
+从项目根目录使用：
+& test/ablation-03-max/scripts/run-targets.ps1 -Action status
+& test/ablation-03-max/scripts/run-targets.ps1 -Action watch
+& test/ablation-03-max/scripts/run-targets.ps1 -Action make
+
+dashboard 地址可能失效，请读取 observability/watch-url.txt 并核实，必要时重启 watch。
+
+旧 ablation-03 与原始来源只读；患者级信息留在受控缓存，不写入公开 CSV、HTML 或 BAC。不得擅自升版、提交、发布或上传数据。
+```
+请先给出简短、基于当前证据的接手状态，然后持续实施。进度说明应明确正在执行哪个阶段、完成多少分支、是否出现错误及资源风险。不要把只完成来源审计或 A/B/C 描述为全部任务完成；也不要在没有真实阻塞时反复请求继续授权。
+
+---
+
+请优化 E:\RCloud\RFactory\ccs\test\normCCS-premium 的分析，直接完成代码修改、验证和正式计算。先阅读项目 AGENTS.md 与现有分析文件。核心设计要求如下：
+
+```
+
+以下四个队列只能用于外部验证，绝对不能进入 normCCS 分级搜索：
+
+- LSY01_PD1XCTLA4_NPC
+- LSY01_PD1XCTLA4_LUNG
+- Kim2018_PD-1_gastric
+- Zachary2024_MultiICI_merkel cell carcinoma
+
+其余符合既定样本与结局质量要求的队列用于分级搜索。不要机械沿用历史 train_cohort/extravalid_cohort 名单作为本轮划分；本轮以上述四个外部队列为准，并明确列出最终搜索队列与验证队列。
+
+历史代码中合并队列的写法不能决定本轮设计。请核查实际数据流和缓存来源，建立满足上述要求的正式分析。
+
+数据隔离
+
+在任何使用应答结局的统计、排序或搜索之前拆分数据：
+
+1. 仅用搜索数据确定 CCS 状态集合、NRR/RR 排序、分组边界、等级顺序、预测方向、候选排名及 K 的选择。
+2. 外部队列不得参与搜索目标，包括 pooled All、跨队列中位数、初始化、局部精修、支持条件、阈值筛选和并列候选决胜。
+3. 搜索结束后冻结映射及预测规则，再应用到外部队列。
+4. 禁止利用外部结局重新排列等级、运行 OptimizeRank、选择 ROC 方向或挑选最佳映射。训练阶段可保留原有 OptimizeRank 逻辑，但外部评价必须使用训练后冻结的评分规则。
+5. 检查四个外部队列的患者、重复测量及来源重叠。尤其检查 Merkel 总队列与各治疗子队列，不能通过另一个队列名把相同患者带入搜索。
+6. 外部出现训练未见状态时，按预先确定且不使用外部结局的规则处理，明确报告覆盖率、未映射数量及评价分母。
+
+分析与比较
+
+固定现有上游 CCS 模型，不重新训练模型或 scaller。保留现有数据质量规则；需要调整时说明依据。
+
+继续比较 K=2–12：
+- K=2–4 使用完整穷举，并与 DP 核对。
+- K≥5 使用现有 DP 搜索，明确不保证全局最优。
+- 所有搜索均只使用搜索队列。
+- 每个 K 的展示方案按照预先写明的训练侧规则选定，不按外部成绩选择。
+- K=4 基线必须在相同搜索数据、目标函数和选择规则下重新确定，不直接拿旧四级成绩充当对照。
+- 外部评价报告逐队列 AUC、样本数、覆盖率，以及相对 K=4 的配对 ΔAUC 和适当的不确定性区间；配对比较使用共同可评价患者，并明确区间以冻结映射为条件。
+- 外部数据可以评价各个预先冻结的 K，但不能用这些成绩反过来宣布某个 K 已获得独立验证的最优性。
+
+必须增加的隔离验证
+
+使用合成数据完成有针对性的测试：
+- 改变、打乱或移除外部结局，训练侧状态排序、候选映射、目标分数和最终选择必须完全不变。
+- 移除外部队列，训练侧搜索结果必须不变。
+- 搜索输入与外部队列及其重叠患者必须没有交集。
+- 外部评价不得调用依赖外部结局的等级重排或自动方向选择。
+- 验收不能只检查“运行成功”，还必须检查上述科学边界。
+
+执行与缓存
+
+严格使用现有 _targets.R、正式 targets store 和 tar_make()/tar_watch()；遵守项目对 crew、资源监测和日志的要求。
+
+将搜索数据与外部评价数据设计成明确分离的依赖节点，使外部结局变化不会使搜索节点失效。修正缓存依赖与 provenance，确保本轮不复用含外部信息的旧搜索结果。保留必要历史证据，避免无关清理。
+
+同步更新 README、报告、验证说明及 CHANGELOG 的 [Unreleased]。遵守项目 BAC 记录与报告 humanization 要求。不修改包版本、不创建 tag、不发布。
+
+最终交付
+
+完成正式计算后，用自然中文说明：
+- 哪些队列实际参与搜索，四个外部队列如何隔离；
+- 重叠患者和未见状态如何处理；
+- 隔离测试及正式验收结果；
+- 同条件 K=4 与其他 K 的外部表现；
+- 哪些结论得到支持，哪些仍有不确定性。
+
+```
+
+不要只给计划，也不要以“探索性分析”的标签代替数据隔离。遇到问题先调查并修复；确有无法自行解决的阻塞时，明确给出证据和影响。
+
+---
+
+请在 E:\RCloud\RFactory\ccs 中重构 test\normCCS-premium 的分析。具体要求如下：
+
+```
+
+## 核心目标
+
+沿用论文相关历史脚本的数据输入和方法定义，将原来的 normCCS K=2–4 探索扩展到 K=5–12。
+
+参考脚本：
+
+- E:\iProjects\RCheck\GSClassifier\routine01\04.07.03.PADv20250720_Select01_Subtype normalization.R
+- E:\iProjects\RCheck\GSClassifier\routine01\04.07.04.PADv20250720_Select01_Subtype normalization_Summary.R
+
+统一使用 CCS::subtypePerformance()：
+- K=2–4：norm_search_method = "bruteforce"。
+- K=5–12：norm_search_method = "dp"。
+- 在 K=2–4 上额外运行 DP，与完整穷举核对搜索质量。
+
+现有函数已经支持这两种方法，不要另写 normCCS 搜索引擎，也不要用 premium_best_search() 代替包内接口。
+
+## 输入与分析范围
+
+先阅读历史脚本、R/phenotype.R、R/subtype_norm_dp.R，以及 test/normCCS-premium 的配置和现有流程，核对实际输入。
+
+沿用历史脚本中的四个表达与临床文件：
+- PanIMT：v20250629，数据版本 PADv20240810。
+- CDSDB：v20241213，数据版本 PADv20240810。
+- 应答字段：response.classic。
+- train_cohort、extravalid_cohort：以历史脚本中的名单为准。
+
+本次沿用当前已选定的模型：
+5ff3a2de76e6cf902e765e8224f9cb66
+
+模型对象属于 PADv20250720，底层 model.dir 为 PADv20240911。沿用当前配置中的对应路径，不重训模型或 scaller，不扩展为遍历所有历史候选模型。
+
+构造与历史脚本一致的 df2，保留原有缺失值和队列可计算性筛选。核对当前流程额外的基线、去重、来源重叠及 ICI 筛选是否改变了实际样本；主分析以历史输入口径为准，所有差异必须列明，不能静默沿用新版筛选。
+
+本次不是重新设计一项“仅 ICI”的研究。不要默认排除历史输入中的疫苗或其它治疗队列，也不要新增非连续归并、支持约束或新的目标函数作为主分析条件。
+
+历史脚本和原始数据保持只读，不直接执行历史脚本中的重训或覆盖操作。
+
+## subtypePerformance() 的参数
+
+主分析明确设置：
+
+res <- CCS::subtypePerformance(
+  data = df2,
+  col_subtype = "CCS",
+  col_cohort = "Cohort",
+  col_response = "response",
+  col_id = "SampleIDs",
+  col_tissue = "tissue",
+  cohort_level = c(train_cohort, extravalid_cohort),
+  color_tissue = color_tissue,
+  n_norm_subtype = k,
+  norm_roc_method = "OptimizeRank",
+  norm_rank_marker = "NRR",
+  norm_objective = "median",
+  norm_search_method = if (k <= 4L) "bruteforce" else "dp",
+  numCores = if (k <= 4L) brute_cores else 1L,
+  meta_method = "DL",
+  verbose = TRUE
+)
+
+参数含义与选择依据：
+
+- n_norm_subtype：本轮依次取 2:12。
+- norm_roc_method = "OptimizeRank"：沿用论文历史脚本，不擅自改为 "Raw" 或固定方向 AUC。
+- norm_rank_marker = "NRR"：使用包内原有的 normalized response rate 定义及排序；不能替换成 pooled nonresponse rate。
+- norm_objective = "median"：保持原函数历史默认目标，不改成 "mean"、"cohort_median" 或 "mean_lower_tail"。
+- cohort_level：沿用历史名单。源码中该参数既影响展示，也会筛选实际输入；它不会自动建立训练与外部隔离。
+- numCores：brute_cores 根据资源试运行固定；DP 使用 1。控制同时运行的任务数，避免嵌套并行耗尽内存。
+- meta_method = "DL"：显式固定历史默认设置，避免无关参数漂移。
+
+输入列名如需适配，只调整列名映射，不改变样本和变量含义。其它绘图参数沿用历史设置，不参与搜索策略选择。
+
+## 结果提取与历史汇总口径
+
+从以下位置提取结果：
+res$Data$Normalization$Raw
+res$Data$Normalization$Summary
+res$Data$Normalization$SearchDiagnostics
+
+沿用历史脚本按 Info 分组的后处理逻辑：
+- 开发队列成绩：排除 All 和 extravalid_cohort 后，对逐队列 ROCAUC 取中位数。
+- 外部队列成绩：对 extravalid_cohort 的逐队列 ROCAUC 取中位数。
+- 单列四个重点队列：
+  LSY01_PD1XCTLA4_NPC、
+  LSY01_PD1XCTLA4_LUNG、
+  Kim2018_PD-1_gastric、
+  Zachary2024_MultiICI_merkel cell carcinoma。
+
+注意：函数内部 norm_objective = "median" 的默认分数包括 pooled All；历史脚本后处理的开发队列中位数不包括 All 和外部队列。这是两个不同指标，必须分别命名、分别保存，不能混用。
+
+K=2–4 保存全部穷举候选，不只留第一名。
+K≥5 保存 DP 实际返回的全部候选和诊断，不称为全部可能组合。
+
+历史脚本会利用外部队列表现筛选和排序。可以复现这种探索性汇总，但必须明确标注外部队列参与了组合评价或选择，不能把这些成绩称为完全独立的验证结果；不要擅自改写成另一套训练／验证设计。
+
+## DP 与穷举核对
+
+在完全相同的输入、排序和评分参数下，对 K=2、3、4 分别运行 bruteforce 和 dp，比较：
+
+- 函数内部目标的最佳分数及差距；
+- 最佳映射与并列最优映射；
+- 逐队列 AUC；
+- 按历史脚本后处理后的开发与外部汇总成绩。
+
+映射比较应规范化成员顺序，不能仅比较字符串是否一致。
+
+当前包内 DP 是多初值动态规划加局部精修；在 OptimizeRank 和 median 下，不保证全局最优。若与穷举存在差距，应量化、调查并如实报告，不能通过改用 Raw、mean 或更换输入来制造一致。
+
+同时明确：DP 的内部优化目标与历史后处理排名可能不同，不能声称 DP 精确优化了另一个后处理指标。
+
+## 实施与交付
+
+在 test/normCCS-premium 现有 targets 流程中实施，保留既有结果，清楚区分新的“论文口径延伸分析”与此前 ICI 自定义搜索结果。
+
+- 先在 docs/plans/ 写出简洁实施计划，然后继续实施。
+- 正式计算必须通过 _targets.R 和 tar_make()；监控使用同一正式 store。
+- 使用 C:\R\R-4.3.1 对应的 R/Rscript。
+- 不修改包版本，不覆盖论文原始文件。
+- 已有冻结预测只有在输入、模型和预测设置一致时才能复用，并保留核对证据。
+- 先完成轻量流程测试，再运行正式分析。
+
+最终交付：
+1. 输入与历史口径的一致性说明。
+2. K=2–4 的穷举与 DP 对照表。
+3. K=2–12 的候选组合、完整状态成员、逐队列 AUC，以及开发／外部汇总成绩。
+4. 与 K=4 的同口径比较，回答增加等级是否带来收益。
+5. 可阅读的 HTML 报告、CSV 表格和搜索诊断。
+```
+
+报告要以具体结果为中心，说明哪些结论来自完整穷举、哪些来自 DP 已找到的候选；不要用额外方法探索替代本次论文分析的延伸。
+
+---
+
+基于 docs\plans\2026-10-29-normCCS-premium-analysis-plan.md 进行分析。全程遵守 Bensz Rmd Rules 的规范。计划里提到很多其它地方的参考代码，全为只读，严禁修改。
+
+---
+
+基于 docs\plans\2026-10-29-ablation03-max-analysis-plan.md 进行分析。 全程遵守 Bensz Rmd Rules 的规范。
+
+---
+
+我希望在 test\ablation-03-max 进行未完成的分析。 一些大的数据，特别是需要重新训练一些模型的（比如，用同一批原始患者，比较**真实队列重训 D1、伪队列 D2、pooled ensemble D3、无监督 autoencoder D4**的时候）， 都应该放在  D:\cache\ccs\_ablation-03 的子文件夹里。 在 `E:\iProjects\RCheck\GSClassifier\routine01\04.07.01.PADv20250720*`、`E:\iProjects\RCheck\GSClassifier\routine01\04.01.PADv20240911_Model training.R` 等代码有很大的参考价值，你需要重点理解；当然，如果你有更优秀的方案，也可以用。你先写一个分析计划我审查一下。
+
+---
+
 根据 docs\plans\2026-10-29-normCCS-objective-strategies.md 优化函数，让 subtypeNorm 函数里的目标函数工程化，可以具有很选项。 开发过程应该遵守  Bensz R Developer  skill 的相关规范。搞好之后，你要将ccs包更新到 0.8.6（只能用这个版本号，你不可以自定义版本号）。
 
 你可以在 test/normCCS-5-more 这个文件夹里加一些内容，向用户展示你具体做了什么，运行了哪些测试，结果如何；目标：充分向用户说明你做了哪些改变、为什么做、有哪些获益、效率加了多少之类的。 写 report 的时候要遵守 Bensz Rmd Rules skill 的相关规范。

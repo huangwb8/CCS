@@ -1,5 +1,17 @@
 # `R/ablation.R` 业务逻辑与函数地图
 
+## ablation-03-max 的实施边界
+
+计划中的组织内自由混合与广义免疫治疗敏感性也通过同一 DAG 执行。前者独立重训全部预设 D2 设计，后者复用冻结表示并在相应 development 人群拟合读出，外部结局不参与选型；两项与主分析分别报告。
+
+`test/ablation-03-max/` 按[2026-10-29 分析计划](plans/2026-10-29-ablation03-max-analysis-plan.md)建立独立工程。已完成真实来源与训练资格审计，`_targets.R` 统一执行和恢复，Rmd 只消费 target；审计报告与聚合表位于该工程，患者对应、正式 store 和运行观测位于 `D:/cache/ccs_ablation-03/ablation-03-max/`。旧 ablation-03 与原始来源只读，公共包 API 不变。
+
+QL1706 使用分析名 `LSY01_PD1XCTLA4_LUNG`／`LSY01_PD1XCTLA4_NPC`，与 Kim2018、Zachary2024、Binghua2024 沿用论文已确认的独立验证角色。临床来源补齐 CDS-DB，development/external 和 response.classic 定义按论文核对。2026-11-01，历史与新 matched D1 的 A/B/C 均完成 500/100/5 分支；主／参考填补各 1,125 个树作业及各 15 个 AE、组织内自由混合 675 个树作业和全部下游均已执行，69 项执行及结果合同检查通过，正式入口退出 0。45 个 D1 cohort 的历史表达、标签和固定 calibration probe 预测完全复现；独立四级映射的具体状态保留到各类临床汇总与报告。
+
+科学主结论仍不可估计：32 维 D1/D2/D3/D4 的完整 bank 为 4/0/0/5，45 项生物比较均未达到规定的完整训练设计门禁；资格失败没有通过重抽样、换算法或筛选评价患者补齐。临床有 450 行评价、120 行 D1−D4 成对结果；matched 80 项中 45 项可推断、30 项仅效应、5 项为精确复制恒等，预设 primary 项无 Holm 显著结果。未知患者及研究别名仍限制严格独立主分析，条件性结果按记录来源隔离解释。执行状态为 `executed_with_not_estimable_primary`，具体原因及完整结果见[工程说明](../test/ablation-03-max/README.md)与[策略报告](../test/ablation-03-max/strategies.html)。
+
+## 冻结表示的现有入口
+
 `R/ablation.R` 是 CCS 的冻结表示消融分析入口。它不重新训练 CCS 的 cohort 模型，而是从已经拟合好的 `CCS` S4 对象中构造两类可比较表示：
 
 - `Direct-GSClassifier`：依据冻结 GSClassifier 模型的完整 feature contract，从 RNA 表达重建原生输入；

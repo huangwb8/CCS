@@ -48,8 +48,8 @@ A Computational Framework for Personalized Pan-cancer Genomic Classification.
 
 ### 报告去 AI 味
 
-- 每次完成报告的新写或修订后，交付前必须使用 `nsfc-humanization` skill 润色，检查词语、句法、段落和章节，减少套话、模板感、生硬措辞和重复表达。
-- Skill 指令位于 `C:/Users/Administrator/.codex/skills/nsfc-humanization/SKILL.md`。按项目负责人明确要求，本规则适用于本项目所有报告，包括非 NSFC 报告；按报告自身用途组织内容，不套用标书章节结构。
+- 每次完成报告的新写或修订后，交付前必须使用 `humanization` skill 润色，检查词语、句法、段落和章节，减少套话、模板感、生硬措辞和重复表达。
+- Skill 指令位于 `C:/Users/Administrator/.codex/skills/humanization/SKILL.md`。按项目负责人明确要求，本规则适用于本项目所有报告，包括非 NSFC 报告；按报告自身用途组织内容，不套用标书章节结构。
 - 润色只调整表达，保留事实、数字、公式、引用、代码、专业术语和科学结论。完成后复核这些内容及 Markdown/LaTeX/R Markdown 结构；涉及正式分析报告时，仍须通过既有 `targets` 入口更新最终产物。
 
 ## 项目目录约定
@@ -61,6 +61,16 @@ A Computational Framework for Personalized Pan-cancer Genomic Classification.
 - `docs/plans/`：AI 为特定任务制定的正式计划
 - `docs/contribution.bac`：BAC 协作贡献账本，必须通过 `bac` 命令维护
 - `.bensz-api/`：AI/skill 中间产物，已由 `.gitignore` 排除
+
+### 大文件与外置缓存
+
+本项目位于坚果云同步目录。预计较大的中间文件必须自动托管到 `D:/cache/` 下对应分析项目的子目录，在编写代码和首次运行前确定读写位置，无需再次询问。默认采用 `D:/cache/ccs/<分析名>/`，按用途区分 `raw/`、`models/`、`targets/`、`tmp/`、`environment/` 和 `observability/`。已经启用的正式 cache root（例如 `D:/cache/ccs/_ablation-03/` 与 `D:/cache/ccs_ablation-03/ablation-03-max/`）继续沿用，不能仅为统一命名重建 store。
+
+- 单文件预计达到 50 MiB、单目录预计达到 200 MiB，或会随样本、迭代次数持续增长时，默认外置；训练模型、表达/概率矩阵、RDS 中间对象、targets store、renv 包库、构建副本及批量试跑产物均应提前外置，不必等到超过阈值。
+- `test/`、项目根目录 `tmp/` 和 `.bensz-api/` 只保留源码、配置、锁文件、小型测试夹具、轻量日志与交付说明。生成的正式 HTML/PDF、批量 CSV/CSV.gz、模型结果、展示图及配套资源默认一并放入对应 cache root 的 `exports/`，项目内保留 Rmd/Markdown 源稿和结果位置说明；必要的小型输入素材可保留。大型 AI 任务副本或归档放入 `D:/cache/ccs/ai-artifacts/<任务名>/`。
+- 通过统一路径配置和环境变量连接外部缓存，生产、测试、报告读取与监控必须使用各自对应的同一套路径；隔离测试仍通过原 `_targets.R` 执行。renv 的库路径必须在激活前设置，R 的 `TMPDIR`、`TMP`、`TEMP` 必须在进程启动前设置。不要通过 junction、符号链接或 Git ignore 代替坚果云缓存隔离。
+- 迁移现有文件时先确认没有相关计算正在写入，检查目标冲突，复制并核对文件数、大小和哈希后再移除原件；不覆盖内容不同的目标、不删除唯一数据副本。正式 targets store 如需迁移，必须同时更新全部入口、监控与文档；只读迁移不得重跑分析。
+- D 盘不可用或剩余空间不足时，应停止大文件写入并说明实际问题，不能静默回退到同步目录。外置缓存不随坚果云同步，唯一原始输入、不可替代模型和重要结果应另有独立备份。
 
 ## 工程原则
 
@@ -135,7 +145,7 @@ A Computational Framework for Personalized Pan-cancer Genomic Classification.
 
 ## Project Structure & Module Organization
 
-Core package code lives in `R/`, with `ccs*.R` owning S4 classes, `hyperTuningGS.R` and `importance.R` for modeling, and utilities such as `normalize.R`, `phenotype.R`, and `simulatePA.R` for preprocessing. Generated Rd files remain in `man/`, while the exploratory scripts, saved models, and fixtures under `test/` mirror real workflows (see `test/ccs/project_01/`). Keep prompts, licensing, and README material at the repo root, and add any new auxiliary data next to the script that consumes it.
+Core package code lives in `R/`, with `ccs*.R` owning S4 classes, `hyperTuningGS.R` and `importance.R` for modeling, and utilities such as `normalize.R`, `phenotype.R`, and `simulatePA.R` for preprocessing. Generated Rd files remain in `man/`. Scenario scripts and small fixtures live under `test/`; models and large auxiliary data belong to the analysis-specific external cache described above. Keep prompts, licensing, and README material at the repo root, and document external data paths next to the scripts that consume them.
 
 ## Build, Test, and Development Commands
 
@@ -149,7 +159,9 @@ Match the existing tidy R style: two-space indent, `<-` for assignment, and `sna
 
 ## Testing Guidelines
 
-Each script in `test/` targets a reproducible scenario; follow the numbering scheme (`01.test.*`, `02.test.*`, etc.) to signal execution order. Scripts must be runnable through `Rscript` without interactive prompts and should cleanly write their `.rds` artifacts into dedicated subdirectories (e.g., `test/ccs/project_<id>/`). Favor `stopifnot` or lightweight `testthat` expectations to make failures obvious and add sample data snapshots when a change impacts probability outputs or subtype plots.
+根目录不保留 `tests/`。normCCS 轻量单元测试统一放在 `test/normCCS-5-more/tests/`，使用 `Rscript --vanilla test/normCCS-5-more/run-unit-tests.R` 执行；其它测试归入对应的 `test/` 场景目录，临时试跑产物放在对应外置缓存的 `tmp/` 子目录。由于 `test/` 不随 R 包打包，`R CMD check` 不会自动执行这些测试，包检查前必须单独运行相关测试入口。
+
+Each script in `test/` targets a reproducible scenario; follow the numbering scheme (`01.test.*`, `02.test.*`, etc.) to signal execution order. Scripts must be runnable through `Rscript` without interactive prompts and write large `.rds` artifacts into dedicated external cache subdirectories. Favor `stopifnot` or lightweight `testthat` expectations to make failures obvious and add small sample data snapshots when a change impacts probability outputs or subtype plots.
 
 ## Commit & Pull Request Guidelines
 
