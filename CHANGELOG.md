@@ -6,6 +6,8 @@
 
 ## [Unreleased]
 
+- 按负责人指定将 CCS 更新为 **0.8.8**。新增离散搜索后端 `norm_search_method = "stream_exact"`，用 C++17/Rcpp、区间计数评分、流式完整枚举和有界堆支持 K = 2–8、Raw/OptimizeRank 及五种目标；OpenMP 可用时按 `numCores` 多线程执行，支持中断。新增独立参数 `norm_exact_top_n = 2000L`，默认保留最佳 2000 个映射（组合不足时全部返回），不改变连续模式的 `norm_top_n`。全部保留 AUC 与 R 批量评分核对，最多五个映射另用原始 ROC 复核，K2 全部使用原始评价器保留二分类指标。诊断区分完整覆盖与有限输出；连续模式显式拒绝该后端。同步双语说明与接口文档，测试源码位于 `tmp/normCCS-stream-exact-088/`，编译和验证产物外置。
+
 - 精简 `AGENTS.md`：统一为中文说明，合并重复的目录、工程和版本规则，保留命令、技术名称及既有执行约束；`CLAUDE.md` 继续引用同一指令源。
 
 - 在 `AGENTS.md` 固化 README 双语约定：英文 `README.md` 为主、中文 `README_CN.md` 为辅，两份文档同步维护并提供语言切换。该约定优先于默认中文写作规则及 Skill 默认文件命名；`CLAUDE.md` 通过引用 `AGENTS.md` 沿用同一规范。

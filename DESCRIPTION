@@ -1,7 +1,7 @@
 Package: CCS
 Type: Package
 Title: Cohort Congress System
-Version: 0.8.7
+Version: 0.8.8
 Authors@R:
     person(given = "Weibin",
            family = "Huang",
@@ -34,11 +34,13 @@ Imports:
     luz,
     metafor,
     parallel,
+    parallelly,
     patchwork,
     plyr,
     pROC,
     purrr,
     reshape2,
+    Rcpp,
     Rtsne,
     scales,
     stats,
@@ -57,3 +59,5 @@ Suggests:
     RcppAnnoy,
     testthat (>= 3.0.0)
 Config/testthat/edition: 3
+LinkingTo: Rcpp
+SystemRequirements: C++17

@@ -32,6 +32,23 @@ ablation-03里{chapter}的写作太过粗糙。 你学一下ablation-03里`输�
 
 ---
 
+docs\plans\normCCS_K2-K8_exact_search_implementation_plan.md 里描述了一些方法，可以让k在5-8的时候还是可以有媲美暴力搜索的精度，但运算速度大幅加快。你评估一下，以本设备里的硬件水平，是否可以尝试？
+
+---
+
+我希望你在 projects\normCCS-premium-03 里探索：
+
+- 使用和 projects\normCCS-premium 一样的原始数据，metaCCS已经固定
+- 使用和论文里一样的normCCS的训练集
+- 要可以重复论文里的数据，并作为最终评价的参照
+- 允许的k的取值是2至15；你不必拘泥于CCS里已有的策略；而是发挥你的专业能力
+- 我希望在训练队列和全部外部队列上，固定方向 AUC 中位数四项都严格超过论文 K4。
+- 如果找不到，很大的概率是目前的策略不对；你要作出相应的讨论。
+
+全程遵守 Bensz Rmd Rules 的规范。
+
+---
+
 CCS v0.8.7 (E:\RCloud\RFactory\ccs) 的 subtypePerformance  做了一些改进，我们有机会探索连续模式、新的norm_rank_marker对最终normCCS的performance的影响。我希望你在 projects\normCCS-premium-02 里探索：
 
 - 使用和 projects\normCCS-premium 一样的原始数据，metaCCS已经固定

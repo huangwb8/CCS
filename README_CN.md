@@ -1,7 +1,7 @@
 <div align="center">
   <h1>CCS · Cohort Congress System</h1>
   <p>
-    <a href="https://github.com/huangwb8/CCS"><img src="https://img.shields.io/badge/version-0.8.7-brightgreen.svg" alt="版本 0.8.7"></a>
+    <a href="https://github.com/huangwb8/CCS"><img src="https://img.shields.io/badge/version-0.8.8-brightgreen.svg" alt="版本 0.8.8"></a>
     <a href="https://www.r-project.org/"><img src="https://img.shields.io/badge/R-package-276DC3.svg" alt="R 包"></a>
     <a href="license.txt"><img src="https://img.shields.io/badge/License-Apache%202.0-blue.svg" alt="Apache 2.0 许可证"></a>
   </p>
@@ -31,7 +31,7 @@ library(CCS)
 packageVersion("CCS")
 ```
 
-依赖包括 `xgboost`、`torch` 和 `luz`。深度学习流程还需要 torch 运行时；使用该后端时，请参阅 [R torch 安装指南](https://torch.mlverse.org/docs/articles/installation.html)。安装失败时，应先确认具体失败的依赖及其仓库或系统要求，再重试。Windows 下若需从源码编译，还可能需要与 R 版本匹配的 Rtools。
+依赖包括 `xgboost`、`torch` 和 `luz`。深度学习流程还需要 torch 运行时；使用该后端时，请参阅 [R torch 安装指南](https://torch.mlverse.org/docs/articles/installation.html)。安装失败时，应先确认具体失败的依赖及其仓库或系统要求，再重试。CCS 源码安装需要 C++17 编译器和 Rcpp；Windows 下请安装与 R 版本匹配的 Rtools。精确搜索在支持 OpenMP 时使用多线程，否则使用单线程。
 
 ### 运行合成 normCCS 分析
 
@@ -90,6 +90,20 @@ CCS 将队列模型训练、概率表示、亚型发现和下游评价连接起�
 
 DP 精确优化的是固定方向的加权平均 Raw AUC 代理目标。完整搜索还会围绕选定目标细化候选，并由原 ROC 评价器核对，因此 **不保证所选公开目标的全局最优解**。
 
+K = 2–8 时，可以选择 `"stream_exact"`，用编译后的计数评分遍历固定状态顺序下的全部连续分段。它支持两种 ROC 方法和五种目标函数。搜索用有界堆默认保留最佳 `norm_exact_top_n = 2000L` 个映射，K ≥ 5 也适用；组合不足时全部返回。该参数与连续模式的 `norm_top_n` 独立。例如，复用上面的 `df`：
+
+```r
+exact_fit <- subtypePerformance(
+  df, col_subtype = "Subtype", col_tissue = "tumor_type",
+  n_norm_subtype = 5, norm_search_method = "stream_exact",
+  norm_exact_top_n = 2000L, norm_roc_method = "Raw",
+  norm_objective = "cohort_median", numCores = 4, verbose = FALSE
+)
+exact_fit$Data$Normalization$SearchDiagnostics
+```
+
+该搜索完整覆盖选定状态顺序下的组合，评分核验容差为 `1e-10`。所有保留候选的 AUC 都与 R 批量评分器核对，并选取最多五个映射调用原始 ROC 评价器复核；K = 2 时，全部保留映射均调用原始评价器，以保留二分类性能指标。浮点得分完全相同时，非默认目标先比较队列平均 AUC，再按 `Info` 的 UTF-8 字节序排序。原始 ROC 计算的末位差异可能改变数学同分映射的顺序。诊断记录完整覆盖、返回数量、线程、核验误差和耗时。后端最多支持 512 个状态，并设置内存保护；运行时间仍随 `choose(M - 1, K - 1)` 增长。`numCores = NULL` 使用可用核心数减一。
+
 ### 探索连续继承的等级序列
 
 复用快速开始中的 `df`，探索 K = 1 至 K = 8：
@@ -106,7 +120,7 @@ continuous_fit$Data$Normalization$Summary
 continuous_fit$Data$Normalization$SearchDiagnostics$layers[[5]]
 ```
 
-连续模式先固定状态顺序。K = 1 为恒定评分，AUC = 0.5；后续每个子方案保留父方案的全部分界，再新增一个分界。所有合法的单次细分按所选目标评分后，每层最多保留 `norm_top_n` 个候选。该模式固定使用单核继承式 DP，不受 `norm_search_method` 设置影响。
+连续模式先固定状态顺序。K = 1 为恒定评分，AUC = 0.5；后续每个子方案保留父方案的全部分界，再新增一个分界。所有合法的单次细分按所选目标评分后，每层最多保留 `norm_top_n` 个候选。两种旧搜索设置在此均使用单核继承式 DP；与 `"stream_exact"` 同用会报错，因为精确后端独立搜索指定 K 的离散分段。
 
 `Summary` 合并各 K 保留的候选，分层诊断记录父映射、分界和得分。有限候选剪枝使整体搜索仍为近似过程，不保证全局最优，也不保证增加 K 后得分上升。
 

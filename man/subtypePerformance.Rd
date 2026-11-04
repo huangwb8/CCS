@@ -22,8 +22,11 @@ subtypePerformance(
   norm_roc_method = c("OptimizeRank", "Raw")[1],
   norm_rank_marker = c("NRR", "RR", "NRR+RR", "RR+NRR", "MeanNRR", "LowerTailNRR",
     "ShrunkLogOR", "RankFusion")[1],
-  norm_search_method = c("bruteforce", "dp"),
+  norm_search_method = c("bruteforce", "dp", "stream_exact"),
   norm_mode = c("discrete", "continuous")[1],
+  norm_objective = c("median", "cohort_median", "mean", "lower_tail",
+    "mean_lower_tail")[1],
+  norm_top_n = 10L,
   plot_ROCCutoff = 0.8,
   plot_layout_widths = c(9, 1),
   plot_silence_cohort = F,
@@ -33,8 +36,7 @@ subtypePerformance(
   meta_subtitle_font_size = 10,
   numCores = NULL,
   verbose = TRUE,
-  norm_objective = "median",
-  norm_top_n = 10L
+  norm_exact_top_n = 2000L
 )
 }
 \arguments{
@@ -87,7 +89,17 @@ DP is exact only for its fixed-direction weighted mean Raw AUC surrogate,
 not for any public objective under automatic direction or \code{OptimizeRank}. It runs on one
 core, does not change the parallel backend, and returns only evaluated final
 candidates plus \code{SearchDiagnostics} under \code{Data$Normalization}.
-Oversized exhaustive searches are rejected before allocation. Every cohort
+\code{"stream_exact"} uses a compiled, interruptible streaming exhaustive
+search for K = 2--8, retaining only \code{norm_exact_top_n} candidates and
+returning explicit coverage and optimality diagnostics. Both Raw and
+OptimizeRank and all public objectives are supported. Same-score candidates
+sort by Info in UTF-8 byte order; non-default objectives first break ties
+by real-cohort mean AUC. All retained scores are checked against the R batch
+scorer (tolerance 1e-10); up to five retained candidates are additionally
+checked with the original ROC evaluator (all candidates for K = 2).
+\code{numCores} controls native threads; NULL uses available cores minus one.
+Systems without OpenMP run this method on one thread. Existing brute-force
+searches exceeding their budget are rejected before allocation. Every cohort
 must contain both response classes; required input columns must be complete.}
 
 \item{norm_mode}{Either \code{"discrete"} (default, search only the specified
@@ -96,25 +108,7 @@ Continuous search fixes the state order once, exhaustively evaluates K = 1,
 and uses constrained DP within each previous top parent's partitions for
 K >= 2. All legal single-split extensions are scored with the public
 objective before pruning. Every child preserves all parent cutpoints.
-This mode always uses inherited DP, irrespective of \code{norm_search_method}.}
-
-\item{plot_ROCCutoff}{The cut-off value for visualization of ROC AUC}
-
-\item{plot_layout_widths}{\code{layout_widths} for \code{\link[patchwork]{plot_layout}}}
-
-\item{plot_silence_cohort}{Whether to silence cohort names in the plot}
-
-\item{plot_silence_subtype}{Whether to silence subtype names in the plot}
-
-\item{meta_method}{Random-effects estimator for the meta-analysis. One of \code{'DL'}, \code{'REML'}, \code{'ML'}, \code{'PM'} (Paule-Mandel), \code{'SJ'} (Sidik-Jonkman), \code{'HE'} (Hedges), \code{'EB'} (Empirical Bayes), or \code{'HK'} (Hartung-Knapp using REML + Knapp-Hartung adjustment).}
-
-\item{meta_cohort_font_size}{Text size (in points) for cohort labels on the meta-analysis plot. Defaults to 15\% larger than the previous styling.}
-
-\item{meta_subtitle_font_size}{Text size (in points) for the overall summary subtitle (I^2, p, confidence interval) in each meta-analysis panel.}
-
-\item{numCores}{No. of CPU core}
-
-\item{verbose}{whether report messages}
+This mode uses inherited DP; \code{stream_exact} requires discrete mode.}
 
 \item{norm_objective}{Candidate scoring strategy (exact names only).
 \code{"median"} (default) retains the legacy median including pooled
@@ -124,7 +118,7 @@ This mode always uses inherited DP, irrespective of \code{norm_search_method}.}
 including a fractional boundary cohort. \code{"mean_lower_tail"} averages
 that lower tail and the cohort mean with weights 0.5 each. Non-default
 strategies require finite AUCs for every real cohort and exclude \code{All}.
-Both search methods use the same objective throughout selection/refinement.
+All discrete search methods use the same objective throughout selection/refinement.
 New strategies add \code{objective}, \code{objectiveScore},
 \code{cohortMedianROCAUC}, \code{cohortMeanROCAUC} and
 \code{cohortLowerTailROCAUC} to the normalization Summary; rows sort by
@@ -144,6 +138,30 @@ Summary combines all K and keeps the existing column schema; the number of
 grades can be read from Info or the per-layer SearchDiagnostics. K = 1 has
 constant predictor AUC 0.5. Finite-width pruning is approximate and neither
 guarantees a global optimum nor monotone improvement as K increases.}
+
+\item{plot_ROCCutoff}{The cut-off value for visualization of ROC AUC}
+
+\item{plot_layout_widths}{\code{layout_widths} for \code{\link[patchwork]{plot_layout}}}
+
+\item{plot_silence_cohort}{Whether to silence cohort names in the plot}
+
+\item{plot_silence_subtype}{Whether to silence subtype names in the plot}
+
+\item{meta_method}{Random-effects estimator for the meta-analysis. One of \code{'DL'}, \code{'REML'}, \code{'ML'}, \code{'PM'} (Paule-Mandel), \code{'SJ'} (Sidik-Jonkman), \code{'HE'} (Hedges), \code{'EB'} (Empirical Bayes), or \code{'HK'} (Hartung-Knapp using REML + Knapp-Hartung adjustment).}
+
+\item{meta_cohort_font_size}{Text size (in points) for cohort labels on the meta-analysis plot. Defaults to 15\% larger than the previous styling.}
+
+\item{meta_subtitle_font_size}{Text size (in points) for the overall summary subtitle (I^2, p, confidence interval) in each meta-analysis panel.}
+
+\item{numCores}{No. of CPU core}
+
+\item{verbose}{whether report messages}
+
+\item{norm_exact_top_n}{Positive integer, default 2000. Maximum retained
+candidates for \code{norm_search_method = "stream_exact"} in discrete mode.
+Each requested K returns at most this many candidates, or all candidates
+when fewer exist. This setting is independent of continuous-mode
+\code{norm_top_n} and does not affect the other discrete search methods.}
 }
 \value{
 A list

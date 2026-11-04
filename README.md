@@ -1,7 +1,7 @@
 <div align="center">
   <h1>CCS · Cohort Congress System</h1>
   <p>
-    <a href="https://github.com/huangwb8/CCS"><img src="https://img.shields.io/badge/version-0.8.7-brightgreen.svg" alt="Version 0.8.7"></a>
+    <a href="https://github.com/huangwb8/CCS"><img src="https://img.shields.io/badge/version-0.8.8-brightgreen.svg" alt="Version 0.8.8"></a>
     <a href="https://www.r-project.org/"><img src="https://img.shields.io/badge/R-package-276DC3.svg" alt="R package"></a>
     <a href="license.txt"><img src="https://img.shields.io/badge/License-Apache%202.0-blue.svg" alt="Apache 2.0 license"></a>
   </p>
@@ -31,7 +31,7 @@ library(CCS)
 packageVersion("CCS")
 ```
 
-The dependency stack includes `xgboost`, `torch`, and `luz`. Deep-learning workflows also require the torch runtime; follow the [R torch installation guide](https://torch.mlverse.org/docs/articles/installation.html) when using that backend. If installation fails, check which dependency failed and its repository or system requirements before retrying. Windows source compilation may require the Rtools version matching your R installation.
+The dependency stack includes `xgboost`, `torch`, and `luz`. Deep-learning workflows also require the torch runtime; follow the [R torch installation guide](https://torch.mlverse.org/docs/articles/installation.html) when using that backend. If installation fails, check which dependency failed and its repository or system requirements before retrying. CCS source installation requires a C++17 compiler and Rcpp; on Windows, install the Rtools version matching your R installation. The exact search uses OpenMP when available and otherwise runs on one thread.
 
 ### Run a synthetic normCCS analysis
 
@@ -90,6 +90,20 @@ The default `norm_mode = "discrete"` searches only the requested number of grade
 
 DP exactly optimizes a surrogate based on fixed-direction weighted mean Raw AUC. The full search refines candidates against the selected objective and checks them with the reference ROC evaluator. **It does not guarantee a global optimum for the selected public objective.**
 
+For K = 2–8, choose `"stream_exact"` to evaluate every contiguous partition of the fixed state order using compiled count-based AUC scoring. It supports both ROC methods and all five objectives. A bounded heap retains the best `norm_exact_top_n = 2000L` mappings by default, including K ≥ 5; fewer are returned when the search space is smaller. This parameter is independent of continuous mode's `norm_top_n`. For example, reuse `df` above:
+
+```r
+exact_fit <- subtypePerformance(
+  df, col_subtype = "Subtype", col_tissue = "tumor_type",
+  n_norm_subtype = 5, norm_search_method = "stream_exact",
+  norm_exact_top_n = 2000L, norm_roc_method = "Raw",
+  norm_objective = "cohort_median", numCores = 4, verbose = FALSE
+)
+exact_fit$Data$Normalization$SearchDiagnostics
+```
+
+The search is exhaustive for the chosen state order, with scoring checked to a tolerance of `1e-10`. All retained AUCs are checked against the R batch scorer; up to five retained mappings are also checked with the original ROC evaluator. At K = 2, every retained mapping uses the original evaluator to preserve binary performance metrics. Exact floating-point ties use cohort mean AUC for non-default objectives, followed by UTF-8 byte order of `Info`. Last-bit differences from the original ROC calculations can order mathematically tied mappings differently. Diagnostics report full coverage, returned counts, threads, verification error, and timing. The backend supports at most 512 states and applies a memory guard; runtime still grows with `choose(M - 1, K - 1)`. `numCores = NULL` uses available cores minus one.
+
 ### Explore an inherited sequence of grades
 
 Reuse `df` from the quick start to explore K = 1 through K = 8:
@@ -106,7 +120,7 @@ continuous_fit$Data$Normalization$Summary
 continuous_fit$Data$Normalization$SearchDiagnostics$layers[[5]]
 ```
 
-Continuous mode fixes the state order once. K = 1 has a constant score with AUC = 0.5. At each later K, a child preserves every parent boundary and adds one split. Legal single-split extensions are scored with the selected objective before retaining at most `norm_top_n` candidates per layer. This mode always uses inherited DP on one core, regardless of `norm_search_method`.
+Continuous mode fixes the state order once. K = 1 has a constant score with AUC = 0.5. At each later K, a child preserves every parent boundary and adds one split. Legal single-split extensions are scored with the selected objective before retaining at most `norm_top_n` candidates per layer. This mode uses inherited DP on one core with either legacy search setting. Combining continuous mode with `"stream_exact"` raises an error; the exact backend searches discrete partitions independently.
 
 `Summary` combines retained candidates across K, and the layer diagnostics record parent mappings, cutpoints, and scores. Pruning to a finite number of candidates makes the search approximate; neither global optimality nor improving scores with increasing K is guaranteed.
 

@@ -17,7 +17,12 @@
 #'   and uses constrained DP within each previous top parent's partitions for
 #'   K >= 2. All legal single-split extensions are scored with the public
 #'   objective before pruning. Every child preserves all parent cutpoints.
-#'   This mode always uses inherited DP, irrespective of \code{norm_search_method}.
+#'   This mode uses inherited DP; \code{stream_exact} requires discrete mode.
+#' @param norm_exact_top_n Positive integer, default 2000. Maximum retained
+#'   candidates for \code{norm_search_method = "stream_exact"} in discrete mode.
+#'   Each requested K returns at most this many candidates, or all candidates
+#'   when fewer exist. This setting is independent of continuous-mode
+#'   \code{norm_top_n} and does not affect the other discrete search methods.
 #' @param norm_top_n Positive integer, default 10. Maximum number of distinct
 #'   candidates retained at each K in continuous mode. Only retained candidates
 #'   appear in Raw/Summary; each is checked with the reference ROC evaluator.
@@ -32,7 +37,17 @@
 #'   not for any public objective under automatic direction or \code{OptimizeRank}. It runs on one
 #'   core, does not change the parallel backend, and returns only evaluated final
 #'   candidates plus \code{SearchDiagnostics} under \code{Data$Normalization}.
-#'   Oversized exhaustive searches are rejected before allocation. Every cohort
+#'   \code{"stream_exact"} uses a compiled, interruptible streaming exhaustive
+#'   search for K = 2--8, retaining only \code{norm_exact_top_n} candidates and
+#'   returning explicit coverage and optimality diagnostics. Both Raw and
+#'   OptimizeRank and all public objectives are supported. Same-score candidates
+#'   sort by Info in UTF-8 byte order; non-default objectives first break ties
+#'   by real-cohort mean AUC. All retained scores are checked against the R batch
+#'   scorer (tolerance 1e-10); up to five retained candidates are additionally
+#'   checked with the original ROC evaluator (all candidates for K = 2).
+#'   \code{numCores} controls native threads; NULL uses available cores minus one.
+#'   Systems without OpenMP run this method on one thread. Existing brute-force
+#'   searches exceeding their budget are rejected before allocation. Every cohort
 #'   must contain both response classes; required input columns must be complete.
 #' @param norm_roc_method The method to call ROC AUC. One of \code{'OptimizeRank'} and \code{'Raw'}.
 #' @param norm_objective Candidate scoring strategy (exact names only).
@@ -43,7 +58,7 @@
 #'   including a fractional boundary cohort. \code{"mean_lower_tail"} averages
 #'   that lower tail and the cohort mean with weights 0.5 each. Non-default
 #'   strategies require finite AUCs for every real cohort and exclude \code{All}.
-#'   Both search methods use the same objective throughout selection/refinement.
+#'   All discrete search methods use the same objective throughout selection/refinement.
 #'   New strategies add \code{objective}, \code{objectiveScore},
 #'   \code{cohortMedianROCAUC}, \code{cohortMeanROCAUC} and
 #'   \code{cohortLowerTailROCAUC} to the normalization Summary; rows sort by
@@ -129,8 +144,10 @@ subtypePerformance <- function(
     norm_roc_method = c('OptimizeRank', 'Raw')[1],
     norm_rank_marker = c('NRR', 'RR', 'NRR+RR', 'RR+NRR',
                          'MeanNRR', 'LowerTailNRR', 'ShrunkLogOR', 'RankFusion')[1],
-    norm_search_method = c("bruteforce", "dp"),
+    norm_search_method = c("bruteforce", "dp", "stream_exact"),
     norm_mode = c("discrete", "continuous")[1],
+    norm_objective = c("median", "cohort_median", "mean", "lower_tail", "mean_lower_tail")[1],
+    norm_top_n = 10L,
     plot_ROCCutoff = 0.8,
     plot_layout_widths = c(9, 1),
     plot_silence_cohort = F,
@@ -140,13 +157,18 @@ subtypePerformance <- function(
     meta_subtitle_font_size = 10,
     numCores = NULL,
     verbose = TRUE,
-    norm_objective = "median",
-    norm_top_n = 10L
+    norm_exact_top_n = 2000L
 ){
 
   norm_objective <- norm_validate_objective(norm_objective)
   norm_search_method <- match.arg(norm_search_method)
   norm_mode <- norm_validate_mode(norm_mode)
+  if (norm_search_method == "stream_exact") {
+    norm_validate_exact_top_n(norm_exact_top_n)
+    if (norm_mode != "discrete") {
+      stop("stream_exact requires norm_mode = 'discrete'; continuous mode preserves inherited cutpoints.")
+    }
+  }
   norm_validate_top_n(norm_top_n)
   norm_validate_rank_marker(norm_rank_marker)
 
@@ -304,6 +326,7 @@ subtypePerformance <- function(
       norm_objective = norm_objective
     )
     if (norm_mode == "continuous") norm_args$norm_top_n <- norm_top_n
+    if (norm_search_method == "stream_exact") norm_args$norm_exact_top_n <- norm_exact_top_n
     data_norm <- do.call(norm_function, norm_args)
   } else {
     data_norm <- NULL
@@ -351,6 +374,11 @@ subtypePerformance <- function(
     l$Repeat$norm_mode <- norm_mode
     l$Repeat$norm_top_n <- norm_top_n
     l$Repeat$norm_search_method <- "dp"
+  }
+  if (norm_search_method == "stream_exact") {
+    l$Repeat$norm_exact_top_n <- norm_exact_top_n
+    l$Repeat$norm_rank_marker <- norm_rank_marker
+    l$Repeat$norm_roc_method <- norm_roc_method
   }
   if (norm_mode == "continuous" ||
       !norm_rank_marker %in% c("NRR", "RR", "NRR+RR", "RR+NRR")) {
@@ -943,8 +971,9 @@ subtypeNorm <- function(
     norm_roc_method = 'Raw',
     norm_rank_marker = 'RR',
     numCores = NULL, verbose = TRUE,
-    norm_search_method = c("bruteforce", "dp"),
-    norm_objective = "median"
+    norm_search_method = c("bruteforce", "dp", "stream_exact"),
+    norm_objective = "median",
+    norm_exact_top_n = 2000L
 ){
 
   norm_objective <- norm_validate_objective(norm_objective)
@@ -988,6 +1017,14 @@ subtypeNorm <- function(
 
     if (n_norm_subtype > nrow(df_cutoff)) {
       stop("n_norm_subtype must not exceed the number of observed subtypes.")
+    }
+    if (norm_search_method == "stream_exact") {
+      result <- subtype_norm_exact(df, df_cutoff, n_norm_subtype,
+                                    norm_roc_method, search_started, verbose,
+                                    objective = norm_objective,
+                                    top_n = norm_exact_top_n, num_cores = numCores)
+      result$SearchDiagnostics$rank_marker <- norm_rank_marker
+      return(result)
     }
     if (norm_search_method == "dp") {
       result <- subtype_norm_dp(df, df_cutoff, n_norm_subtype,
@@ -2515,7 +2552,7 @@ norm_reference_candidates <- function(df, ranked, candidates, model, method) {
 subtypeNorm_continuous <- function(
     df, n_norm_subtype = 2, norm_roc_method = "Raw", norm_rank_marker = "RR",
     numCores = NULL, verbose = TRUE,
-    norm_search_method = c("bruteforce", "dp"), norm_objective = "median",
+    norm_search_method = c("bruteforce", "dp", "stream_exact"), norm_objective = "median",
     norm_top_n = 10L
 ) {
   # Test
@@ -2529,6 +2566,9 @@ subtypeNorm_continuous <- function(
   norm_validate_top_n(norm_top_n)
   norm_validate_rank_marker(norm_rank_marker)
   norm_search_method <- match.arg(norm_search_method)
+  if (norm_search_method == "stream_exact") {
+    stop("stream_exact requires discrete mode; continuous mode preserves inherited cutpoints.")
+  }
   if (!is.numeric(n_norm_subtype) || length(n_norm_subtype) != 1L ||
       !is.finite(n_norm_subtype) || n_norm_subtype < 1 ||
       n_norm_subtype != floor(n_norm_subtype)) {
