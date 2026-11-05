@@ -2718,3 +2718,994 @@ subtypeNorm_continuous <- function(
     workers = 1L, interval_storage_bytes = as.numeric(utils::object.size(model)),
     elapsed_seconds = unname(proc.time()[["elapsed"]] - started)))
 }
+
+
+# Exact discrete normCCS search adapter and diagnostics.
+
+#' Stream every legal cutpoint combination and retain bounded Top N results
+#'
+#' @description Internal adapter for the native discrete normCCS search. All
+#'   retained AUCs are checked against the existing R batch scorer, and a
+#'   deterministic subset is additionally checked with the original ROC code.
+#' @param df Validated patient-by-state input.
+#' @param ranked Fixed ordered subtype table.
+#' @param k Number of nonempty grades, between 2 and 8.
+#' @param method Existing Raw or OptimizeRank ROC semantics.
+#' @param started Elapsed-time origin of the calling normalization search.
+#' @param verbose Whether to report progress.
+#' @param objective Existing normCCS selection objective.
+#' @param top_n Maximum number of retained candidates.
+#' @param num_cores Requested native threads, or NULL for available cores minus one.
+#' @param min_grade_n Minimum pooled training records per grade.
+#' @param regularization Nonnegative multiplier of mean inverse-root grade size.
+#' @return Raw and Summary candidate tables and explicit search diagnostics.
+#' @examples
+#' if (FALSE) {
+#'   subtypeNorm(df, 5, norm_search_method = "stream_exact", norm_exact_top_n = 2000)
+#' }
+#' @useDynLib CCS, .registration = TRUE
+#' @importFrom Rcpp evalCpp
+#' @noRd
+subtype_norm_exact <- function(df, ranked, k, method, started, verbose,
+                               objective = "median", top_n = 2000L,
+                               num_cores = NULL, min_grade_n = 1L,
+                               regularization = 0) {
+  # Test
+  if (FALSE) {
+    df <- expand.grid(Cohort = c("A", "B"), Subtype = 1:6, response = 0:1)
+    df$SampleIDs <- paste0("synthetic_", seq_len(nrow(df)))
+    df$tumor_type <- "Lung"
+    subtypeNorm(df, 5, numCores = 1, norm_search_method = "stream_exact")
+  }
+  norm_validate_exact_top_n(top_n)
+  norm_validate_regularization(min_grade_n, regularization)
+  regularized <- min_grade_n > 1L || regularization > 0
+  objective <- norm_validate_objective(objective)
+  m <- nrow(ranked)
+  if (!is.null(num_cores) && num_cores > 1024L) {
+    stop("numCores must not exceed 1024 for stream_exact.")
+  }
+  requested_workers <- if (is.null(num_cores)) {
+    as.integer(parallelly::availableCores(omit = 1L))
+  } else as.integer(num_cores)
+  requested_workers <- max(1L, requested_workers)
+  nc <- length(unique(df$Cohort)) + 1L
+  cost <- norm_exact_search_cost(m, k, nc, method, requested_workers)
+  norm_report_exact_cost(cost, verbose)
+  if (k < 2L || k > 8L || k > m || m > 512L) {
+    stop("stream_exact supports 2 <= K <= min(8, M) and at most 512 observed states.")
+  }
+  total <- cost$n_candidates
+  retained <- as.integer(min(top_n, total))
+  # Include count tensors, per-thread heaps, interval strings and returned rows.
+  estimate <- 64 * nc * m^2 + requested_workers * retained * 128 +
+    retained * (nc * 256 + m * 32) + m^3 * 16
+  if (!is.finite(estimate) || estimate > 2 * 1024^3) {
+    stop("stream_exact exceeds the interval/Top-N memory budget; reduce norm_exact_top_n or numCores.")
+  }
+  if (verbose) luckyBase::LuckyVerbose(
+    paste0("subtypeNorm: stream_exact, K = ", k, ", retaining up to ", retained, " candidates..."),
+    levels = 2)
+  preprocessing_started <- proc.time()[["elapsed"]]
+  model <- norm_prepare_counts(df, ranked)
+  model$ranked_labels <- enc2utf8(as.character(ranked$Subtype))
+  preprocessing_seconds <- proc.time()[["elapsed"]] - preprocessing_started
+  native <- norm_exact_cpp(model, as.integer(k), method, objective, retained,
+                           requested_workers, min_grade_n, regularization)
+  if (!isTRUE(native$complete) || native$visited != total ||
+      native$total_candidates != total) {
+    stop("stream_exact did not cover the complete search space; no optimal result was returned.")
+  }
+  retained <- as.integer(min(top_n, native$feasible_candidates))
+  cuts <- native$cuts
+  if (!is.matrix(cuts) || nrow(cuts) != retained || ncol(cuts) != k - 1L ||
+      anyDuplicated(as.data.frame(cuts))) {
+    stop("stream_exact returned an invalid candidate set.")
+  }
+  verification_started <- proc.time()[["elapsed"]]
+  auc <- norm_auc_batch(cuts, model, method)
+  native_auc <- norm_exact_auc_cpp(cuts, model, method)
+  scores <- norm_objective_score(auc, model$cohorts, objective)
+  means <- norm_objective_score(auc, model$cohorts, "mean")
+  support <- if (regularized) norm_exact_support(cuts, df, ranked) else NULL
+  selection_scores <- if (regularized) scores - regularization * support$penalty else scores
+  tolerance <- 1e-10
+  # Selection scores can be very large in magnitude for a large lambda;
+  # use relative error there while preserving absolute AUC verification.
+  selection_delta <- abs(selection_scores - native$scores) / pmax(1, abs(selection_scores))
+  delta <- max(abs(auc - native_auc), selection_delta,
+               abs(means - native$means))
+  if (regularized && any(support$sizes < min_grade_n)) {
+    stop("Native stream_exact returned a mapping below norm_min_grade_n.")
+  }
+  if (any(!is.finite(auc)) || !is.finite(delta) || delta > tolerance) {
+    stop("Native stream_exact scores disagree with the R reference; results were not returned.")
+  }
+  candidates <- lapply(seq_len(nrow(cuts)), function(i) as.integer(cuts[i, ]))
+  infos <- vapply(candidates, norm_info, character(1), ranked = ranked)
+  # K2 has additional binary performance columns that must come from its
+  # original evaluator. Higher K has only ROCAUC, already verified for all rows.
+  checked <- if (k == 2L) seq_len(retained) else
+    unique(as.integer(round(seq(1L, retained, length.out = min(5L, retained)))))
+  reference <- norm_reference_candidates(df, ranked, candidates[checked], model, method)
+  expected <- as.vector(t(auc[checked, , drop = FALSE]))
+  original_delta <- max(abs(reference$ROCAUC - expected))
+  if (any(!is.finite(reference$ROCAUC)) || !is.finite(original_delta) || original_delta > tolerance) {
+    stop("stream_exact scores disagree with the original ROC evaluator; results were not returned.")
+  }
+  if (k == 2L) {
+    raw <- reference
+  } else {
+    raw <- data.frame(
+      Cohort = rep(model$cohorts, times = retained),
+      Info = rep(infos, each = nc),
+      nSample = rep(vapply(model$rows, length, integer(1)), times = retained),
+      ROCAUC = as.vector(t(auc)), stringsAsFactors = FALSE)
+  }
+  if (objective == "median") {
+    summary <- data.frame(Info = infos, medianROCAUC = scores, stringsAsFactors = FALSE)
+    summary <- summary[order(-summary$medianROCAUC, enc2utf8(summary$Info), method = "radix"), , drop = FALSE]
+  } else {
+    summary <- norm_objective_summary(raw, objective)
+    summary <- summary[order(-summary$objectiveScore, -summary$cohortMeanROCAUC,
+                             enc2utf8(summary$Info), method = "radix"), , drop = FALSE]
+  }
+  if (regularized) {
+    indices <- match(summary$Info, infos)
+    summary$supportPenalty <- support$penalty[indices]
+    summary$regularizationPenalty <- regularization * support$penalty[indices]
+    summary$regularizedScore <- selection_scores[indices]
+    summary$minGradeN <- apply(support$sizes[indices, , drop = FALSE], 1L, min)
+    summary$gradeSampleSizes <- lapply(indices, function(i) support$sizes[i, ])
+    ordering <- if (objective == "median") {
+      order(-summary$regularizedScore, enc2utf8(summary$Info), method = "radix")
+    } else {
+      order(-summary$regularizedScore, -summary$cohortMeanROCAUC,
+            enc2utf8(summary$Info), method = "radix")
+    }
+    summary <- summary[ordering, , drop = FALSE]
+  }
+  rownames(summary) <- NULL
+  winner <- match(summary$Info[1L], infos)
+  verification_seconds <- proc.time()[["elapsed"]] - verification_started
+  diagnostics <- list(
+    method = "stream_exact", objective = objective,
+    roc_method = method, score_semantics = if (method == "Raw" || k == 2L) "legacy_raw_auto" else "legacy_optimize_rank",
+    result_policy = "top_n_only", constraint_mode = "unrestricted",
+    optimality_status = "optimal_proven", exact_global_optimum = TRUE,
+    score_reference_tolerance = tolerance,
+    tie_break = if (objective == "median") "score_desc_then_Info_UTF8_bytes" else
+      "score_desc_then_cohort_mean_desc_then_Info_UTF8_bytes",
+    M = m, K = k, top_n = as.integer(top_n), returned_candidates = retained,
+    n_possible_candidates = total, n_candidates_evaluated = native$visited,
+    selected_cutpoints = candidates[[winner]], ranked_subtypes = as.character(ranked$Subtype),
+    cohorts = model$cohorts, requested_workers = requested_workers,
+    workers = native$actual_threads, openmp = native$openmp,
+    n_batch_reference_values = length(auc),
+    n_original_roc_verifications = nrow(reference),
+    reference_max_error = max(delta, original_delta),
+    interval_storage_bytes = as.numeric(utils::object.size(model)),
+    estimated_search_seconds = cost$seconds,
+    runtime_estimate_basis = cost$basis,
+    preprocessing_seconds = unname(preprocessing_seconds),
+    search_seconds = native$search_elapsed_seconds,
+    verification_seconds = unname(verification_seconds),
+    elapsed_seconds = unname(proc.time()[["elapsed"]] - started))
+  if (regularized) {
+    diagnostics$constraint_mode <- "pooled_training_grade_support"
+    diagnostics$norm_min_grade_n <- min_grade_n
+    diagnostics$norm_regularization <- regularization
+    diagnostics$selection_score <- "objective_minus_lambda_mean_inverse_sqrt_grade_n"
+    diagnostics$optimality_scope <- "fixed_order_K_support_feasible_regularized_objective"
+    diagnostics$n_feasible_candidates <- native$feasible_candidates
+    diagnostics$n_rejected_candidates <- total - native$feasible_candidates
+    diagnostics$support_unit <- "input_records_pooled_once"
+    diagnostics$selected_grade_sizes <- summary$gradeSampleSizes[[1L]]
+    diagnostics$tie_break <- if (objective == "median") {
+      "regularized_score_desc_then_Info_UTF8_bytes"
+    } else "regularized_score_desc_then_cohort_mean_desc_then_Info_UTF8_bytes"
+  }
+  if (objective != "median") {
+    settings <- norm_objective_settings(objective)
+    diagnostics <- c(diagnostics, settings[setdiff(names(settings), "norm_objective")])
+  }
+  list(Raw = raw, Summary = summary, SearchDiagnostics = diagnostics)
+}
+
+# Independent record-based support calculation, deliberately separate from
+# native pooled-prefix counts. Columns follow the high-to-low state order.
+norm_exact_support <- function(cuts, df, ranked) {
+  # Test
+  if (FALSE) {
+    norm_exact_support(matrix(c(1L, 3L), 1L),
+      data.frame(Subtype = c("a", "a", "b", "c", "d")),
+      data.frame(Subtype = letters[1:4]))
+  }
+  state_n <- tabulate(match(as.character(df$Subtype), as.character(ranked$Subtype)),
+                      nbins = nrow(ranked))
+  sizes <- t(vapply(seq_len(nrow(cuts)), function(i) {
+    endpoints <- c(0L, cuts[i, ], nrow(ranked))
+    vapply(seq_len(length(endpoints) - 1L), function(g) {
+      sum(state_n[seq.int(endpoints[g] + 1L, endpoints[g + 1L])])
+    }, numeric(1))
+  }, numeric(ncol(cuts) + 1L)))
+  colnames(sizes) <- as.character(seq.int(ncol(cuts), 0L))
+  list(sizes = sizes, penalty = rowMeans(1 / sqrt(sizes)))
+}
+
+norm_validate_regularization <- function(min_grade_n, regularization,
+                                         search_method = "stream_exact") {
+  if (!is.numeric(min_grade_n) || length(min_grade_n) != 1L ||
+      !is.finite(min_grade_n) || min_grade_n < 1 ||
+      min_grade_n != floor(min_grade_n) || min_grade_n > .Machine$integer.max) {
+    stop("norm_min_grade_n must be a positive integer no larger than .Machine$integer.max.")
+  }
+  if (!is.numeric(regularization) || length(regularization) != 1L ||
+      !is.finite(regularization) || regularization < 0) {
+    stop("norm_regularization must be a finite nonnegative number.")
+  }
+  if (search_method != "stream_exact" && (min_grade_n != 1L || regularization != 0)) {
+    stop("norm_min_grade_n and norm_regularization require norm_search_method = 'stream_exact'.")
+  }
+  invisible(NULL)
+}
+
+# Reference-hardware estimate, not a benchmark of the invoking machine or a CI.
+# Calibration: tmp/normCCS-stream-exact-088/REPORT.md, i9-14900K, 16 threads,
+# 21 scoring coordinates (20 real cohorts plus All), median objective, Top 2000.
+norm_exact_search_cost <- function(m, k, nc, method, workers) {
+  # Test
+  if (FALSE) {
+    norm_exact_search_cost(107L, 8L, 21L, "Raw", 16L)
+  }
+  total <- choose(m - 1L, k - 1L)
+  ranked <- method == "OptimizeRank" && k > 2L
+  per_candidate <- if (ranked) 7.570 / choose(106, 5) else
+    409.035 / choose(106, 7)
+  # Raw reuses unchanged prefixes; OptimizeRank recomputes K group scores.
+  rank_scale <- if (ranked) k / 6 else 1
+  thread_scale <- 16 / min(workers, 16L)
+  seconds <- total * per_candidate * (nc / 21) * thread_scale * rank_scale
+  list(n_candidates = total, seconds = seconds, M = m, K = k,
+       method = method, workers = workers,
+       explosion = total >= 1e8 || seconds >= 60,
+       basis = "reference_i9_14900K_16_threads_C21_Top2000_median")
+}
+
+norm_format_search_time <- function(seconds) {
+  if (!is.finite(seconds)) return("beyond a finite estimate")
+  if (seconds < 1) return("less than 1 second")
+  units <- c("seconds", "minutes", "hours", "days", "years")
+  scales <- c(1, 60, 3600, 86400, 365.25 * 86400)
+  unit <- max(which(seconds >= scales))
+  paste(formatC(seconds / scales[unit], format = "f", digits = 1), units[unit])
+}
+
+norm_report_exact_cost <- function(cost, verbose) {
+  if (!verbose) return(invisible(NULL))
+  count <- format(cost$n_candidates, scientific = cost$n_candidates >= 1e15,
+                  big.mark = ",", trim = TRUE, digits = 7)
+  luckyBase::LuckyVerbose(
+    paste0("subtypeNorm: stream_exact search size: M = ", cost$M,
+           ", K = ", cost$K, ", choose(M - 1, K - 1) = ", count,
+           " combinations; estimated native search time: ",
+           norm_format_search_time(cost$seconds), " (", cost$method,
+           ", ", cost$workers, " requested threads)."), levels = 2)
+  if (cost$explosion) luckyBase::LuckyVerbose(
+    paste0("subtypeNorm: WARNING: combinatorial explosion. Every combination ",
+           "must be evaluated; reducing norm_exact_top_n only reduces retained ",
+           "results. Consider a smaller K or norm_search_method = 'dp' ",
+           "(approximate for the public objective)."), levels = 2)
+  luckyBase::LuckyVerbose(
+    paste0("subtypeNorm: Rough reference-hardware estimate, not a 95% interval ",
+           "or a local benchmark: i9-14900K, 16 OpenMP threads, 20 cohorts + All, ",
+           "median objective, Top 2000; scaled by cohort count and requested ",
+           "threads (speedup capped at 16), with a K/6 factor for OptimizeRank. ",
+           "Assumes OpenMP parallelism; hardware, objective, ties and Top N can ",
+           "change runtime. Excludes preprocessing and verification. ",
+           "K > 8 is an unsupported extrapolation."), levels = 2)
+  invisible(NULL)
+}
+
+norm_validate_exact_top_n <- function(top_n) {
+  if (!is.numeric(top_n) || length(top_n) != 1L || !is.finite(top_n) ||
+      top_n < 1 || top_n != floor(top_n) || top_n > .Machine$integer.max) {
+    stop("norm_exact_top_n must be a positive integer no larger than .Machine$integer.max.")
+  }
+  invisible(top_n)
+}
+
+
+# Frozen normCCS fitting, prediction and source-grouped validation.
+
+# Frozen normCCS learning and source-grouped validation. Legacy phenotype APIs
+# intentionally retain their historical scoring and defaults.
+
+#' Fit a frozen normCCS mapping using training outcomes only
+#'
+#' @description Learn an ordered state-to-grade mapping with fixed-direction
+#'   binary AUC. Higher grades always predict response 1. Unlike legacy
+#'   OptimizeRank, neither search nor subsequent evaluation flips direction.
+#' @param data Training data frame. Patient identifiers must be globally unique.
+#' @param k Number of grades, an integer between 2 and 8.
+#' @param col_subtype,col_cohort,col_response,col_id Column names for state,
+#'   cohort, binary response (0/1), and globally unique patient identifier.
+#' @param col_source Column identifying independent studies or sources. NULL
+#'   uses col_cohort. Unify aliases and overlapping studies before calling.
+#' @param rank_marker Training ordering rule; see subtypePerformance.
+#' @param prior_strength Nonnegative pseudo-record strength shrinking state
+#'   response probabilities toward their cohort baseline. Positive values
+#'   require ShrunkLogOR. Jeffreys 0.5 smoothing is also applied.
+#' @param objective AUC aggregation objective. Real coordinates are independent
+#'   sources; median also includes pooled All, as in the legacy objective.
+#' @param min_grade_n Minimum pooled patients in each grade.
+#' @param regularization Nonnegative multiplier of mean inverse-root grade size.
+#' @param min_grade_sources Minimum independent sources supporting each grade.
+#' @param min_source_n Patients needed for a source to support a grade.
+#' @param min_grade_positive,min_grade_negative Minimum pooled response-1 and
+#'   response-0 patients per grade. These are not per-source event minima.
+#' @param num_cores Native search threads; defaults to one to avoid nested
+#'   parallelism. No global backend is changed.
+#' @param max_candidates Hard search-space budget checked before allocation;
+#'   exceeding it errors rather than silently changing the search algorithm.
+#' @return A validated normCCSFit S3 object containing the frozen mapping,
+#'   ordering, support, configuration, training identity hashes and diagnostics.
+#'   It contains no patient-level outcomes. No files are written.
+#' @details Exactness is conditional on training-derived state order, k and
+#'   support constraints. It does not establish generalization. Unseen states
+#'   predict NA. Source and patient independence rely on supplied metadata;
+#'   hashes detect equal identifiers, not undisclosed patient overlap.
+#' @examples
+#' d <- expand.grid(Cohort = LETTERS[1:3], Subtype = letters[1:4],
+#'                  response = 0:1, replicate = 1:2)
+#' d$SampleIDs <- paste0("synthetic_", seq_len(nrow(d)))
+#' fit <- fitNormCCS(d, k = 2)
+#' predict(fit, c("a", "unseen"))
+#' @export
+fitNormCCS <- function(data, k = 4L, col_subtype = "Subtype",
+                       col_cohort = "Cohort", col_response = "response",
+                       col_id = "SampleIDs", col_source = NULL,
+                       rank_marker = "ShrunkLogOR", prior_strength = 0,
+                       objective = "cohort_median", min_grade_n = 1L,
+                       regularization = 0, min_grade_sources = 1L,
+                       min_source_n = 1L, min_grade_positive = 0L,
+                       min_grade_negative = 0L, num_cores = 1L,
+                       max_candidates = 1e8) {
+  # Test
+  if (FALSE) {
+    d <- expand.grid(Cohort = LETTERS[1:3], Subtype = letters[1:4], response = 0:1)
+    d$SampleIDs <- as.character(seq_len(nrow(d)))
+    fitNormCCS(d, k = 2)
+  }
+  columns <- .norm_columns(col_subtype, col_cohort, col_response, col_id, col_source)
+  df <- .norm_data(data, columns)
+  config <- .norm_config(list(k = k, rank_marker = rank_marker,
+    prior_strength = prior_strength, objective = objective,
+    min_grade_n = min_grade_n, regularization = regularization,
+    min_grade_sources = min_grade_sources, min_source_n = min_source_n,
+    min_grade_positive = min_grade_positive, min_grade_negative = min_grade_negative))
+  .norm_integer(num_cores, "num_cores", 1L, 1024L)
+  .norm_number(max_candidates, "max_candidates", 1)
+  .norm_seed(0L, .norm_fit(df, config, columns, num_cores, max_candidates))
+}
+
+#' Apply a frozen normCCS mapping without reading outcomes
+#'
+#' @description Map states to the training-derived grades. Outcome columns in
+#'   newdata are ignored. Missing or unseen states yield NA or an explicit error.
+#' @param object A normCCSFit object.
+#' @param newdata A vector of state labels or a data frame containing the fitted
+#'   state column. Row order and vector names are preserved.
+#' @param unseen Either "NA" (default) or "error".
+#' @param ... Unused; nonempty arguments are rejected.
+#' @return An integer vector of grades; higher values predict response 1.
+#' @examples
+#' d <- expand.grid(Cohort = LETTERS[1:3], Subtype = letters[1:3], response = 0:1)
+#' d$SampleIDs <- as.character(seq_len(nrow(d)))
+#' predict(fitNormCCS(d, 2), c("a", "b", "new"))
+#' @export
+predict.normCCSFit <- function(object, newdata, unseen = c("NA", "error"), ...) {
+  object <- .norm_validate_fit(object)
+  if (length(list(...))) stop("Unused prediction arguments.", call. = FALSE)
+  unseen <- match.arg(unseen)
+  if (is.data.frame(newdata)) {
+    column <- object$columns$subtype
+    if (!column %in% names(newdata)) stop("Missing state column: ", column, call. = FALSE)
+    states <- newdata[[column]]
+  } else states <- newdata
+  if (!is.atomic(states) || !is.null(dim(states))) {
+    stop("newdata must be a state vector or data frame.", call. = FALSE)
+  }
+  result <- unname(object$mapping[match(as.character(states), names(object$mapping))])
+  names(result) <- names(states)
+  if (unseen == "error" && anyNA(result)) stop("Unseen or missing states in newdata.", call. = FALSE)
+  result
+}
+
+#' @rdname fitNormCCS
+#' @param x A normCCSFit object to summarize.
+#' @param ... Unused print arguments.
+#' @export
+print.normCCSFit <- function(x, ...) {
+  x <- .norm_validate_fit(x)
+  cat("Frozen normCCS mapping:", x$config$k, "grades from", length(x$mapping),
+      "states\nTraining:", x$training$n, "patients in", length(x$training$sources),
+      "sources\nDirection: higher grade predicts response 1\n")
+  invisible(x)
+}
+
+#' Evaluate a frozen normCCS mapping on independent records
+#'
+#' @description Calculate fixed-direction AUC, coverage and support without
+#'   refitting. Patient overlap is always rejected. Seen training sources are
+#'   rejected by default to enforce evaluation on new sources.
+#' @param object A normCCSFit object.
+#' @param data Evaluation data using the fitted column names.
+#' @param allow_seen_sources Logical. TRUE allows independent patients from
+#'   training sources, explicitly changing the generalization setting.
+#' @return A list containing summary, by_source, by_cohort, grade_support and
+#'   predictions. AUC uses mapped records only; coverage includes every record.
+#'   Single-class or completely unmapped groups have NA AUC and an explicit
+#'   status. Predictions contain identifiers and outcomes: store them securely.
+#' @examples
+#' d <- expand.grid(Cohort = LETTERS[1:4], Subtype = letters[1:3], response = 0:1)
+#' d$SampleIDs <- as.character(seq_len(nrow(d)))
+#' fit <- fitNormCCS(d[d$Cohort != "D", ], 2)
+#' evaluateNormCCS(fit, d[d$Cohort == "D", ])$summary
+#' @export
+evaluateNormCCS <- function(object, data, allow_seen_sources = FALSE) {
+  # Test
+  if (FALSE) print(object$grade_support)
+  object <- .norm_validate_fit(object)
+  .norm_flag(allow_seen_sources, "allow_seen_sources")
+  df <- .norm_data(data, object$columns)
+  if (any(.norm_id_hash(df$SampleIDs) %in% object$training$id_hashes)) {
+    stop("Evaluation patients overlap training identifiers.", call. = FALSE)
+  }
+  if (!allow_seen_sources && any(df$Source %in% object$training$sources)) {
+    stop("Evaluation sources overlap training; set allow_seen_sources = TRUE only for independent patients.", call. = FALSE)
+  }
+  result <- .norm_evaluate(object, df)
+  result$setting <- if (allow_seen_sources) "independent_patients" else "new_sources"
+  result
+}
+
+#' Validate and select normCCS configurations by independent source
+#'
+#' @description Run grouped nested validation, learn a final deployment mapping
+#'   from training-only inner validation, and measure cross-fold stability.
+#'   Optional within-source outcome permutations repeat the complete selection
+#'   and fitting procedure with the same source folds.
+#' @param data Development data, with globally unique patient identifiers.
+#' @param grid Data frame of candidate configurations. Columns may be k,
+#'   rank_marker, prior_strength, objective, min_grade_n, regularization,
+#'   min_grade_sources, min_source_n, min_grade_positive and min_grade_negative.
+#'   Missing columns use fitNormCCS defaults. NULL uses k=2:4, lambda=0/0.5,
+#'   and prior_strength=0/10 (12 configurations). These are illustrative search
+#'   values, not clinically validated defaults.
+#' @param col_subtype,col_cohort,col_response,col_id,col_source Column names as
+#'   in fitNormCCS.
+#' @param outer_folds,inner_folds Requested group fold counts, capped at available
+#'   sources. At least three independent sources are required for nested CV.
+#' @param seed Integer random seed. The caller's RNG state is restored.
+#' @param selection Either "one_se" or "best". One-SE uses the standard error
+#'   across source scores as a heuristic, then prefers fewer grades, stronger
+#'   support constraints, stronger penalties and greater ordering shrinkage.
+#'   This standard error is not a confidence interval for generalization.
+#' @param min_coverage Minimum mapped fraction in every held-out source of
+#'   every inner fold. Candidates failing a fold cannot be selected.
+#' @param permutations Number of within-source outcome permutations. Zero skips
+#'   the test. Positive values rerun complete nested selection. Any failed
+#'   replicate makes the p-value NA; all failures and effective counts are kept.
+#' @param num_cores,max_candidates Native threads and per-fit search budget.
+#' @return A list containing fit (final deployment mapping), outer-fold models,
+#'   selected configurations, inner tuning evidence, out-of-fold predictions,
+#'   fixed-direction evaluation, stability, fold assignments and permutation
+#'   diagnostics. These are conditional on supplied, already constructed states;
+#'   upstream state discovery and classifiers are not refitted by this function.
+#' @details Source-grouped CV estimates transfer to held-out sources. Upstream
+#'   states must already be independent of held-out outcomes. Unify patient and
+#'   source aliases before calling; identical identifiers are rejected rather
+#'   than silently deduplicated. Single-class held-out sources make AUC-based
+#'   selection inestimable. No source is dropped to improve scores. Permutation
+#'   inference assumes outcomes exchangeable within sources and cannot correct
+#'   upstream outcome leakage. Folds and candidates are retained for auditing.
+#' @examples
+#' \dontrun{
+#' d <- expand.grid(Cohort = LETTERS[1:6], Subtype = letters[1:4], response = 0:1)
+#' d$SampleIDs <- as.character(seq_len(nrow(d)))
+#' result <- validateNormCCS(d, grid = data.frame(k = 2:3),
+#'                           outer_folds = 3, inner_folds = 2)
+#' result$evaluation$summary
+#' }
+#' @export
+validateNormCCS <- function(data, grid = NULL, col_subtype = "Subtype",
+                            col_cohort = "Cohort", col_response = "response",
+                            col_id = "SampleIDs", col_source = NULL,
+                            outer_folds = 5L, inner_folds = 3L, seed = 489L,
+                            selection = c("one_se", "best"), min_coverage = 0.95,
+                            permutations = 0L, num_cores = 1L,
+                            max_candidates = 1e8) {
+  # Test
+  if (FALSE) print(result$stability)
+  columns <- .norm_columns(col_subtype, col_cohort, col_response, col_id, col_source)
+  df <- .norm_data(data, columns)
+  grid <- .norm_grid(grid)
+  selection <- match.arg(selection)
+  .norm_integer(outer_folds, "outer_folds", 2L)
+  .norm_integer(inner_folds, "inner_folds", 2L)
+  .norm_integer(seed, "seed", 0L)
+  .norm_integer(permutations, "permutations", 0L)
+  .norm_integer(num_cores, "num_cores", 1L, 1024L)
+  .norm_number(max_candidates, "max_candidates", 1)
+  .norm_number(min_coverage, "min_coverage", 0, 1)
+  if (length(unique(df$Source)) < 3L) stop("Nested validation requires at least three independent sources.", call. = FALSE)
+  .norm_seed(seed, {
+    design <- .norm_design(df, outer_folds, inner_folds)
+    result <- .norm_nested(df, grid, columns, design, selection, min_coverage,
+                           num_cores, max_candidates, final = TRUE)
+    observed <- result$evaluation$summary$source_mean_auc
+    null <- data.frame(replicate = seq_len(permutations), score = rep(NA_real_, permutations),
+                       status = rep("not_run", permutations), error = rep("", permutations))
+    for (b in seq_len(permutations)) {
+      shuffled <- df
+      for (ids in split(seq_len(nrow(df)), df$Source)) {
+        shuffled$response[ids] <- df$response[ids][sample.int(length(ids))]
+      }
+      attempt <- tryCatch(.norm_nested(shuffled, grid, columns, design, selection,
+        min_coverage, num_cores, max_candidates, final = FALSE), error = identity)
+      if (inherits(attempt, "error")) {
+        null$status[b] <- "failed"
+        null$error[b] <- conditionMessage(attempt)
+      } else {
+        null$score[b] <- attempt$evaluation$summary$source_mean_auc
+        null$status[b] <- if (attempt$evaluation$summary$status == "ok" &&
+          is.finite(null$score[b])) "ok" else "not_estimable"
+      }
+    }
+    complete <- permutations > 0L && all(null$status == "ok") && is.finite(observed) &&
+      result$evaluation$summary$status == "ok"
+    result$permutation <- list(observed = observed, replicates = null,
+      requested = permutations, effective = sum(null$status == "ok"),
+      p_value = if (complete) (1 + sum(null$score >= observed)) / (permutations + 1) else NA_real_,
+      status = if (!permutations) "not_run" else if (complete) "ok" else "incomplete",
+      scheme = "within_source_outcomes_complete_nested_refit_fixed_folds")
+    result$settings <- list(seed = seed, selection = selection, min_coverage = min_coverage,
+      outer_folds = outer_folds, inner_folds = inner_folds,
+      num_cores = num_cores, max_candidates = max_candidates,
+      scope = "conditional_on_supplied_states")
+    result
+  })
+}
+
+.norm_integer <- function(x, label, minimum, maximum = .Machine$integer.max) {
+  if (!is.numeric(x) || length(x) != 1L || !is.finite(x) ||
+      x != floor(x) || x < minimum || x > maximum) {
+    stop(label, " must be an integer in [", minimum, ", ", maximum, "].", call. = FALSE)
+  }
+  invisible(x)
+}
+
+.norm_number <- function(x, label, minimum, maximum = Inf) {
+  if (!is.numeric(x) || length(x) != 1L || !is.finite(x) || x < minimum || x > maximum) {
+    stop(label, " must be a finite number in [", minimum, ", ", maximum, "].", call. = FALSE)
+  }
+  invisible(x)
+}
+
+.norm_flag <- function(x, label) {
+  if (!is.logical(x) || length(x) != 1L || is.na(x)) stop(label, " must be TRUE or FALSE.", call. = FALSE)
+}
+
+.norm_columns <- function(subtype, cohort, response, id, source) {
+  x <- list(subtype = subtype, cohort = cohort, response = response, id = id,
+            source = if (is.null(source)) cohort else source)
+  if (any(!vapply(x, function(z) is.character(z) && length(z) == 1L &&
+                 !is.na(z) && nzchar(z), logical(1)))) stop("Column names must be nonempty strings.", call. = FALSE)
+  if (anyDuplicated(unlist(x[1:4]))) stop("State, cohort, outcome and ID columns must be distinct.", call. = FALSE)
+  if (x$source %in% unlist(x[c("subtype", "response", "id")])) {
+    stop("Source column must be distinct from state, outcome and ID.", call. = FALSE)
+  }
+  x
+}
+
+.norm_data <- function(data, columns) {
+  if (!is.data.frame(data) || !nrow(data) || !all(unlist(columns) %in% names(data))) {
+    stop("data must be a nonempty data frame with all configured columns.", call. = FALSE)
+  }
+  x <- lapply(columns, function(z) {
+    value <- data[[z]]
+    if (!is.atomic(value) || !is.null(dim(value))) stop("Input columns must be atomic vectors.", call. = FALSE)
+    as.character(value)
+  })
+  if (any(vapply(x, function(z) anyNA(z) || any(!nzchar(trimws(z))), logical(1)))) {
+    stop("Configured columns must not contain missing or empty values.", call. = FALSE)
+  }
+  if (!all(x$response %in% c("0", "1"))) stop("response must contain only 0 and 1.", call. = FALSE)
+  if (anyDuplicated(x$id)) stop("Patient identifiers must be globally unique; resolve duplicate or related patients first.", call. = FALSE)
+  if (any(x$source == "All")) stop("Source name 'All' is reserved.", call. = FALSE)
+  if (any(vapply(split(x$source, x$cohort), function(z) length(unique(z)) != 1L, logical(1)))) {
+    stop("Each cohort must belong to exactly one independent source.", call. = FALSE)
+  }
+  data.frame(Subtype = x$subtype, Cohort = x$cohort, response = as.integer(x$response),
+             SampleIDs = x$id, Source = x$source, stringsAsFactors = FALSE)
+}
+
+.norm_defaults <- function() list(k = 4L, rank_marker = "ShrunkLogOR", prior_strength = 0,
+  objective = "cohort_median", min_grade_n = 1L, regularization = 0,
+  min_grade_sources = 1L, min_source_n = 1L, min_grade_positive = 0L,
+  min_grade_negative = 0L)
+
+.norm_config <- function(config) {
+  norm_validate_rank_marker(config$rank_marker)
+  config$objective <- norm_validate_objective(config$objective)
+  .norm_integer(config$k, "k", 2L, 8L)
+  for (nm in c("min_grade_n", "min_grade_sources", "min_source_n")) .norm_integer(config[[nm]], nm, 1L)
+  for (nm in c("min_grade_positive", "min_grade_negative")) .norm_integer(config[[nm]], nm, 0L)
+  for (nm in c("prior_strength", "regularization")) .norm_number(config[[nm]], nm, 0)
+  if (config$prior_strength > 0 && config$rank_marker != "ShrunkLogOR") {
+    stop("Positive prior_strength requires rank_marker = 'ShrunkLogOR'.", call. = FALSE)
+  }
+  config
+}
+
+.norm_grid <- function(grid) {
+  if (is.null(grid)) grid <- expand.grid(k = 2:4, regularization = c(0, 0.5), prior_strength = c(0, 10))
+  if (!is.data.frame(grid) || !nrow(grid) || anyDuplicated(names(grid)) ||
+      any(!names(grid) %in% names(.norm_defaults()))) stop("grid must contain only documented configuration columns.", call. = FALSE)
+  defaults <- .norm_defaults()
+  for (nm in setdiff(names(defaults), names(grid))) grid[[nm]] <- defaults[[nm]]
+  grid <- grid[, names(defaults), drop = FALSE]
+  for (nm in c("rank_marker", "objective")) grid[[nm]] <- as.character(grid[[nm]])
+  for (i in seq_len(nrow(grid))) .norm_config(as.list(grid[i, , drop = FALSE]))
+  grid <- unique(grid)
+  rownames(grid) <- NULL
+  grid
+}
+
+.norm_order <- function(df, config) {
+  if (config$prior_strength == 0) return(norm_rank_subtypes(df, config$rank_marker))
+  counts <- stats::aggregate(cbind(positive = df$response, total = rep(1, nrow(df))),
+                            list(Subtype = df$Subtype, Cohort = df$Cohort), sum)
+  baseline <- stats::aggregate(cbind(positive, total) ~ Cohort, counts, sum)
+  i <- match(counts$Cohort, baseline$Cohort)
+  p0 <- (baseline$positive[i] + 0.5) / (baseline$total[i] + 1)
+  p <- (counts$positive + 0.5 + config$prior_strength * p0) /
+    (counts$total + 1 + config$prior_strength)
+  score <- stats::aggregate(stats::qlogis(p) - stats::qlogis(p0),
+                            list(Subtype = counts$Subtype), mean)
+  reference <- norm_rank_subtypes(df, "ShrunkLogOR")
+  reference$rankScore <- score$x[match(reference$Subtype, score$Subtype)]
+  reference[order(-reference$rankScore, -reference$medianNRR, -reference$medianRR,
+                  enc2utf8(as.character(reference$Subtype)), method = "radix"), , drop = FALSE]
+}
+
+.norm_legal_intervals <- function(df, ranked, config) {
+  m <- nrow(ranked)
+  state <- match(df$Subtype, ranked$Subtype)
+  counts <- table(factor(state, levels = seq_len(m)), factor(df$Source))
+  prefix <- rbind(0, apply(counts, 2L, cumsum))
+  if (ncol(counts) == 1L) prefix <- matrix(prefix, ncol = 1L)
+  pp <- c(0, cumsum(tabulate(state[df$response == 1L], nbins = m)))
+  nn <- c(0, cumsum(tabulate(state[df$response == 0L], nbins = m)))
+  legal <- matrix(FALSE, m, m)
+  for (a in seq_len(m)) {
+    b <- a:m
+    source_n <- sweep(prefix[b + 1L, , drop = FALSE], 2L, prefix[a, ], "-")
+    legal[a, b] <- pp[b + 1L] - pp[a] >= config$min_grade_positive &
+      nn[b + 1L] - nn[a] >= config$min_grade_negative &
+      rowSums(source_n >= config$min_source_n) >= config$min_grade_sources
+  }
+  legal
+}
+
+.norm_id_hash <- function(ids) vapply(enc2utf8(ids), digest::digest, character(1),
+                                      algo = "sha256", serialize = FALSE, USE.NAMES = FALSE)
+
+.norm_fit <- function(df, config, columns, num_cores, max_candidates) {
+  if (any(vapply(split(df$response, df$Source), function(y) length(unique(y)) != 2L, logical(1)))) {
+    stop("Every training source must contain both response classes.", call. = FALSE)
+  }
+  ranked <- .norm_order(df, config)
+  m <- nrow(ranked)
+  if (config$k > m || m > 512L) stop("Fit requires k <= observed states <= 512.", call. = FALSE)
+  total <- choose(m - 1L, config$k - 1L)
+  if (total > max_candidates) stop("Search exceeds max_candidates; explicitly raise the budget or restrict the prespecified grid.", call. = FALSE)
+  coordinates <- df
+  coordinates$Cohort <- coordinates$Source
+  if (length(unique(df$Source)) > 511L ||
+      96 * (length(unique(df$Source)) + 1) * m^2 + m^3 * 16 > 2 * 1024^3) {
+    stop("Source count or interval memory exceeds the native search budget.", call. = FALSE)
+  }
+  model <- norm_prepare_counts(coordinates, ranked)
+  model$ranked_labels <- enc2utf8(as.character(ranked$Subtype))
+  model$fixed_direction <- TRUE
+  model$interval_feasible <- .norm_legal_intervals(df, ranked, config)
+  native <- norm_exact_cpp(model, as.integer(config$k), "Raw", config$objective,
+    1L, as.integer(num_cores), config$min_grade_n, config$regularization)
+  if (!isTRUE(native$complete) || native$visited != total) stop("Incomplete native search.", call. = FALSE)
+  cuts <- as.integer(native$cuts[1L, ])
+  mapping <- stats::setNames(as.integer(config$k - findInterval(seq_len(m) - 1L, cuts) - 1L),
+                             as.character(ranked$Subtype))
+  # Cut t ends the group at position t; positions t+1.. belong to the next grade.
+  grades <- unname(mapping[match(df$Subtype, names(mapping))])
+  support <- .norm_support(df, grades, config$k, config$min_source_n)
+  if (any(support$pooled$n < config$min_grade_n) ||
+      any(support$pooled$positive < config$min_grade_positive) ||
+      any(support$pooled$negative < config$min_grade_negative) ||
+      any(support$pooled$sources < config$min_grade_sources)) {
+    stop("Native mapping violates independent record support verification.", call. = FALSE)
+  }
+  training_eval <- .norm_metrics(df, grades)
+  score <- norm_objective_score(matrix(c(training_eval$pooled$auc, training_eval$by_source$auc), nrow = 1L),
+    c("All", training_eval$by_source$group), config$objective)
+  penalty <- mean(1 / sqrt(support$pooled$n))
+  selected <- as.numeric(score - config$regularization * penalty)
+  if (abs(selected - native$scores[1L]) / max(1, abs(selected)) > 1e-10) {
+    stop("Native fixed-direction score disagrees with independent record AUC.", call. = FALSE)
+  }
+  fit <- structure(list(schema_version = 1L, columns = columns, config = config,
+    mapping = mapping, ordering = ranked, cutpoints = cuts,
+    direction = "higher_grade_predicts_1", grade_support = support,
+    training = list(n = nrow(df), sources = sort(unique(df$Source)),
+      id_hashes = .norm_id_hash(df$SampleIDs)),
+    training_performance = training_eval,
+    diagnostics = list(method = "stream_exact_fixed_direction", candidates = total,
+      evaluated = native$visited, feasible = native$feasible_candidates,
+      complete = native$complete, score = as.numeric(score), support_penalty = penalty,
+      regularized_score = selected, reference_error = abs(selected - native$scores[1L]),
+      threads = native$actual_threads, openmp = native$openmp,
+      exact_scope = "fixed_training_order_k_constraints_penalized_objective")), class = "normCCSFit")
+  .norm_validate_fit(fit)
+}
+
+.norm_validate_fit <- function(x) {
+  if (!inherits(x, "normCCSFit") || !identical(x$schema_version, 1L) ||
+      !identical(x$direction, "higher_grade_predicts_1") || !is.list(x$config)) {
+    stop("Invalid or unsupported normCCSFit object.", call. = FALSE)
+  }
+  .norm_config(x$config)
+  mapping <- x$mapping
+  if (!is.integer(mapping) || !length(mapping) || is.null(names(mapping)) ||
+      anyNA(mapping) || anyNA(names(mapping)) || any(!nzchar(names(mapping))) ||
+      anyDuplicated(names(mapping)) || !identical(sort(unique(unname(mapping))), seq.int(0L, x$config$k - 1L)) ||
+      !identical(as.character(x$ordering$Subtype), names(mapping)) ||
+      any(diff(mapping) > 0) || length(x$cutpoints) != x$config$k - 1L ||
+      !identical(unname(mapping), as.integer(x$config$k - 1L - findInterval(seq_along(mapping) - 1L, x$cutpoints)))) {
+    stop("Invalid frozen ordering, cutpoints or mapping.", call. = FALSE)
+  }
+  if (!is.list(x$columns) || !all(c("subtype", "cohort", "response", "id", "source") %in% names(x$columns)) ||
+      !is.character(x$training$id_hashes) || anyDuplicated(x$training$id_hashes)) {
+    stop("Invalid frozen columns or training identity metadata.", call. = FALSE)
+  }
+  x
+}
+
+# Mann-Whitney AUC, response 1 fixed positive, midranks give ties half credit.
+.norm_auc <- function(y, score) {
+  keep <- !is.na(score)
+  y <- y[keep]
+  score <- score[keep]
+  p <- sum(y == 1L)
+  n <- sum(y == 0L)
+  if (!p || !n) return(NA_real_)
+  (sum(rank(score, ties.method = "average")[y == 1L]) - p * (p + 1) / 2) / (p * n)
+}
+
+.norm_group_metrics <- function(df, grades, group) {
+  ids <- split(seq_len(nrow(df)), group)
+  rows <- lapply(names(ids), function(g) {
+    i <- ids[[g]]
+    mapped <- !is.na(grades[i])
+    y <- df$response[i][mapped]
+    auc <- .norm_auc(df$response[i], grades[i])
+    data.frame(group = g, n = length(i), mapped = sum(mapped), coverage = mean(mapped),
+      positive = sum(y == 1L), negative = sum(y == 0L), auc = auc,
+      status = if (is.finite(auc)) "ok" else if (!any(mapped)) "unmapped" else "single_class",
+      stringsAsFactors = FALSE)
+  })
+  do.call(rbind, rows)
+}
+
+.norm_metrics <- function(df, grades) {
+  by_source <- .norm_group_metrics(df, grades, df$Source)
+  by_cohort <- .norm_group_metrics(df, grades, df$Cohort)
+  pooled <- .norm_group_metrics(df, grades, rep("All", nrow(df)))
+  all_estimable <- all(is.finite(by_source$auc))
+  list(summary = data.frame(n = nrow(df), mapped = sum(!is.na(grades)),
+    coverage = mean(!is.na(grades)), sources = nrow(by_source),
+    estimable_sources = sum(is.finite(by_source$auc)), pooled_auc = pooled$auc,
+    source_mean_auc = if (all_estimable) mean(by_source$auc) else NA_real_,
+    source_median_auc = if (all_estimable) stats::median(by_source$auc) else NA_real_,
+    worst_source_auc = if (all_estimable) min(by_source$auc) else NA_real_,
+    status = if (all_estimable) "ok" else "not_estimable"),
+    pooled = pooled, by_source = by_source, by_cohort = by_cohort)
+}
+
+.norm_support <- function(df, grades, k, min_source_n) {
+  source_rows <- expand.grid(grade = seq.int(0L, k - 1L),
+                             source = sort(unique(df$Source)), stringsAsFactors = FALSE)
+  source_rows$n <- source_rows$positive <- source_rows$negative <- 0L
+  for (i in seq_len(nrow(source_rows))) {
+    take <- !is.na(grades) & grades == source_rows$grade[i] & df$Source == source_rows$source[i]
+    source_rows$n[i] <- sum(take)
+    source_rows$positive[i] <- sum(df$response[take] == 1L)
+    source_rows$negative[i] <- sum(df$response[take] == 0L)
+  }
+  pooled <- do.call(rbind, lapply(seq.int(0L, k - 1L), function(g) {
+    z <- source_rows[source_rows$grade == g, , drop = FALSE]
+    data.frame(grade = g, n = sum(z$n), positive = sum(z$positive),
+               negative = sum(z$negative), sources = sum(z$n >= min_source_n))
+  }))
+  list(pooled = pooled, by_source = source_rows)
+}
+
+.norm_evaluate <- function(object, df) {
+  grades <- unname(object$mapping[match(df$Subtype, names(object$mapping))])
+  result <- .norm_metrics(df, grades)
+  result$grade_support <- .norm_support(df, grades, object$config$k, object$config$min_source_n)
+  result$predictions <- data.frame(SampleIDs = df$SampleIDs, Cohort = df$Cohort,
+    Source = df$Source, Subtype = df$Subtype, response = df$response,
+    grade = grades, stringsAsFactors = FALSE)
+  result
+}
+
+.norm_seed <- function(seed, code) {
+  exists_seed <- exists(".Random.seed", envir = .GlobalEnv, inherits = FALSE)
+  if (exists_seed) old <- get(".Random.seed", envir = .GlobalEnv, inherits = FALSE)
+  on.exit(if (exists_seed) assign(".Random.seed", old, envir = .GlobalEnv) else
+    if (exists(".Random.seed", envir = .GlobalEnv, inherits = FALSE)) rm(".Random.seed", envir = .GlobalEnv), add = TRUE)
+  set.seed(seed)
+  force(code)
+}
+
+.norm_folds <- function(df, n_folds) {
+  sizes <- table(df$Source)
+  n_folds <- min(n_folds, length(sizes))
+  if (n_folds < 2L) stop("Grouped validation needs at least two training sources.", call. = FALSE)
+  ordering <- order(-as.numeric(sizes), stats::runif(length(sizes)))
+  load <- numeric(n_folds)
+  fold <- integer(length(sizes))
+  for (i in ordering) {
+    j <- which.min(load)
+    fold[i] <- j
+    load[j] <- load[j] + sizes[i]
+  }
+  stats::setNames(fold, names(sizes))
+}
+
+.norm_design <- function(df, outer_folds, inner_folds) {
+  outer <- .norm_folds(df, outer_folds)
+  inner <- lapply(seq_len(max(outer)), function(f) {
+    train <- df[!df$Source %in% names(outer)[outer == f], , drop = FALSE]
+    .norm_folds(train, inner_folds)
+  })
+  list(outer = outer, inner = inner, final = .norm_folds(df, inner_folds))
+}
+
+.norm_tune <- function(df, grid, columns, folds, selection, min_coverage,
+                        num_cores, max_candidates) {
+  summary <- grid
+  summary$candidate <- seq_len(nrow(grid))
+  summary$score <- summary$se <- NA_real_
+  summary$status <- "not_run"
+  evidence <- vector("list", nrow(grid))
+  for (i in seq_len(nrow(grid))) {
+    fold_results <- vector("list", max(folds))
+    config <- as.list(grid[i, , drop = FALSE])
+    for (f in seq_len(max(folds))) {
+      test <- df$Source %in% names(folds)[folds == f]
+      attempt <- tryCatch({
+        model <- .norm_fit(df[!test, , drop = FALSE], config, columns, num_cores, max_candidates)
+        result <- .norm_evaluate(model, df[test, , drop = FALSE])
+        list(fold = f, status = "ok", error = "", metrics = result$by_source,
+             training_sources = model$training$sources, ordering = names(model$mapping),
+             mapping = model$mapping)
+      }, error = function(e) list(fold = f, status = "failed", error = conditionMessage(e)))
+      fold_results[[f]] <- attempt
+    }
+    evidence[[i]] <- fold_results
+    if (any(vapply(fold_results, function(z) z$status != "ok", logical(1)))) {
+      summary$status[i] <- "fit_failed"
+      next
+    }
+    metrics <- do.call(rbind, lapply(fold_results, `[[`, "metrics"))
+    if (any(metrics$coverage < min_coverage) || any(!is.finite(metrics$auc))) {
+      summary$status[i] <- "coverage_or_auc_failed"
+      next
+    }
+    summary$status[i] <- "ok"
+    summary$score[i] <- mean(metrics$auc)
+    summary$se[i] <- stats::sd(metrics$auc) / sqrt(nrow(metrics))
+  }
+  valid <- which(summary$status == "ok")
+  if (!length(valid)) {
+    stop(structure(list(message = "No candidate passed every grouped inner fold (fit, AUC and coverage).",
+      call = NULL, summary = summary, folds = folds, evidence = evidence),
+      class = c("normCCSSelectionError", "error", "condition")))
+  }
+  best <- valid[which.max(summary$score[valid])]
+  threshold <- summary$score[best] - if (selection == "one_se") summary$se[best] else 0
+  eligible <- valid[summary$score[valid] >= threshold - 1e-12]
+  # Predeclared tie rule; never use outer test scores to choose a configuration.
+  s <- summary[eligible, , drop = FALSE]
+  ordering <- order(s$k, -s$min_grade_sources, -s$min_grade_n,
+    -s$min_grade_positive, -s$min_grade_negative, -s$min_source_n,
+    -s$regularization, -s$prior_strength, enc2utf8(s$rank_marker),
+    enc2utf8(s$objective), s$candidate, method = "radix")
+  selected <- eligible[ordering[1L]]
+  list(selected = selected, config = as.list(grid[selected, , drop = FALSE]),
+       summary = summary, folds = folds, evidence = evidence, threshold = threshold)
+}
+
+.norm_nested <- function(df, grid, columns, design, selection, min_coverage,
+                          num_cores, max_candidates, final) {
+  outer <- design$outer
+  models <- tuning <- vector("list", max(outer))
+  predictions <- vector("list", max(outer))
+  for (f in seq_len(max(outer))) {
+    test <- df$Source %in% names(outer)[outer == f]
+    tuning[[f]] <- .norm_tune(df[!test, , drop = FALSE], grid, columns,
+      design$inner[[f]], selection, min_coverage, num_cores, max_candidates)
+    models[[f]] <- .norm_fit(df[!test, , drop = FALSE], tuning[[f]]$config,
+                             columns, num_cores, max_candidates)
+    evaluation <- .norm_evaluate(models[[f]], df[test, , drop = FALSE])
+    predictions[[f]] <- evaluation$predictions
+    predictions[[f]]$fold <- f
+    predictions[[f]]$k <- models[[f]]$config$k
+  }
+  predictions <- do.call(rbind, predictions)
+  predictions <- predictions[match(df$SampleIDs, predictions$SampleIDs), , drop = FALSE]
+  rownames(predictions) <- NULL
+  # Across folds K and mappings can differ. A pooled cross-fold rank AUC would
+  # compare scores from different models and is deliberately not reported.
+  evaluation <- .norm_metrics(df, predictions$grade)
+  evaluation$summary$pooled_auc <- NA_real_
+  evaluation$pooled$auc <- NA_real_
+  evaluation$pooled$status <- "not_comparable_across_fitted_models"
+  evaluation$summary$min_source_coverage <- min(evaluation$by_source$coverage)
+  evaluation$summary$coverage_passed <- all(evaluation$by_source$coverage >= min_coverage)
+  if (!evaluation$summary$coverage_passed) evaluation$summary$status <- "coverage_failed"
+  final_tuning <- if (final) .norm_tune(df, grid, columns, design$final, selection,
+                                       min_coverage, num_cores, max_candidates) else NULL
+  deployment <- if (final) .norm_fit(df, final_tuning$config, columns, num_cores, max_candidates) else NULL
+  list(fit = deployment, outer_models = models, tuning = tuning,
+    selected = do.call(rbind, lapply(seq_along(models), function(f)
+      cbind(fold = f, as.data.frame(models[[f]]$config, stringsAsFactors = FALSE)))),
+    final_tuning = final_tuning, predictions = predictions,
+    evaluation = evaluation, stability = if (final) .norm_stability(models) else NULL,
+    folds = design)
+}
+
+.norm_stability <- function(models) {
+  states <- sort(unique(unlist(lapply(models, function(x) names(x$mapping)))))
+  rows <- do.call(rbind, lapply(seq_along(models), function(f) {
+    model <- models[[f]]
+    data.frame(fold = f, state = names(model$mapping), grade = unname(model$mapping),
+      normalized_grade = unname(model$mapping) / (model$config$k - 1L),
+      order_position = seq_along(model$mapping), stringsAsFactors = FALSE)
+  }))
+  per_state <- do.call(rbind, lapply(states, function(s) {
+    z <- rows[rows$state == s, , drop = FALSE]
+    data.frame(state = s, observed_folds = nrow(z), total_folds = length(models),
+      coverage = nrow(z) / length(models), mean_grade = mean(z$normalized_grade),
+      sd_grade = if (nrow(z) > 1L) stats::sd(z$normalized_grade) else NA_real_,
+      grade_range = diff(range(z$normalized_grade)))
+  }))
+  pairs <- utils::combn(seq_along(models), 2L)
+  pairwise <- do.call(rbind, lapply(seq_len(ncol(pairs)), function(i) {
+    a <- models[[pairs[1L, i]]]
+    b <- models[[pairs[2L, i]]]
+    common <- intersect(names(a$mapping), names(b$mapping))
+    ga <- unname(a$mapping[common]) / (a$config$k - 1L)
+    gb <- unname(b$mapping[common]) / (b$config$k - 1L)
+    ra <- match(common, names(a$mapping))
+    rb <- match(common, names(b$mapping))
+    data.frame(fold_a = pairs[1L, i], fold_b = pairs[2L, i], common_states = length(common),
+      order_spearman = if (length(common) >= 2L) stats::cor(ra, rb, method = "spearman") else NA_real_,
+      mean_absolute_grade_change = if (length(common)) mean(abs(ga - gb)) else NA_real_,
+      exact_grade_agreement = if (a$config$k == b$config$k && length(common)) mean(ga == gb) else NA_real_)
+  }))
+  list(per_state = per_state, pairwise = pairwise, assignments = rows,
+       scale = "grade_divided_by_K_minus_one; common states only in pairwise comparisons")
+}

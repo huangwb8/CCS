@@ -34,6 +34,8 @@ namespace ccs_exact {
 using U64=std::uint64_t;
 struct Model {
   int m,nc;
+  bool fixed_direction=false;
+  std::vector<unsigned char> interval_feasible;
   std::vector<double> loss,first,cp,cn,base;
   std::vector<int> median,direction,real;
   std::vector<std::string> names,keys;
@@ -50,6 +52,20 @@ struct Model {
   explicit Model(List x,bool need_keys=true) {
     m=as<int>(x["m"]);
     if(m<2||m>512)stop("Native exact model m must be between 2 and 512.");
+    if(x.containsElementNamed("fixed_direction")) {
+      LogicalVector flag=x["fixed_direction"];
+      if(flag.size()!=1||flag[0]==NA_LOGICAL)stop("fixed_direction must be one nonmissing logical.");
+      fixed_direction=flag[0];
+    }
+    if(x.containsElementNamed("interval_feasible")) {
+      LogicalMatrix legal=x["interval_feasible"];
+      if(legal.nrow()!=m||legal.ncol()!=m)stop("interval_feasible must be an m by m logical matrix.");
+      interval_feasible.resize(std::size_t(m)*m,0);
+      for(int a=1;a<=m;a++)for(int b=a;b<=m;b++) {
+        if(legal(a-1,b-1)==NA_LOGICAL)stop("interval_feasible must not contain missing intervals.");
+        interval_feasible[keyidx(a,b)]=legal(a-1,b-1)?1:0;
+      }
+    }
     NumericVector b=x["base_auc"];
     nc=b.size();if(nc<2||nc>512)stop("Native exact model must contain All and 1..511 real cohorts.");
     base.assign(b.begin(),b.end());
@@ -189,7 +205,7 @@ struct Scorer {
           for(int j=0;j<4;j++)for(int g=0;g<q;g++)md[j]+=cut[g]<model.median[c*4+j];
           reverse=md[2]+md[3]<md[0]+md[1];
         }
-        auc[c]=reverse?1-a:a;
+        auc[c]=model.fixed_direction?a:(reverse?1-a:a);
       }
       return;
     }
@@ -307,7 +323,7 @@ struct alignas(64) Worker {
 struct Support {
   const Model& model;int k;double minimum,lambda;bool active;
   std::vector<double> size,penalty;
-  Support(const Model& m,int kk,double nn,double ll):model(m),k(kk),minimum(nn),lambda(ll),active(nn>1||ll>0) {
+  Support(const Model& m,int kk,double nn,double ll):model(m),k(kk),minimum(nn),lambda(ll),active(nn>1||ll>0||!m.interval_feasible.empty()) {
     if(!active)return;
     int pooled=int(std::find(m.names.begin(),m.names.end(),"All")-m.names.begin());
     const double* p=&m.cp[pooled*(m.m+1)];const double* n=&m.cn[pooled*(m.m+1)];
@@ -325,6 +341,7 @@ struct Support {
     for(int g=0;g<k;g++) {
       int a=g==0?1:cuts[g-1]+1,b=g==k-1?model.m:cuts[g];
       std::size_t j=model.keyidx(a,b);
+      if(!model.interval_feasible.empty()&&!model.interval_feasible[j])return false;
       if(size[j]<minimum)return false;
       sum+=penalty[j];
     }
@@ -435,7 +452,7 @@ List norm_exact_cpp(List model,int k,std::string method,std::string objective,in
   std::vector<Candidate> heap;heap.reserve(limit);U64 visited=0,feasible=0;
   for(const auto& worker:workers){visited+=worker->count;feasible+=worker->feasible;for(const Candidate& candidate:worker->heap)keep(heap,candidate,limit,better);}
   if(visited!=total)stop("Native exact search did not cover the full combination domain.");
-  if(feasible==0)stop("No feasible stream_exact mapping satisfies norm_min_grade_n; lower the threshold or K.");
+  if(feasible==0)stop("No feasible stream_exact mapping satisfies norm_min_grade_n and interval support constraints; revise the prespecified constraints or K.");
   std::sort(heap.begin(),heap.end(),better);
   NumericVector scores(heap.size()),means(heap.size());IntegerMatrix cuts(heap.size(),q);
   for(int i=0;i<(int)heap.size();i++){scores[i]=heap[i].score;means[i]=heap[i].mean;for(int j=0;j<q;j++)cuts(i,j)=heap[i].cuts[j];}

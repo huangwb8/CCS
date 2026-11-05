@@ -169,6 +169,22 @@ The legacy default `norm_roc_method = "OptimizeRank"` reorders grades using eval
 
 For external validation, estimate and freeze the state order, cutpoints, mapping, and score direction using training data. Keep external outcomes out of model and mapping selection. An improved training objective does not establish an external predictive gain or clinical benefit.
 
+### Fit and validate a frozen mapping
+
+The new `fitNormCCS()` interface searches with fixed-direction AUC: higher grades predict response 1. `predict()` applies its frozen mapping without reading outcomes; `evaluateNormCCS()` reports independent-source performance and coverage. Unseen states yield `NA`. Training patient overlap is rejected, and evaluation rejects seen sources by default.
+
+```r
+# Reuse the synthetic df above; its three cohorts are separate synthetic sources.
+frozen <- fitNormCCS(df[df$Cohort != "C", ], k = 3)
+grades <- predict(frozen, df[df$Cohort == "C", ])
+evaluateNormCCS(frozen, df[df$Cohort == "C", ])$summary
+validated <- validateNormCCS(df, grid = data.frame(k = 2:3),
+                            outer_folds = 3, inner_folds = 2, seed = 489)
+validated$evaluation$by_source
+```
+
+`validateNormCCS()` refits state ordering and boundaries inside every source-grouped inner fold, selects settings without outer-test outcomes, and returns a final deployment fit, outer predictions, tuning evidence and state-assignment stability. Optional within-source outcome permutations rerun nested selection. Ordering shrinkage, grade sample/event minima, source support and penalties can be tuned in the grid. Example values are not validated clinical recommendations. These interfaces validate mapping conditional on supplied states; upstream models and state discovery require their own training isolation. See the [workflow guide](docs/normCCS-generalization.md) for source metadata, coverage gates, constraints, selection rules and inference limits.
+
 ## API and documentation
 
 | Resource | What it covers |
@@ -176,6 +192,7 @@ For external validation, estimate and freeze the state order, cutpoints, mapping
 | [Training](man/ccs.Rd) and [data preparation](man/CCS-method.createCCSData.Rd) | Expression inputs, gene sets, annotations, and cohort-model parameters |
 | [Subtype classifier](man/CCS-method.scaller.Rd) and [prediction](man/CCS-method.predict.Rd) | Classifier backends and prediction inputs |
 | [Response and grade search](man/subtypePerformance.Rd) and [mapping application](man/newSubtype.Rd) | Input columns, objectives, search modes, and result structure |
+| [Frozen fitting](man/fitNormCCS.Rd), [evaluation](man/evaluateNormCCS.Rd) and [nested validation](man/validateNormCCS.Rd) | Fixed-direction prediction, training-only selection, source support and diagnostics |
 | [Representation ablation](man/ablation.Rd) | Frozen-representation comparisons and their parameters |
 | [External-cache guide](docs/external-cache.md) | Local storage layout and cache handling |
 | [Changelog](CHANGELOG.md) | Package changes and development history |

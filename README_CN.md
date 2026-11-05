@@ -169,6 +169,22 @@ continuous_fit$Data$Normalization$SearchDiagnostics$layers[[5]]
 
 外部验证应在训练数据上估计并冻结状态顺序、分界、映射及评分方向，外部结局不得参与模型或映射选择。训练目标改善不能证明外部预测收益或临床获益。
 
+### 拟合与验证冻结映射
+
+新增 `fitNormCCS()` 在搜索时直接使用固定方向 AUC：等级越高，越倾向预测 response=1。`predict()` 应用冻结映射，不读取结局；`evaluateNormCCS()` 报告独立来源表现和覆盖率。未见状态返回 `NA`。评价始终拒绝与训练相同的患者 ID，默认也拒绝训练中出现过的来源。
+
+```r
+# 复用上方合成 df；三个 cohort 在此代表三个独立合成来源。
+frozen <- fitNormCCS(df[df$Cohort != "C", ], k = 3)
+grades <- predict(frozen, df[df$Cohort == "C", ])
+evaluateNormCCS(frozen, df[df$Cohort == "C", ])$summary
+validated <- validateNormCCS(df, grid = data.frame(k = 2:3),
+                            outer_folds = 3, inner_folds = 2, seed = 489)
+validated$evaluation$by_source
+```
+
+`validateNormCCS()` 在按来源分组的每个内层训练折重新学习状态顺序和分界，不使用外层测试结局选型；返回最终部署模型、外层预测、调参证据与状态归属稳定性。可选的来源内结局置换会重新执行嵌套选型。排序收缩、等级人数及事件底线、来源支持和惩罚均可放入候选网格调节。示例值不代表经过临床验证的推荐设置。这些接口验证的是给定状态后的映射，上游模型与状态发现仍须独立隔离训练数据。来源信息、覆盖门槛、约束、选型规则和推断边界见[流程说明](docs/normCCS-generalization.md)。
+
 ## API 与文档
 
 | 资源 | 内容 |
@@ -176,6 +192,7 @@ continuous_fit$Data$Normalization$SearchDiagnostics$layers[[5]]
 | [训练](man/ccs.Rd)与[数据准备](man/CCS-method.createCCSData.Rd) | 表达输入、基因集、注释及队列模型参数 |
 | [亚型分类器](man/CCS-method.scaller.Rd)与[预测](man/CCS-method.predict.Rd) | 分类器后端与预测输入 |
 | [应答与分级搜索](man/subtypePerformance.Rd)及[映射应用](man/newSubtype.Rd) | 输入列、目标函数、搜索模式及结果结构 |
+| [冻结拟合](man/fitNormCCS.Rd)、[评价](man/evaluateNormCCS.Rd)与[嵌套验证](man/validateNormCCS.Rd) | 固定方向预测、训练内选型、来源支持与诊断 |
 | [表示消融](man/ablation.Rd) | 冻结表示比较及参数 |
 | [外置缓存说明](docs/external-cache.md) | 本地存储布局与缓存管理 |
 | [变更记录](CHANGELOG.md) | 包更新与开发历史 |

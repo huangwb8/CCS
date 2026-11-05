@@ -170,7 +170,7 @@ Top N 同分时先执行现行目标分支的并列排序逻辑（旧默认 vs �
 
 ### 原生代码选择
 
-优先 **C++17 + Rcpp**：本 R 包已是 R 生态，适合新增 `src/norm_exact.cpp`、必要的 `src/Makevars.win`/`src/Makevars`、`R/norm_exact.R`、`R/RcppExports.R` 等。先核对当前 Windows R 4.3.1 编译工具链和包依赖，按 R 包标准把 `Rcpp` 加入 `Imports`、`LinkingTo` 并运行 `Rcpp::compileAttributes()`；不得把 Rcpp 当作已经存在的仓库依赖。若本地编译环境或构建约束有明确障碍，可评估纯 C++ `.Call`；**不建议第一版同时维护 C++ 与 Rust 两套等价内核**。
+优先 **C++17 + Rcpp**：本 R 包已是 R 生态，适合新增 `src/norm_exact.cpp`、必要的 `src/Makevars.win`/`src/Makevars`、`R/RcppExports.R`，R 层适配函数统一追加到 `R/phenotype.R` 底部（按 2026-11-05 的源码整理要求，不再单独托管）。先核对当前 Windows R 4.3.1 编译工具链和包依赖，按 R 包标准把 `Rcpp` 加入 `Imports`、`LinkingTo` 并运行 `Rcpp::compileAttributes()`；不得把 Rcpp 当作已经存在的仓库依赖。若本地编译环境或构建约束有明确障碍，可评估纯 C++ `.Call`；**不建议第一版同时维护 C++ 与 Rust 两套等价内核**。
 
 ## 算法路线 B：可证明安全的 Branch-and-Bound
 
@@ -285,7 +285,7 @@ $$
 建议**先在现有代码附近新增模块，不大量移动旧 `phenotype.R`**：
 
 ```text
-R/norm_exact.R                  # 参数校验、预统计适配、策略分发、返回转换
+R/phenotype.R（底部辅助函数）     # 参数校验、预统计适配、策略分发、返回转换
 R/norm_exact_objectives.R       # 评分契约和目标一致性测试辅助
 src/norm_exact.cpp              # 组合迭代、原生评分、Top-N、可选 B&B
 R/norm_exact_milp.R             # MIP 模型构造、solver 适配（可选依赖）
