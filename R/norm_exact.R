@@ -33,9 +33,6 @@ subtype_norm_exact <- function(df, ranked, k, method, started, verbose,
   norm_validate_exact_top_n(top_n)
   objective <- norm_validate_objective(objective)
   m <- nrow(ranked)
-  if (k < 2L || k > 8L || k > m || m > 512L) {
-    stop("stream_exact supports 2 <= K <= min(8, M) and at most 512 observed states.")
-  }
   if (!is.null(num_cores) && num_cores > 1024L) {
     stop("numCores must not exceed 1024 for stream_exact.")
   }
@@ -43,9 +40,14 @@ subtype_norm_exact <- function(df, ranked, k, method, started, verbose,
     as.integer(parallelly::availableCores(omit = 1L))
   } else as.integer(num_cores)
   requested_workers <- max(1L, requested_workers)
-  total <- choose(m - 1L, k - 1L)
-  retained <- as.integer(min(top_n, total))
   nc <- length(unique(df$Cohort)) + 1L
+  cost <- norm_exact_search_cost(m, k, nc, method, requested_workers)
+  norm_report_exact_cost(cost, verbose)
+  if (k < 2L || k > 8L || k > m || m > 512L) {
+    stop("stream_exact supports 2 <= K <= min(8, M) and at most 512 observed states.")
+  }
+  total <- cost$n_candidates
+  retained <- as.integer(min(top_n, total))
   # Include count tensors, per-thread heaps, interval strings and returned rows.
   estimate <- 64 * nc * m^2 + requested_workers * retained * 128 +
     retained * (nc * 256 + m * 32) + m^3 * 16
@@ -129,6 +131,8 @@ subtype_norm_exact <- function(df, ranked, k, method, started, verbose,
     n_original_roc_verifications = nrow(reference),
     reference_max_error = max(delta, original_delta),
     interval_storage_bytes = as.numeric(utils::object.size(model)),
+    estimated_search_seconds = cost$seconds,
+    runtime_estimate_basis = cost$basis,
     preprocessing_seconds = unname(preprocessing_seconds),
     search_seconds = native$search_elapsed_seconds,
     verification_seconds = unname(verification_seconds),
@@ -138,6 +142,63 @@ subtype_norm_exact <- function(df, ranked, k, method, started, verbose,
     diagnostics <- c(diagnostics, settings[setdiff(names(settings), "norm_objective")])
   }
   list(Raw = raw, Summary = summary, SearchDiagnostics = diagnostics)
+}
+
+# Reference-hardware estimate, not a benchmark of the invoking machine or a CI.
+# Calibration: tmp/normCCS-stream-exact-088/REPORT.md, i9-14900K, 16 threads,
+# 21 scoring coordinates (20 real cohorts plus All), median objective, Top 2000.
+norm_exact_search_cost <- function(m, k, nc, method, workers) {
+  # Test
+  if (FALSE) {
+    norm_exact_search_cost(107L, 8L, 21L, "Raw", 16L)
+  }
+  total <- choose(m - 1L, k - 1L)
+  ranked <- method == "OptimizeRank" && k > 2L
+  per_candidate <- if (ranked) 7.570 / choose(106, 5) else
+    409.035 / choose(106, 7)
+  # Raw reuses unchanged prefixes; OptimizeRank recomputes K group scores.
+  rank_scale <- if (ranked) k / 6 else 1
+  thread_scale <- 16 / min(workers, 16L)
+  seconds <- total * per_candidate * (nc / 21) * thread_scale * rank_scale
+  list(n_candidates = total, seconds = seconds, M = m, K = k,
+       method = method, workers = workers,
+       explosion = total >= 1e8 || seconds >= 60,
+       basis = "reference_i9_14900K_16_threads_C21_Top2000_median")
+}
+
+norm_format_search_time <- function(seconds) {
+  if (!is.finite(seconds)) return("beyond a finite estimate")
+  if (seconds < 1) return("less than 1 second")
+  units <- c("seconds", "minutes", "hours", "days", "years")
+  scales <- c(1, 60, 3600, 86400, 365.25 * 86400)
+  unit <- max(which(seconds >= scales))
+  paste(formatC(seconds / scales[unit], format = "f", digits = 1), units[unit])
+}
+
+norm_report_exact_cost <- function(cost, verbose) {
+  if (!verbose) return(invisible(NULL))
+  count <- format(cost$n_candidates, scientific = cost$n_candidates >= 1e15,
+                  big.mark = ",", trim = TRUE, digits = 7)
+  luckyBase::LuckyVerbose(
+    paste0("subtypeNorm: stream_exact search size: M = ", cost$M,
+           ", K = ", cost$K, ", choose(M - 1, K - 1) = ", count,
+           " combinations; estimated native search time: ",
+           norm_format_search_time(cost$seconds), " (", cost$method,
+           ", ", cost$workers, " requested threads)."), levels = 2)
+  if (cost$explosion) luckyBase::LuckyVerbose(
+    paste0("subtypeNorm: WARNING: combinatorial explosion. Every combination ",
+           "must be evaluated; reducing norm_exact_top_n only reduces retained ",
+           "results. Consider a smaller K or norm_search_method = 'dp' ",
+           "(approximate for the public objective)."), levels = 2)
+  luckyBase::LuckyVerbose(
+    paste0("subtypeNorm: Rough reference-hardware estimate, not a 95% interval ",
+           "or a local benchmark: i9-14900K, 16 OpenMP threads, 20 cohorts + All, ",
+           "median objective, Top 2000; scaled by cohort count and requested ",
+           "threads (speedup capped at 16), with a K/6 factor for OptimizeRank. ",
+           "Assumes OpenMP parallelism; hardware, objective, ties and Top N can ",
+           "change runtime. Excludes preprocessing and verification. ",
+           "K > 8 is an unsupported extrapolation."), levels = 2)
+  invisible(NULL)
 }
 
 norm_validate_exact_top_n <- function(top_n) {

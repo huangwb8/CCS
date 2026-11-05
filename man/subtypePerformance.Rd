@@ -100,7 +100,13 @@ checked with the original ROC evaluator (all candidates for K = 2).
 \code{numCores} controls native threads; NULL uses available cores minus one.
 Systems without OpenMP run this method on one thread. Existing brute-force
 searches exceeding their budget are rejected before allocation. Every cohort
-must contain both response classes; required input columns must be complete.}
+must contain both response classes; required input columns must be complete.
+With \code{verbose = TRUE}, stream_exact reports the combination count and
+a rough reference-hardware estimate of native search time before searching.
+At least 100 million candidates or an estimated minute triggers a
+combinatorial-explosion notice via \code{luckyBase::LuckyVerbose}.
+The estimate is not a confidence interval or a local benchmark and excludes
+preprocessing and verification; K > 8 remains unsupported.}
 
 \item{norm_mode}{Either \code{"discrete"} (default, search only the specified
 K) or \code{"continuous"} (search K = 1 through the specified maximum).

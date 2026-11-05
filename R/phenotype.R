@@ -49,6 +49,12 @@
 #'   Systems without OpenMP run this method on one thread. Existing brute-force
 #'   searches exceeding their budget are rejected before allocation. Every cohort
 #'   must contain both response classes; required input columns must be complete.
+#'   With \code{verbose = TRUE}, stream_exact reports the combination count and
+#'   a rough reference-hardware estimate of native search time before searching.
+#'   At least 100 million candidates or an estimated minute triggers a
+#'   combinatorial-explosion notice via \code{luckyBase::LuckyVerbose}.
+#'   The estimate is not a confidence interval or a local benchmark and excludes
+#'   preprocessing and verification; K > 8 remains unsupported.
 #' @param norm_roc_method The method to call ROC AUC. One of \code{'OptimizeRank'} and \code{'Raw'}.
 #' @param norm_objective Candidate scoring strategy (exact names only).
 #'   \code{"median"} (default) retains the legacy median including pooled

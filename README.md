@@ -102,6 +102,10 @@ exact_fit <- subtypePerformance(
 exact_fit$Data$Normalization$SearchDiagnostics
 ```
 
+With `verbose = TRUE`, `stream_exact` reports the combination count and estimated native search time before it starts. At 100 million candidates or an estimated minute, it also flags combinatorial explosion. Reducing `norm_exact_top_n` saves fewer results but still evaluates every combination. Set `verbose = FALSE` to silence these messages.
+
+The estimate uses the existing i9-14900K benchmark: 16 OpenMP threads, 20 cohorts plus `All`, the median objective and Top 2000. It scales by cohort count and requested threads, caps assumed speedup at 16 threads, and applies a K/6 factor to OptimizeRank relative to its K6 benchmark. This is a rough reference estimate, not a confidence interval or a measurement of your machine. Preprocessing and verification take additional time. K > 8 remains unsupported, even when an extrapolated time is reported.
+
 The search is exhaustive for the chosen state order, with scoring checked to a tolerance of `1e-10`. All retained AUCs are checked against the R batch scorer; up to five retained mappings are also checked with the original ROC evaluator. At K = 2, every retained mapping uses the original evaluator to preserve binary performance metrics. Exact floating-point ties use cohort mean AUC for non-default objectives, followed by UTF-8 byte order of `Info`. Last-bit differences from the original ROC calculations can order mathematically tied mappings differently. Diagnostics report full coverage, returned counts, threads, verification error, and timing. The backend supports at most 512 states and applies a memory guard; runtime still grows with `choose(M - 1, K - 1)`. `numCores = NULL` uses available cores minus one.
 
 ### Explore an inherited sequence of grades
