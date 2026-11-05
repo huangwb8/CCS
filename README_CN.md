@@ -209,7 +209,7 @@ validated$evaluation$by_source
 devtools::load_all(".")
 ```
 
-项目协作规范见 [AGENTS.md](AGENTS.md)，另有 [Claude Code 适配文件](CLAUDE.md)。Windows 开发检查使用 R 4.3.1。场景测试位于 `test/`，需要在包检查之外单独执行；使用历史文档中的命令前，应先确认对应场景仍在仓库中。
+项目协作规范见 [AGENTS.md](AGENTS.md)，另有 [Claude Code 适配文件](CLAUDE.md)。Windows 开发检查使用 R 4.3.1。测试、验证和基准目录统一位于 `tmp/<场景名>/`，需要在包检查之外单独执行；使用历史文档中的命令前，应先确认对应场景仍在仓库中。大型产物仍使用外置缓存。
 
 对于已经定义 `targets` 依赖图的分析，执行、恢复和监控均须使用该分析的 `_targets.R` 及实际 store；target 级并行通过 `crew` 配置。大型数据、模型、包库及生成报告放在源码目录之外；本地默认采用 `D:/cache/ccs/<analysis>/`，既有分析继续沿用原缓存根目录。具体安排见外置缓存说明。
 

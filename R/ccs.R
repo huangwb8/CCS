@@ -180,13 +180,13 @@ predict.CCS <- function(
   if(F){
     library(luckyBase)
     Plus.library(c('GSClassifier','tidyr'))
-    # work.space = 'E:/RCloud/RFactory/CCS/test/ccs/project_01'
+    # work.space = 'E:/RCloud/RFactory/CCS/tmp/ccs/project_01'
     work.space = 'E:/iProjects/RCheck/GSClassifier/test01/ccs/Testv20240623'
     object = readRDS(paste0(work.space, '/', 'resCCS.rds'))
     # X = data[["cancer_1"]][["cohort.1.1"]][["expr"]][,1:5]
     data_all <- readRDS('E:/iProjects/CCS_Data/product/PanCan_CancerSample_DataListForCCS-Signature-PanCanWGCNA-Top10_v20240623_GEO.rds')
     X <- data_all$CRC$GSE26906$expr[,1:5]
-    # model.dir = './test/ccs/project_01'
+    # model.dir = './tmp/ccs/project_01'
     model.dir = 'E:/iProjects/RCheck/GSClassifier/test01/ccs/Testv20240623'
     numCores = 16
     verbose = FALSE

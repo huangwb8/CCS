@@ -23,7 +23,7 @@ CCS（Cohort Congress System）是用于个性化泛癌基因组分类的 R 包�
 | --- | --- |
 | `R/` | 包源码与导出 API；`ccs*.R` 定义 S4 类，`hyperTuningGS.R`、`importance.R` 负责建模，`normalize.R`、`phenotype.R`、`simulatePA.R` 等负责预处理 |
 | `man/` | roxygen2 生成的 Rd 文档 |
-| `test/` | 可复现场景脚本与小型测试夹具；模型和大型数据使用外置缓存 |
+| `tmp/` | 测试、验证和基准场景目录及小型夹具，按 `tmp/<场景名>/` 组织；模型和大型产物使用外置缓存 |
 | `docs/` | 解释性文档、审计材料与教程；正式任务计划统一放在 `docs/plans/` |
 | `docs/contribution.bac` | 通过 `bac` 命令维护的协作贡献账本 |
 | `.bensz-api/` | AI 与技能的轻量中间产物，已由 `.gitignore` 排除 |
@@ -44,7 +44,7 @@ R 代码使用两空格缩进、`<-` 赋值；函数与变量使用 `snake_case`
 项目位于坚果云同步目录。编写代码和首次运行前，自动将大型产物规划到 `D:/cache/ccs/<分析名>/`，无需再次询问。按用途划分 `raw/`、`models/`、`targets/`、`tmp/`、`environment/`、`observability/` 和 `exports/`。沿用已启用的正式缓存根目录，如 `D:/cache/ccs/_ablation-03/`、`D:/cache/ccs_ablation-03/ablation-03-max/`，不得为统一命名重建存储目录。
 
 - 单文件预计达到 50 MiB、单目录达到 200 MiB，或会持续增长时，提前外置。训练模型、表达/概率矩阵、RDS 中间对象、targets 存储目录、renv 包库、构建副本和批量试跑产物均适用，不必等到超过阈值。
-- `test/`、根目录 `tmp/` 和 `.bensz-api/` 仅保留源码、配置、锁文件、小型夹具、轻量日志和交付说明。正式 HTML/PDF、批量 CSV/CSV.gz、模型结果、展示图及配套资源统一放入对应缓存的 `exports/`；项目内保留 Rmd/Markdown 源稿、位置说明及必要的小型素材。大型 AI 任务副本或归档放入 `D:/cache/ccs/ai-artifacts/<任务名>/`。
+- 根目录 `tmp/` 和 `.bensz-api/` 仅保留源码、配置、锁文件、小型夹具、轻量日志和交付说明。正式 HTML/PDF、批量 CSV/CSV.gz、模型结果、展示图及配套资源统一放入对应缓存的 `exports/`；项目内保留 Rmd/Markdown 源稿、位置说明及必要的小型素材。大型 AI 任务副本或归档放入 `D:/cache/ccs/ai-artifacts/<任务名>/`。
 - 用统一路径配置和环境变量连接缓存，生产、测试、报告与监控各自使用对应的同一套路径；隔离测试仍走原 `_targets.R`。renv 库路径在激活前设置，`TMPDIR`、`TMP`、`TEMP` 在 R 进程启动前设置。不得以目录联接、符号链接或 Git 忽略规则替代缓存隔离。
 - 迁移前确认没有相关写入并检查目标冲突；复制后核对文件数、大小和哈希，再移除原件。不覆盖不同内容，不删除唯一副本。迁移正式 targets 存储目录时，同步全部入口、监控和文档；只读迁移不得重跑分析。
 - D 盘不可用或空间不足时停止大文件写入并说明问题，不得回退到同步目录。外置缓存不随坚果云同步，唯一原始输入、不可替代模型和重要结果须另有独立备份。
@@ -58,11 +58,12 @@ Windows 下统一使用 `C:\R\R-4.3.1` 对应的 R/Rscript。构建副本、包�
 | 刷新文档（提交前） | `Rscript -e "devtools::document()"` |
 | 加载开发源码 | `Rscript -e "devtools::load_all()"` |
 | 构建与检查 | `R CMD build .`，再运行 `R CMD check CCS_<version>.tar.gz`；版本从 `DESCRIPTION` 读取 |
-| normCCS 单元测试 | `Rscript --vanilla test/normCCS-5-more/run-unit-tests.R` |
-| 场景测试示例 | `Rscript test/03.test.Classes.R`、`Rscript test/test.classifier_performance.R` |
+| normCCS 单元测试 | PowerShell：`./tmp/normCCS-generalization/run.ps1` |
+| 搜索成本验证 | 从项目根目录运行 `Rscript --vanilla tmp/normCCS-stream-exact/run-cost-tests.R`；启动前将 `TMPDIR`、`TMP`、`TEMP` 设为外置缓存的 `tmp/` |
 
-- 根目录不保留 `tests/`；normCCS 轻量单元测试放在 `test/normCCS-5-more/tests/`，其他测试归入对应场景目录。`test/` 不随 R 包打包，包检查前必须单独运行相关测试入口。
-- 场景脚本按 `01.test.*`、`02.test.*` 等编号表达执行顺序，能通过 `Rscript` 非交互运行。大型 `.rds` 和临时试跑产物写入对应外置缓存，临时产物放在 `tmp/`。
+- 新建测试、验证、基准或试跑目录统一放在项目根目录的 `tmp/<场景名>/`，不得放在根目录 `test/` 或 `tests/` 下；场景内可设置 `tests/` 子目录。已有 `test/` 根目录散文件暂作历史材料保留，不在其中新增测试目录。
+- `tmp/` 不随 R 包打包，包检查前必须单独运行相关测试入口。需版本管理的轻量测试源码应在 `.gitignore` 中设置精确例外，不得连带纳入其他临时产物。
+- 场景脚本按 `01.test.*`、`02.test.*` 等编号表达执行顺序，能通过 `Rscript` 非交互运行。大型 `.rds` 和临时试跑产物写入对应外置缓存，临时产物放在外置缓存的 `tmp/`。
 - 使用 `stopifnot` 或轻量 `testthat` 断言；涉及概率输出或亚型图变化时，补充小型样本快照。验证范围应与变更相符。
 
 ## 文档与报告
@@ -76,7 +77,7 @@ Windows 下统一使用 `C:\R\R-4.3.1` 对应的 R/Rscript。构建副本、包�
 
 - `DESCRIPTION` 的 `Version` 是版本号唯一来源。版本、发布时间、Git 标签及 GitHub Release 由负责人决定；除下述既有授权外，只有当前请求明确指定目标版本并要求修改时，才能同步修改 `DESCRIPTION`、README 版本徽章、CHANGELOG 发布标题及标签说明，不得自行推断或递增版本。
 - `DESCRIPTION` 的 `Version` 发生更新后，必须使用 `C:\R\R-4.3.1` 构建并安装对应版本到本机 R 的可写包库，并核对本机 `packageVersion("CCS")` 与 `DESCRIPTION` 一致；版本更新未完成本机安装和核对前，不得视为交付完成。
-- **ablation 重构既有授权**：新的 `R/ablation.R` 完成改造，通过声明的包检查、科学等价性验证及 `test/ablation-03` 串行验收后，才将当前版本第三位修订号恰好加 1，不改主/次版本，不提前升版。随后用 `C:\R\R-4.3.1` 构建、检查并安装到该 R 环境的可写包库；源码和构建临时文件不得混入 R 安装目录。
+- **ablation 重构既有授权**：新的 `R/ablation.R` 完成改造，通过声明的包检查、科学等价性验证及 `ablation-03` 场景串行验收后，才将当前版本第三位修订号恰好加 1，不改主/次版本，不提前升版。随后用 `C:\R\R-4.3.1` 构建、检查并安装到该 R 环境的可写包库；源码和构建临时文件不得混入 R 安装目录。
 - 行为、结构、工作流、工程原则、指令或关键配置的变更，必须记入 `CHANGELOG.md` 的 `[Unreleased]`；功能、修复或文档更新本身不构成升版授权。CHANGELOG 遵循 Keep a Changelog，Git 标签格式为 `v{Version}`，创建或推送均须明确授权。
 - 提交说明简短、使用祈使句，必要时关联问题编号。拉取请求说明目的、涉及的数据和参数、包检查及相关场景测试结果；绘图或统计变更附截图或指标，说明未纳入 Git 的大型产物。强制推送变基结果前与审阅者协调。
 

@@ -12,6 +12,8 @@
 
 ### Changed
 
+- 将测试、验证和基准目录统一约定为 `tmp/<场景名>/`；现有 `test/ccs`、`test/legacy`、`test/normCCS-generalization` 和 `test/normCCS-stream-exact` 已迁至 `tmp/` 下同名目录，迁移前后文件数、大小及 SHA-256 一致。同步 `AGENTS.md`、双语 README、活动脚本与文档引用及 Git 忽略例外；`CLAUDE.md` 继续继承同一规则。搜索成本测试默认使用当前安装的 CCS，移除对旧 0.8.8 隔离包库的隐式依赖，仍可通过 `CCS_TEST_LIB` 指定包库。`test/` 根目录历史散文件保留，大型产物沿用原外置缓存。
+
 - 将精确搜索适配、正则化辅助及冻结映射/嵌套验证函数统一移到 `R/phenotype.R` 底部，移除独立的 `R/norm_exact.R` 和 `R/norm_generalization.R`。同步源码引用、生成文档及测试构建入口，函数签名、计算行为和版本不变。
 
 - 按负责人授权将 CCS 更新为 **0.8.9**。离散 `stream_exact` 新增 `norm_min_grade_n = 1L` 和 `norm_regularization = 0`：在完整枚举中按每级合并训练记录数约束候选，并用原 AUC 目标减去 `lambda * mean(1 / sqrt(n_g))` 选择 Top N。关闭时复现 0.8.8，原始 AUC 列不变；启用后另返惩罚、正则化得分、各级人数和合法空间诊断，无合法解明确报错。非默认设置仅支持该后端。合成验证覆盖精确性、兼容性、多线程、公开入口、速度及独立测试集；模拟表明效果依赖状态排序和信号结构，可能损失真实稀有信号，不作为普适泛化改善。双语 README、接口文档、缓存说明及验证报告同步更新，测试源码位于 `tmp/normCCS-regularization-089/`，产物外置；未运行真实分析。

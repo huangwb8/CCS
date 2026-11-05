@@ -10,7 +10,6 @@ plans/*
 !test/ablation-03/
 !test/ablation-03-max/
 !test/normCCS-5-more/
-!test/normCCS-stream-exact/
 !test/normCCS-premium/
 !test/normCCS-optimization/
 !test/normCCS-continuous/
@@ -18,6 +17,9 @@ plans/*
 .ccs-cache/
 /renv/
 *tmp*/
+# Keep only these lightweight test scenarios under the project tmp directory.
+!/tmp/
+/tmp/*
 test/*/tmp/
 
 # Generated deliverables live in the external cache; keep source templates.

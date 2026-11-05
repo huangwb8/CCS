@@ -209,7 +209,7 @@ Work from the repository root. To load the current source without installing it,
 devtools::load_all(".")
 ```
 
-Repository conventions are documented in [AGENTS.md](AGENTS.md), with a [Claude Code adapter](CLAUDE.md). Use R 4.3.1 for Windows development checks. Scenario tests live under `test/` and are run separately from package checks; confirm that the relevant scenario is present before running a command from historical documentation.
+Repository conventions are documented in [AGENTS.md](AGENTS.md), with a [Claude Code adapter](CLAUDE.md). Use R 4.3.1 for Windows development checks. Test, validation, and benchmark directories live under `tmp/<scenario>/` and are run separately from package checks; confirm that the relevant scenario is present before running a command from historical documentation. Large outputs remain in the external cache.
 
 For analyses defined by a `targets` graph, use the analysis's `_targets.R` and its actual store for execution, recovery, and monitoring. Configure target-level parallelism through `crew`. Store large data, models, package libraries, and generated reports outside the source tree; the local convention is `D:/cache/ccs/<analysis>/`, with existing analysis cache roots preserved. See the external-cache guide for details.
 

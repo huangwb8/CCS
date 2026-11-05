@@ -109,7 +109,7 @@ drCCSProbability <- function(
   # Test
   if(F){
     library(digest); library(GSClassifier); library(umap); library(dplyr)
-    # model.dir <- "./test/ccs/project_01"
+    # model.dir <- "./tmp/ccs/project_01"
     # path_resCCS <- 'E:/iProjects/RCheck/GSClassifier/test01/ccs/v20231225/resCCS.rds'
     model.dir <- "E:/iProjects/RCheck/GSClassifier/test02/ccs/PADv20240810"
     path_resCCS <- 'E:/iProjects/RCheck/GSClassifier/test02/ccs/PADv20240810/resCCS.rds'
