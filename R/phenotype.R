@@ -23,6 +23,28 @@
 #'   Each requested K returns at most this many candidates, or all candidates
 #'   when fewer exist. This setting is independent of continuous-mode
 #'   \code{norm_top_n} and does not affect the other discrete search methods.
+#' @param norm_min_grade_n Positive integer, default 1. Minimum pooled training
+#'   input records per grade in discrete \code{stream_exact}; records are counted
+#'   once, without adding pooled All again. Non-default settings require that
+#'   backend. No per-cohort or per-response-class minimum is imposed.
+#' @param norm_regularization Finite nonnegative number, default 0 (disabled).
+#'   In discrete \code{stream_exact}, subtract this value times
+#'   \code{mean(1 / sqrt(n_g))} from the selected AUC aggregation objective,
+#'   where \code{n_g} is each grade's pooled training record count. Top N is
+#'   selected by this penalized score throughout enumeration. Original AUC
+#'   columns remain unchanged. When either support setting is active, Summary
+#'   also contains \code{supportPenalty}, \code{regularizationPenalty},
+#'   \code{regularizedScore}, \code{minGradeN} and \code{gradeSampleSizes}
+#'   (a list column of named counts, indexed by grade). Legal candidates fewer
+#'   than Top N are all returned; no legal mapping causes an error. The optimum
+#'   is conditional on fixed state order, K, support constraint and penalty.
+#'   This heuristic favors supported, more balanced grades and can suppress
+#'   real rare subgroups; it is not a confidence bound. Select strength using
+#'   training-only grouped validation. Defaults preserve the unpenalized search.
+#'   Ranking, Raw auto-direction and OptimizeRank semantics are unchanged;
+#'   regularization does not remove evaluation-label leakage or prove
+#'   generalization. Deduplicate related patients and overlapping cohorts before
+#'   supplying records; counts do not establish independent patient support.
 #' @param norm_top_n Positive integer, default 10. Maximum number of distinct
 #'   candidates retained at each K in continuous mode. Only retained candidates
 #'   appear in Raw/Summary; each is checked with the reference ROC evaluator.
@@ -163,12 +185,18 @@ subtypePerformance <- function(
     meta_subtitle_font_size = 10,
     numCores = NULL,
     verbose = TRUE,
-    norm_exact_top_n = 2000L
+    norm_exact_top_n = 2000L,
+    norm_min_grade_n = 1L,
+    norm_regularization = 0
 ){
 
   norm_objective <- norm_validate_objective(norm_objective)
   norm_search_method <- match.arg(norm_search_method)
   norm_mode <- norm_validate_mode(norm_mode)
+  norm_validate_regularization(norm_min_grade_n, norm_regularization, norm_search_method)
+  if (is.null(n_norm_subtype) && (norm_min_grade_n > 1L || norm_regularization > 0)) {
+    stop("Regularized stream_exact requires a non-NULL n_norm_subtype.")
+  }
   if (norm_search_method == "stream_exact") {
     norm_validate_exact_top_n(norm_exact_top_n)
     if (norm_mode != "discrete") {
@@ -332,7 +360,11 @@ subtypePerformance <- function(
       norm_objective = norm_objective
     )
     if (norm_mode == "continuous") norm_args$norm_top_n <- norm_top_n
-    if (norm_search_method == "stream_exact") norm_args$norm_exact_top_n <- norm_exact_top_n
+    if (norm_search_method == "stream_exact") {
+      norm_args$norm_exact_top_n <- norm_exact_top_n
+      norm_args$norm_min_grade_n <- norm_min_grade_n
+      norm_args$norm_regularization <- norm_regularization
+    }
     data_norm <- do.call(norm_function, norm_args)
   } else {
     data_norm <- NULL
@@ -385,6 +417,10 @@ subtypePerformance <- function(
     l$Repeat$norm_exact_top_n <- norm_exact_top_n
     l$Repeat$norm_rank_marker <- norm_rank_marker
     l$Repeat$norm_roc_method <- norm_roc_method
+    if (norm_min_grade_n > 1L || norm_regularization > 0) {
+      l$Repeat$norm_min_grade_n <- norm_min_grade_n
+      l$Repeat$norm_regularization <- norm_regularization
+    }
   }
   if (norm_mode == "continuous" ||
       !norm_rank_marker %in% c("NRR", "RR", "NRR+RR", "RR+NRR")) {
@@ -979,7 +1015,9 @@ subtypeNorm <- function(
     numCores = NULL, verbose = TRUE,
     norm_search_method = c("bruteforce", "dp", "stream_exact"),
     norm_objective = "median",
-    norm_exact_top_n = 2000L
+    norm_exact_top_n = 2000L,
+    norm_min_grade_n = 1L,
+    norm_regularization = 0
 ){
 
   norm_objective <- norm_validate_objective(norm_objective)
@@ -991,6 +1029,7 @@ subtypeNorm <- function(
     subtypeNorm(df, 3, "Raw", "RR", 1, FALSE, "dp", "mean_lower_tail")
   }
   norm_search_method <- match.arg(norm_search_method)
+  norm_validate_regularization(norm_min_grade_n, norm_regularization, norm_search_method)
   norm_validate_input(df, n_norm_subtype, norm_roc_method, numCores)
   norm_validate_rank_marker(norm_rank_marker)
   search_started <- proc.time()[["elapsed"]]
@@ -1028,7 +1067,9 @@ subtypeNorm <- function(
       result <- subtype_norm_exact(df, df_cutoff, n_norm_subtype,
                                     norm_roc_method, search_started, verbose,
                                     objective = norm_objective,
-                                    top_n = norm_exact_top_n, num_cores = numCores)
+                                    top_n = norm_exact_top_n, num_cores = numCores,
+                                    min_grade_n = norm_min_grade_n,
+                                    regularization = norm_regularization)
       result$SearchDiagnostics$rank_marker <- norm_rank_marker
       return(result)
     }

@@ -1,7 +1,7 @@
 <div align="center">
   <h1>CCS · Cohort Congress System</h1>
   <p>
-    <a href="https://github.com/huangwb8/CCS"><img src="https://img.shields.io/badge/version-0.8.8-brightgreen.svg" alt="Version 0.8.8"></a>
+    <a href="https://github.com/huangwb8/CCS"><img src="https://img.shields.io/badge/version-0.8.9-brightgreen.svg" alt="Version 0.8.9"></a>
     <a href="https://www.r-project.org/"><img src="https://img.shields.io/badge/R-package-276DC3.svg" alt="R package"></a>
     <a href="license.txt"><img src="https://img.shields.io/badge/License-Apache%202.0-blue.svg" alt="Apache 2.0 license"></a>
   </p>
@@ -107,6 +107,27 @@ With `verbose = TRUE`, `stream_exact` reports the combination count and estimate
 The estimate uses the existing i9-14900K benchmark: 16 OpenMP threads, 20 cohorts plus `All`, the median objective and Top 2000. It scales by cohort count and requested threads, caps assumed speedup at 16 threads, and applies a K/6 factor to OptimizeRank relative to its K6 benchmark. This is a rough reference estimate, not a confidence interval or a measurement of your machine. Preprocessing and verification take additional time. K > 8 remains unsupported, even when an extrapolated time is reported.
 
 The search is exhaustive for the chosen state order, with scoring checked to a tolerance of `1e-10`. All retained AUCs are checked against the R batch scorer; up to five retained mappings are also checked with the original ROC evaluator. At K = 2, every retained mapping uses the original evaluator to preserve binary performance metrics. Exact floating-point ties use cohort mean AUC for non-default objectives, followed by UTF-8 byte order of `Info`. Last-bit differences from the original ROC calculations can order mathematically tied mappings differently. Diagnostics report full coverage, returned counts, threads, verification error, and timing. The backend supports at most 512 states and applies a memory guard; runtime still grows with `choose(M - 1, K - 1)`. `numCores = NULL` uses available cores minus one.
+
+### Regularize the exact search
+
+`stream_exact` can discourage grades supported by very few training records. Set `norm_min_grade_n` for a hard minimum per grade and `norm_regularization` for a soft penalty. Both act during the full search, before Top N retention. Defaults (`1L` and `0`) reproduce the unpenalized search; non-default settings require discrete `stream_exact`.
+
+The selection score is the chosen AUC objective minus `norm_regularization * mean(1 / sqrt(n_g))`, where `n_g` is the pooled training record count in grade g. Pooled `All` is counted once. There is no minimum per cohort or response class. For example, reuse the synthetic `df` above:
+
+```r
+regularized_fit <- subtypePerformance(
+  df, col_subtype = "Subtype", col_tissue = "tumor_type",
+  n_norm_subtype = 3, norm_search_method = "stream_exact",
+  norm_roc_method = "Raw", norm_objective = "cohort_median",
+  norm_min_grade_n = 20L, norm_regularization = 0.5,
+  numCores = 4, verbose = FALSE
+)
+regularized_fit$Data$Normalization$Summary
+```
+
+The numbers above illustrate the interface, not validated tuning recommendations. Original AUC columns keep their meaning. With either support setting active, `Summary` adds `supportPenalty`, `regularizationPenalty`, `regularizedScore`, `minGradeN` and `gradeSampleSizes` (a list column of named grade counts), and sorts by `regularizedScore`. Diagnostics identify the feasible search space and rejected partitions. Fewer legal candidates than Top N are all returned; no legal mapping causes an error. Exactness refers to this penalized objective at fixed state order and K, within the support constraint.
+
+This heuristic favors supported, more balanced grades; it can suppress a real rare subgroup and is not a confidence bound. Select the minimum and penalty strength using training-only grouped validation, relearning the state order and mapping within each fitting fold. Deduplicate patients and overlapping sources before supplying records. This option leaves ranking, Raw automatic direction and OptimizeRank unchanged, so the external-validation rules below still apply. The runtime estimate above uses unpenalized benchmarks and does not include regularization overhead.
 
 ### Explore an inherited sequence of grades
 

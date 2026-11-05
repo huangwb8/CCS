@@ -298,8 +298,38 @@ inline void validate_cuts(const IntegerMatrix& x,int m){
   for(int i=0;i<x.nrow();i++){int previous=0;for(int j=0;j<x.ncol();j++){int value=x(i,j);if(value<=previous||value>=m)stop("Native exact cuts must increase strictly within 1..m-1.");previous=value;}}
 }
 struct alignas(64) Worker {
-  Scorer scorer;std::vector<Candidate> heap;U64 count;
-  Worker(const Model& model,int k,bool rank,int limit):scorer(model,k,rank,true),count(0){heap.reserve(limit);}
+  Scorer scorer;std::vector<Candidate> heap;U64 count,feasible;
+  Worker(const Model& model,int k,bool rank,int limit):scorer(model,k,rank,true),count(0),feasible(0){heap.reserve(limit);}
+};
+
+// Immutable pooled interval support. Precompute roots outside the hot loop;
+// All already contains each input record once and must not be added to cohorts.
+struct Support {
+  const Model& model;int k;double minimum,lambda;bool active;
+  std::vector<double> size,penalty;
+  Support(const Model& m,int kk,double nn,double ll):model(m),k(kk),minimum(nn),lambda(ll),active(nn>1||ll>0) {
+    if(!active)return;
+    int pooled=int(std::find(m.names.begin(),m.names.end(),"All")-m.names.begin());
+    const double* p=&m.cp[pooled*(m.m+1)];const double* n=&m.cn[pooled*(m.m+1)];
+    if(p[m.m]+n[m.m]<k*minimum)stop("No feasible stream_exact mapping: total training records are below K * norm_min_grade_n.");
+    size.resize(std::size_t(m.m)*m.m);penalty.resize(size.size());
+    for(int a=1;a<=m.m;a++)for(int b=a;b<=m.m;b++) {
+      double count=(p[b]-p[a-1])+(n[b]-n[a-1]);
+      std::size_t j=m.keyidx(a,b);size[j]=count;
+      penalty[j]=count>0?1/std::sqrt(count):0;
+    }
+  }
+  bool evaluate(const std::array<int,7>& cuts,double& value) const noexcept {
+    value=0;if(!active)return true;
+    double sum=0;
+    for(int g=0;g<k;g++) {
+      int a=g==0?1:cuts[g-1]+1,b=g==k-1?model.m:cuts[g];
+      std::size_t j=model.keyidx(a,b);
+      if(size[j]<minimum)return false;
+      sum+=penalty[j];
+    }
+    value=sum/k;return true;
+  }
 };
 } // namespace ccs_exact
 
@@ -317,13 +347,17 @@ NumericMatrix norm_exact_auc_cpp(IntegerMatrix cuts,List model,std::string metho
 }
 
 // [[Rcpp::export]]
-List norm_exact_cpp(List model,int k,std::string method,std::string objective,int top_n=2000,int threads=1) {
+List norm_exact_cpp(List model,int k,std::string method,std::string objective,int top_n=2000,int threads=1,double min_grade_n=1,double regularization=0) {
   using namespace ccs_exact;
   const auto started=std::chrono::steady_clock::now();
   Model data(model);bool rank=rank_id(method);int obj=objective_id(objective);
   if(k<2||k>8||k>data.m)stop("Native exact K must be between 2 and min(8,m).");
   if(threads<1||threads>1024)stop("Native exact thread count must be between 1 and 1024.");
   if(top_n<1)stop("Native exact top_n must be positive.");
+  if(!std::isfinite(min_grade_n)||min_grade_n<1||min_grade_n!=std::floor(min_grade_n)||min_grade_n>2147483647.0)
+    stop("norm_min_grade_n must be a positive integer no larger than .Machine$integer.max.");
+  if(!std::isfinite(regularization)||regularization<0)stop("norm_regularization must be finite and nonnegative.");
+  Support support(data,k,min_grade_n,regularization);
   Combinations combinations(data.m-1);int q=k-1;
   U64 total=combinations.get(data.m-1,q);
   if(total==0||total>9007199254740991ULL)stop("Native exact combination count is outside the supported exact range.");
@@ -360,7 +394,7 @@ List norm_exact_cpp(List model,int k,std::string method,std::string objective,in
 #endif
       Worker& worker=*workers[tid];Scorer& scorer=worker.scorer;
       std::vector<Candidate> local_heap=std::move(worker.heap);
-      U64 local_count=0;std::array<int,7> cuts{};
+      U64 local_count=0,local_feasible=0;std::array<int,7> cuts{};
 #ifdef _OPENMP
 #pragma omp for schedule(dynamic,1)
 #endif
@@ -371,9 +405,16 @@ List norm_exact_cpp(List model,int k,std::string method,std::string objective,in
           if(!combinations.unrank(lo,data.m-1,q,cuts)){failed.store(true,std::memory_order_relaxed);continue;}
           int changed=0;
           for(U64 j=0;j<len;j++){
-            scorer.eval(cuts,changed);double score,mean;scorer.aggregate(obj,score,mean);
-            if(!std::isfinite(score)||!std::isfinite(mean)){failed.store(true,std::memory_order_relaxed);break;}
-            keep(local_heap,Candidate{score,mean,cuts},limit,better);++local_count;
+            // Update the incremental scorer even for rejected partitions: its
+            // changed-prefix state always refers to the preceding combination.
+            scorer.eval(cuts,changed);double penalty=0;
+            if(support.evaluate(cuts,penalty)) {
+              double score,mean;scorer.aggregate(obj,score,mean);
+              if(regularization>0)score-=regularization*penalty;
+              if(!std::isfinite(score)||!std::isfinite(mean)){failed.store(true,std::memory_order_relaxed);break;}
+              keep(local_heap,Candidate{score,mean,cuts},limit,better);++local_feasible;
+            }
+            ++local_count;
             if(j+1<len){changed=next(cuts,data.m-1,q);if(changed<0){failed.store(true,std::memory_order_relaxed);break;}}
           }
         } catch(const std::exception& error) {
@@ -382,7 +423,7 @@ List norm_exact_cpp(List model,int k,std::string method,std::string objective,in
             std::snprintf(worker_error,sizeof(worker_error),"%s",error.what());
         } catch(...) {failed.store(true,std::memory_order_relaxed);}
       }
-      worker.heap=std::move(local_heap);worker.count+=local_count;
+      worker.heap=std::move(local_heap);worker.count+=local_count;worker.feasible+=local_feasible;
     }
     if(failed.load(std::memory_order_relaxed)){
       if(worker_error[0])stop("Native exact worker failed: %s",worker_error);
@@ -391,12 +432,13 @@ List norm_exact_cpp(List model,int k,std::string method,std::string objective,in
     actual_threads=std::max(actual_threads,wave_actual);
   }
   Rcpp::checkUserInterrupt();
-  std::vector<Candidate> heap;heap.reserve(limit);U64 visited=0;
-  for(const auto& worker:workers){visited+=worker->count;for(const Candidate& candidate:worker->heap)keep(heap,candidate,limit,better);}
+  std::vector<Candidate> heap;heap.reserve(limit);U64 visited=0,feasible=0;
+  for(const auto& worker:workers){visited+=worker->count;feasible+=worker->feasible;for(const Candidate& candidate:worker->heap)keep(heap,candidate,limit,better);}
   if(visited!=total)stop("Native exact search did not cover the full combination domain.");
+  if(feasible==0)stop("No feasible stream_exact mapping satisfies norm_min_grade_n; lower the threshold or K.");
   std::sort(heap.begin(),heap.end(),better);
   NumericVector scores(heap.size()),means(heap.size());IntegerMatrix cuts(heap.size(),q);
   for(int i=0;i<(int)heap.size();i++){scores[i]=heap[i].score;means[i]=heap[i].mean;for(int j=0;j<q;j++)cuts(i,j)=heap[i].cuts[j];}
   const double elapsed=std::chrono::duration<double>(std::chrono::steady_clock::now()-started).count();
-  return List::create(_["cuts"]=cuts,_["scores"]=scores,_["means"]=means,_["visited"]=double(visited),_["total_candidates"]=double(total),_["complete"]=true,_["search_elapsed_seconds"]=elapsed,_["actual_threads"]=actual_threads,_["openmp"]=openmp,_["requested_threads"]=threads,_["top_n"]=limit,_["chunk_size"]=double(batch),_["interrupt_wave_size"]=double(wave_size));
+  return List::create(_["cuts"]=cuts,_["scores"]=scores,_["means"]=means,_["visited"]=double(visited),_["total_candidates"]=double(total),_["feasible_candidates"]=double(feasible),_["complete"]=true,_["search_elapsed_seconds"]=elapsed,_["actual_threads"]=actual_threads,_["openmp"]=openmp,_["requested_threads"]=threads,_["top_n"]=limit,_["chunk_size"]=double(batch),_["interrupt_wave_size"]=double(wave_size));
 }

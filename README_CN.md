@@ -1,7 +1,7 @@
 <div align="center">
   <h1>CCS · Cohort Congress System</h1>
   <p>
-    <a href="https://github.com/huangwb8/CCS"><img src="https://img.shields.io/badge/version-0.8.8-brightgreen.svg" alt="版本 0.8.8"></a>
+    <a href="https://github.com/huangwb8/CCS"><img src="https://img.shields.io/badge/version-0.8.9-brightgreen.svg" alt="版本 0.8.9"></a>
     <a href="https://www.r-project.org/"><img src="https://img.shields.io/badge/R-package-276DC3.svg" alt="R 包"></a>
     <a href="license.txt"><img src="https://img.shields.io/badge/License-Apache%202.0-blue.svg" alt="Apache 2.0 许可证"></a>
   </p>
@@ -107,6 +107,27 @@ exact_fit$Data$Normalization$SearchDiagnostics
 耗时参考已有的 i9-14900K 基准：16 个 OpenMP 线程、20 个队列加 `All`、median 目标和 Top 2000。估计按队列数和请求线程数缩放，线程加速最多按 16 线程计算；OptimizeRank 另以 K6 基准乘以 K/6。这只是参考硬件下的粗估，不是置信区间或对当前机器的实测，预处理和核验还需额外时间。K > 8 即使显示了外推耗时，仍不受支持。
 
 该搜索完整覆盖选定状态顺序下的组合，评分核验容差为 `1e-10`。所有保留候选的 AUC 都与 R 批量评分器核对，并选取最多五个映射调用原始 ROC 评价器复核；K = 2 时，全部保留映射均调用原始评价器，以保留二分类性能指标。浮点得分完全相同时，非默认目标先比较队列平均 AUC，再按 `Info` 的 UTF-8 字节序排序。原始 ROC 计算的末位差异可能改变数学同分映射的顺序。诊断记录完整覆盖、返回数量、线程、核验误差和耗时。后端最多支持 512 个状态，并设置内存保护；运行时间仍随 `choose(M - 1, K - 1)` 增长。`numCores = NULL` 使用可用核心数减一。
+
+### 对精确搜索加入正则化
+
+`stream_exact` 可以降低搜索对小样本等级的偏好。`norm_min_grade_n` 设置每一级的训练记录数底线，`norm_regularization` 控制软惩罚。两者都在完整搜索中生效，再按新得分保留 Top N。默认值分别为 `1L` 和 `0`，复现未正则化的搜索；非默认设置仅支持离散 `stream_exact`。
+
+选择得分为所选 AUC 目标减去 `norm_regularization * mean(1 / sqrt(n_g))`，其中 `n_g` 是第 g 级的合并训练记录数。合并 `All` 只计一次，不要求每个队列或每类结局都达到人数底线。例如，复用上面的合成 `df`：
+
+```r
+regularized_fit <- subtypePerformance(
+  df, col_subtype = "Subtype", col_tissue = "tumor_type",
+  n_norm_subtype = 3, norm_search_method = "stream_exact",
+  norm_roc_method = "Raw", norm_objective = "cohort_median",
+  norm_min_grade_n = 20L, norm_regularization = 0.5,
+  numCores = 4, verbose = FALSE
+)
+regularized_fit$Data$Normalization$Summary
+```
+
+这里的数值用于演示接口，不是经过验证的调参建议。原 AUC 列含义保持不变。任一约束启用后，`Summary` 新增 `supportPenalty`、`regularizationPenalty`、`regularizedScore`、`minGradeN` 和 `gradeSampleSizes`（以等级命名的人数向量列表列），按 `regularizedScore` 排序。诊断记录合法搜索空间和被排除的分组数。合法候选少于 Top N 时全部返回；没有合法映射时明确报错。精确最优只针对固定状态顺序、K 和人数约束下的正则化目标。
+
+这是一种偏好充分样本支持、人数较均衡等级的启发式惩罚，可能压制真实稀有亚群，并非置信下界。人数底线和惩罚强度应通过训练侧分组验证选择，每次拟合都在对应训练折内重新学习状态排序与映射。输入前应处理重复患者和重叠来源。该选项不改变排序、Raw 自动方向或 OptimizeRank，因此仍须遵守下文的外部验证要求。上面的耗时估计来自未正则化基准，不包含正则化开销。
 
 ### 探索连续继承的等级序列
 

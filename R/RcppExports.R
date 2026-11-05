@@ -5,7 +5,7 @@ norm_exact_auc_cpp <- function(cuts, model, method = "Raw") {
     .Call(`_CCS_norm_exact_auc_cpp`, cuts, model, method)
 }
 
-norm_exact_cpp <- function(model, k, method, objective, top_n = 2000L, threads = 1L) {
-    .Call(`_CCS_norm_exact_cpp`, model, k, method, objective, top_n, threads)
+norm_exact_cpp <- function(model, k, method, objective, top_n = 2000L, threads = 1L, min_grade_n = 1, regularization = 0) {
+    .Call(`_CCS_norm_exact_cpp`, model, k, method, objective, top_n, threads, min_grade_n, regularization)
 }
 

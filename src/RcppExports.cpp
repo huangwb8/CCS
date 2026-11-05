@@ -24,8 +24,8 @@ BEGIN_RCPP
 END_RCPP
 }
 // norm_exact_cpp
-List norm_exact_cpp(List model, int k, std::string method, std::string objective, int top_n, int threads);
-RcppExport SEXP _CCS_norm_exact_cpp(SEXP modelSEXP, SEXP kSEXP, SEXP methodSEXP, SEXP objectiveSEXP, SEXP top_nSEXP, SEXP threadsSEXP) {
+List norm_exact_cpp(List model, int k, std::string method, std::string objective, int top_n, int threads, double min_grade_n, double regularization);
+RcppExport SEXP _CCS_norm_exact_cpp(SEXP modelSEXP, SEXP kSEXP, SEXP methodSEXP, SEXP objectiveSEXP, SEXP top_nSEXP, SEXP threadsSEXP, SEXP min_grade_nSEXP, SEXP regularizationSEXP) {
 BEGIN_RCPP
     Rcpp::RObject rcpp_result_gen;
     Rcpp::RNGScope rcpp_rngScope_gen;
@@ -35,14 +35,16 @@ BEGIN_RCPP
     Rcpp::traits::input_parameter< std::string >::type objective(objectiveSEXP);
     Rcpp::traits::input_parameter< int >::type top_n(top_nSEXP);
     Rcpp::traits::input_parameter< int >::type threads(threadsSEXP);
-    rcpp_result_gen = Rcpp::wrap(norm_exact_cpp(model, k, method, objective, top_n, threads));
+    Rcpp::traits::input_parameter< double >::type min_grade_n(min_grade_nSEXP);
+    Rcpp::traits::input_parameter< double >::type regularization(regularizationSEXP);
+    rcpp_result_gen = Rcpp::wrap(norm_exact_cpp(model, k, method, objective, top_n, threads, min_grade_n, regularization));
     return rcpp_result_gen;
 END_RCPP
 }
 
 static const R_CallMethodDef CallEntries[] = {
     {"_CCS_norm_exact_auc_cpp", (DL_FUNC) &_CCS_norm_exact_auc_cpp, 3},
-    {"_CCS_norm_exact_cpp", (DL_FUNC) &_CCS_norm_exact_cpp, 6},
+    {"_CCS_norm_exact_cpp", (DL_FUNC) &_CCS_norm_exact_cpp, 8},
     {NULL, NULL, 0}
 };
 

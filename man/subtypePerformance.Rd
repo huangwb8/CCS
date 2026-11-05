@@ -36,7 +36,9 @@ subtypePerformance(
   meta_subtitle_font_size = 10,
   numCores = NULL,
   verbose = TRUE,
-  norm_exact_top_n = 2000L
+  norm_exact_top_n = 2000L,
+  norm_min_grade_n = 1L,
+  norm_regularization = 0
 )
 }
 \arguments{
@@ -168,6 +170,30 @@ candidates for \code{norm_search_method = "stream_exact"} in discrete mode.
 Each requested K returns at most this many candidates, or all candidates
 when fewer exist. This setting is independent of continuous-mode
 \code{norm_top_n} and does not affect the other discrete search methods.}
+
+\item{norm_min_grade_n}{Positive integer, default 1. Minimum pooled training
+input records per grade in discrete \code{stream_exact}; records are counted
+once, without adding pooled All again. Non-default settings require that
+backend. No per-cohort or per-response-class minimum is imposed.}
+
+\item{norm_regularization}{Finite nonnegative number, default 0 (disabled).
+In discrete \code{stream_exact}, subtract this value times
+\code{mean(1 / sqrt(n_g))} from the selected AUC aggregation objective,
+where \code{n_g} is each grade's pooled training record count. Top N is
+selected by this penalized score throughout enumeration. Original AUC
+columns remain unchanged. When either support setting is active, Summary
+also contains \code{supportPenalty}, \code{regularizationPenalty},
+\code{regularizedScore}, \code{minGradeN} and \code{gradeSampleSizes}
+(a list column of named counts, indexed by grade). Legal candidates fewer
+than Top N are all returned; no legal mapping causes an error. The optimum
+is conditional on fixed state order, K, support constraint and penalty.
+This heuristic favors supported, more balanced grades and can suppress
+real rare subgroups; it is not a confidence bound. Select strength using
+training-only grouped validation. Defaults preserve the unpenalized search.
+Ranking, Raw auto-direction and OptimizeRank semantics are unchanged;
+regularization does not remove evaluation-label leakage or prove
+generalization. Deduplicate related patients and overlapping cohorts before
+supplying records; counts do not establish independent patient support.}
 }
 \value{
 A list

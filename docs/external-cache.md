@@ -36,6 +36,7 @@
 | normCCS 参数优化独立 store、包库与中间产物 | `D:/cache/ccs/normCCS-optimization/`；正式 store 为 `targets/` |
 | normCCS 参数优化交付及隔离测试 | `D:/cache/ccs/normCCS-optimization/exports/` 与 `tmp/tests/` |
 | normCCS 0.8.8 精确搜索编译、验证库及合成基准 | `D:/cache/ccs/normCCS-stream-exact-088/`；构建在 `build/`，验证库在 `environment/library/`，结果在 `exports/` |
+| normCCS 0.8.9 正则化开发、合成验证与包检查 | `D:/cache/ccs/normCCS-regularization-089/`；源码快照在 `baseline/`，构建在 `build/`，验证库在 `environment/library/`，结果在 `exports/`，日志在 `observability/` |
 | ablation-02 中间结果 | `D:/cache/ccs/ablation-02/tmp/` |
 | 预训练信息取证缓存 | `D:/cache/ccs/pre-train-info/cache/` |
 | 旧 CCS 场景的 project_01 模型和结果 | `D:/cache/ccs/legacy/ccs/project_01/` |

@@ -12,6 +12,8 @@
 #' @param objective Existing normCCS selection objective.
 #' @param top_n Maximum number of retained candidates.
 #' @param num_cores Requested native threads, or NULL for available cores minus one.
+#' @param min_grade_n Minimum pooled training records per grade.
+#' @param regularization Nonnegative multiplier of mean inverse-root grade size.
 #' @return Raw and Summary candidate tables and explicit search diagnostics.
 #' @examples
 #' if (FALSE) {
@@ -22,7 +24,8 @@
 #' @noRd
 subtype_norm_exact <- function(df, ranked, k, method, started, verbose,
                                objective = "median", top_n = 2000L,
-                               num_cores = NULL) {
+                               num_cores = NULL, min_grade_n = 1L,
+                               regularization = 0) {
   # Test
   if (FALSE) {
     df <- expand.grid(Cohort = c("A", "B"), Subtype = 1:6, response = 0:1)
@@ -31,6 +34,8 @@ subtype_norm_exact <- function(df, ranked, k, method, started, verbose,
     subtypeNorm(df, 5, numCores = 1, norm_search_method = "stream_exact")
   }
   norm_validate_exact_top_n(top_n)
+  norm_validate_regularization(min_grade_n, regularization)
+  regularized <- min_grade_n > 1L || regularization > 0
   objective <- norm_validate_objective(objective)
   m <- nrow(ranked)
   if (!is.null(num_cores) && num_cores > 1024L) {
@@ -61,11 +66,13 @@ subtype_norm_exact <- function(df, ranked, k, method, started, verbose,
   model <- norm_prepare_counts(df, ranked)
   model$ranked_labels <- enc2utf8(as.character(ranked$Subtype))
   preprocessing_seconds <- proc.time()[["elapsed"]] - preprocessing_started
-  native <- norm_exact_cpp(model, as.integer(k), method, objective, retained, requested_workers)
+  native <- norm_exact_cpp(model, as.integer(k), method, objective, retained,
+                           requested_workers, min_grade_n, regularization)
   if (!isTRUE(native$complete) || native$visited != total ||
       native$total_candidates != total) {
     stop("stream_exact did not cover the complete search space; no optimal result was returned.")
   }
+  retained <- as.integer(min(top_n, native$feasible_candidates))
   cuts <- native$cuts
   if (!is.matrix(cuts) || nrow(cuts) != retained || ncol(cuts) != k - 1L ||
       anyDuplicated(as.data.frame(cuts))) {
@@ -76,9 +83,17 @@ subtype_norm_exact <- function(df, ranked, k, method, started, verbose,
   native_auc <- norm_exact_auc_cpp(cuts, model, method)
   scores <- norm_objective_score(auc, model$cohorts, objective)
   means <- norm_objective_score(auc, model$cohorts, "mean")
+  support <- if (regularized) norm_exact_support(cuts, df, ranked) else NULL
+  selection_scores <- if (regularized) scores - regularization * support$penalty else scores
   tolerance <- 1e-10
-  delta <- max(abs(auc - native_auc), abs(scores - native$scores),
+  # Selection scores can be very large in magnitude for a large lambda;
+  # use relative error there while preserving absolute AUC verification.
+  selection_delta <- abs(selection_scores - native$scores) / pmax(1, abs(selection_scores))
+  delta <- max(abs(auc - native_auc), selection_delta,
                abs(means - native$means))
+  if (regularized && any(support$sizes < min_grade_n)) {
+    stop("Native stream_exact returned a mapping below norm_min_grade_n.")
+  }
   if (any(!is.finite(auc)) || !is.finite(delta) || delta > tolerance) {
     stop("Native stream_exact scores disagree with the R reference; results were not returned.")
   }
@@ -111,6 +126,21 @@ subtype_norm_exact <- function(df, ranked, k, method, started, verbose,
     summary <- summary[order(-summary$objectiveScore, -summary$cohortMeanROCAUC,
                              enc2utf8(summary$Info), method = "radix"), , drop = FALSE]
   }
+  if (regularized) {
+    indices <- match(summary$Info, infos)
+    summary$supportPenalty <- support$penalty[indices]
+    summary$regularizationPenalty <- regularization * support$penalty[indices]
+    summary$regularizedScore <- selection_scores[indices]
+    summary$minGradeN <- apply(support$sizes[indices, , drop = FALSE], 1L, min)
+    summary$gradeSampleSizes <- lapply(indices, function(i) support$sizes[i, ])
+    ordering <- if (objective == "median") {
+      order(-summary$regularizedScore, enc2utf8(summary$Info), method = "radix")
+    } else {
+      order(-summary$regularizedScore, -summary$cohortMeanROCAUC,
+            enc2utf8(summary$Info), method = "radix")
+    }
+    summary <- summary[ordering, , drop = FALSE]
+  }
   rownames(summary) <- NULL
   winner <- match(summary$Info[1L], infos)
   verification_seconds <- proc.time()[["elapsed"]] - verification_started
@@ -137,11 +167,63 @@ subtype_norm_exact <- function(df, ranked, k, method, started, verbose,
     search_seconds = native$search_elapsed_seconds,
     verification_seconds = unname(verification_seconds),
     elapsed_seconds = unname(proc.time()[["elapsed"]] - started))
+  if (regularized) {
+    diagnostics$constraint_mode <- "pooled_training_grade_support"
+    diagnostics$norm_min_grade_n <- min_grade_n
+    diagnostics$norm_regularization <- regularization
+    diagnostics$selection_score <- "objective_minus_lambda_mean_inverse_sqrt_grade_n"
+    diagnostics$optimality_scope <- "fixed_order_K_support_feasible_regularized_objective"
+    diagnostics$n_feasible_candidates <- native$feasible_candidates
+    diagnostics$n_rejected_candidates <- total - native$feasible_candidates
+    diagnostics$support_unit <- "input_records_pooled_once"
+    diagnostics$selected_grade_sizes <- summary$gradeSampleSizes[[1L]]
+    diagnostics$tie_break <- if (objective == "median") {
+      "regularized_score_desc_then_Info_UTF8_bytes"
+    } else "regularized_score_desc_then_cohort_mean_desc_then_Info_UTF8_bytes"
+  }
   if (objective != "median") {
     settings <- norm_objective_settings(objective)
     diagnostics <- c(diagnostics, settings[setdiff(names(settings), "norm_objective")])
   }
   list(Raw = raw, Summary = summary, SearchDiagnostics = diagnostics)
+}
+
+# Independent record-based support calculation, deliberately separate from
+# native pooled-prefix counts. Columns follow the high-to-low state order.
+norm_exact_support <- function(cuts, df, ranked) {
+  # Test
+  if (FALSE) {
+    norm_exact_support(matrix(c(1L, 3L), 1L),
+      data.frame(Subtype = c("a", "a", "b", "c", "d")),
+      data.frame(Subtype = letters[1:4]))
+  }
+  state_n <- tabulate(match(as.character(df$Subtype), as.character(ranked$Subtype)),
+                      nbins = nrow(ranked))
+  sizes <- t(vapply(seq_len(nrow(cuts)), function(i) {
+    endpoints <- c(0L, cuts[i, ], nrow(ranked))
+    vapply(seq_len(length(endpoints) - 1L), function(g) {
+      sum(state_n[seq.int(endpoints[g] + 1L, endpoints[g + 1L])])
+    }, numeric(1))
+  }, numeric(ncol(cuts) + 1L)))
+  colnames(sizes) <- as.character(seq.int(ncol(cuts), 0L))
+  list(sizes = sizes, penalty = rowMeans(1 / sqrt(sizes)))
+}
+
+norm_validate_regularization <- function(min_grade_n, regularization,
+                                         search_method = "stream_exact") {
+  if (!is.numeric(min_grade_n) || length(min_grade_n) != 1L ||
+      !is.finite(min_grade_n) || min_grade_n < 1 ||
+      min_grade_n != floor(min_grade_n) || min_grade_n > .Machine$integer.max) {
+    stop("norm_min_grade_n must be a positive integer no larger than .Machine$integer.max.")
+  }
+  if (!is.numeric(regularization) || length(regularization) != 1L ||
+      !is.finite(regularization) || regularization < 0) {
+    stop("norm_regularization must be a finite nonnegative number.")
+  }
+  if (search_method != "stream_exact" && (min_grade_n != 1L || regularization != 0)) {
+    stop("norm_min_grade_n and norm_regularization require norm_search_method = 'stream_exact'.")
+  }
+  invisible(NULL)
 }
 
 # Reference-hardware estimate, not a benchmark of the invoking machine or a CI.
